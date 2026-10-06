@@ -1,0 +1,63 @@
+# Instructions for coding agents (Codex, Cursor, Claude Code)
+
+Read this first, then the docs it points to. Do not guess at the architecture.
+
+## What this project is
+Fresh Supply: a Hyperpure-style B2B food supply platform. Public site + restaurant app +
+admin app (with warehouse/inventory) + delivery app. Plain HTML/CSS/ES modules in `web/`,
+Supabase Postgres as the backend (`supabase/`). No framework, no build step, no AI in the app.
+
+## Read before changing anything
+| Task | Read |
+|---|---|
+| Any change | `README.md`, `docs/architecture.md`, `docs/contributing.md` |
+| Database, permissions, business rules | `docs/api.md`, `docs/roles.md`, `supabase/migrations/*.sql` (in order) |
+| Why things are the way they are | `docs/adr/README.md` and the ADR it links |
+| Product scope / what Hyperpure does | `docs/hyperpure-feature-map.md` |
+| Running, deploying, first admin | `docs/runbook.md`, `docs/deployment.md` |
+| Tests | `docs/testing.md` |
+
+## Rules that must not be broken
+1. **Pages never call Supabase directly.** All backend calls go through `web/js/core/api.js`.
+2. **Build markup only with the `html` tagged template** from `web/js/core/ui.js` (it escapes
+   user data). Never concatenate strings into `innerHTML`.
+3. **Security lives in the database.** Writes to orders, stock, users go through SQL functions
+   that re-check the caller's role. UI checks are convenience only. Never put a secret or
+   service-role key in `web/`.
+4. **Never edit an applied migration.** Add a new file `supabase/migrations/2026MMDDNNNNNN_name.sql`
+   and apply it. Add a matching check to `supabase/tests/security_test.sql`.
+5. **Stock is a ledger.** Change `products.stock_qty` only via `receive_stock` / `adjust_stock`
+   (see ADR 0007). Never `update products set stock_qty`.
+6. **Orders snapshot prices.** Never recompute old orders from current product prices.
+7. **No frameworks, no bundlers, no TypeScript, no new npm runtime dependencies.**
+   The only dev dependency is jsdom for tests.
+8. **Every file starts with a header comment saying what it is for.** Comment the *why*.
+9. **Run `npm test` before finishing.** Add a test for every new screen or helper.
+10. **Update the docs** (`docs/api.md`, `docs/roles.md`, an ADR for significant decisions)
+    in the same change.
+
+## Where things live
+```
+web/index.html                 public landing page
+web/<role>/login.html          per-role login (shared module web/js/pages/login.js)
+web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
+web/js/core/                   config, supabase client, auth, api, ui, shell/router
+web/js/pages/<role>/*.js       one module per screen
+web/css/                       base.css (tokens), components.css, landing.css
+supabase/migrations/           schema → RLS → functions → inventory (apply in order)
+supabase/seed.sql              sample catalogue
+supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
+tests/                         node --test; fake Supabase client in tests/helpers/
+```
+
+## How to add a feature (the usual order)
+1. Migration (tables/columns/functions + RLS) → apply in Supabase → security test case.
+2. Wrapper in `web/js/core/api.js`.
+3. Screen module in `web/js/pages/<role>/`, route + nav link in that role's `main.js`.
+4. Test in `tests/pages.test.js` using `setup({ session, profile, tables, rpc })`.
+5. Docs: `docs/api.md`, `docs/roles.md`, runbook if it changes how staff work, ADR if it is a decision.
+
+## Environment
+Node 20+, Windows-friendly (no shell scripts). `npm start` serves `web/` at http://localhost:3000.
+Supabase project URL and publishable key are in `web/js/core/config.js`. The sandboxed test
+runner cannot reach Supabase; page tests use the fake client.

@@ -1,0 +1,17 @@
+{
+  "name": "fresh-supply",
+  "version": "1.0.0",
+  "description": "B2B food supply ordering platform: restaurant, admin and delivery apps on Supabase. No build step, no AI, no framework.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node scripts/dev-server.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

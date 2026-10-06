@@ -1,0 +1,146 @@
+// =============================================================================
+// products.js — catalogue management: add/edit products, upload photos,
+// toggle stock / visibility, manage categories.
+// =============================================================================
+
+import { html, mount, on, $, formatINR, openModal, reportError, toast, withBusy, confirmDialog } from '../../core/ui.js';
+import { listProducts, listCategories, saveProduct, setProductFlags, uploadProductPhoto, photoUrl,
+         saveCategory, deleteCategory } from '../../core/api.js';
+
+export async function renderProducts(container) {
+  let search = '';
+  let [products, categories] = await Promise.all([listProducts(), listCategories()]);
+
+  async function reload() {
+    [products, categories] = await Promise.all([listProducts(), listCategories()]);
+    draw();
+  }
+
+  function draw() {
+    const term = search.trim().toLowerCase();
+    const rows = products.filter((p) => !term || p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term));
+    mount(container, html`
+      <div class="page-head"><div><h1>Products</h1><p>${products.length} products</p></div>
+        <div class="row"><button class="btn" id="categories">Categories</button><button class="btn primary" id="new">Add product</button></div></div>
+      <div class="toolbar"><input class="input search" id="search" type="search" placeholder="Search name or SKU…" value="${search}"></div>
+      <div class="card"><div class="table-wrap"><table class="table">
+        <thead><tr><th></th><th>Product</th><th>Category</th><th class="right">Price</th><th class="right">On hand</th><th>Stock</th><th>Listed</th><th></th></tr></thead>
+        <tbody>${rows.length === 0 ? html`<tr><td colspan="8"><div class="empty">No products.</div></td></tr>`
+          : rows.map((p) => html`<tr>
+            <td>${p.photo_path ? html`<img class="thumb" src="${photoUrl(p.photo_path)}" alt="">` : html`<div class="thumb-empty">—</div>`}</td>
+            <td><strong>${p.name}</strong><div class="muted small">${p.sku} · min ${Number(p.min_order_qty)} ${p.unit}</div></td>
+            <td>${p.categories?.name ?? '—'}</td>
+            <td class="right money">${formatINR(p.price)}<div class="muted tiny">per ${p.unit}${p.gst_rate > 0 ? ` · ${Number(p.gst_rate)}% GST` : ''}</div></td>
+            <td class="right num">${Number(p.stock_qty)}</td>
+            <td><button class="badge ${p.in_stock ? 'in-stock' : 'out-of-stock'}" style="border:0;cursor:pointer" data-flag="in_stock" data-id="${p.id}" title="Click to toggle">${p.in_stock ? 'In stock' : 'Out of stock'}</button></td>
+            <td><button class="badge ${p.is_active ? 'approved' : 'inactive'}" style="border:0;cursor:pointer" data-flag="is_active" data-id="${p.id}" title="Click to toggle">${p.is_active ? 'Listed' : 'Hidden'}</button></td>
+            <td class="right"><button class="btn small" data-edit="${p.id}">Edit</button></td></tr>`)}
+        </tbody></table></div></div>`);
+    const input = $('#search', container);
+    input.oninput = () => { search = input.value; draw(); $('#search', container).focus(); };
+  }
+
+  on(container, 'click', '#new', () => productForm(null, categories, reload));
+  on(container, 'click', '#categories', () => categoryManager(categories, reload));
+  on(container, 'click', '[data-edit]', (_e, el) => productForm(products.find((p) => p.id === el.dataset.edit), categories, reload));
+  on(container, 'click', '[data-flag]', async (_e, el) => {
+    const product = products.find((p) => p.id === el.dataset.id);
+    const flag = el.dataset.flag;
+    try { await setProductFlags(product.id, { [flag]: !product[flag] }); await reload(); } catch (error) { reportError(error); }
+  });
+
+  draw();
+}
+
+function productForm(product, categories, onSaved) {
+  const p = product ?? { in_stock: true, is_active: true, min_order_qty: 1, unit: 'kg' };
+  let photoPath = p.photo_path ?? null;
+
+  const { el, close } = openModal(html`
+    <form id="product-form" class="stack" novalidate>
+      <div class="form-grid">
+        <label class="field"><span class="label">Name</span><input class="input" name="name" value="${p.name ?? ''}" required maxlength="120"></label>
+        <label class="field"><span class="label">SKU</span><input class="input" name="sku" value="${p.sku ?? ''}" required maxlength="40"><span class="hint">Unique code, e.g. VEG-010</span></label>
+        <label class="field"><span class="label">Price (₹)</span><input class="input" name="price" type="number" min="0" step="0.01" value="${p.price ?? ''}" required></label>
+        <label class="field"><span class="label">Unit</span><input class="input" name="unit" value="${p.unit ?? ''}" required maxlength="20" placeholder="kg, litre, pack…"></label>
+        <label class="field"><span class="label">Minimum order qty</span><input class="input" name="min_order_qty" type="number" min="0.01" step="any" value="${p.min_order_qty ?? 1}" required></label>
+        <label class="field"><span class="label">Market price (₹, optional)</span><input class="input" name="market_price" type="number" min="0" step="0.01" value="${p.market_price ?? ''}"><span class="hint">Shown struck through as the "best rate" comparison</span></label>
+        <label class="field"><span class="label">GST rate (%)</span><select class="select" name="gst_rate">
+          ${[0, 5, 12, 18, 28].map((r) => html`<option value="${r}" ${Number(p.gst_rate ?? 0) === r ? 'selected' : ''}>${r}%</option>`)}</select></label>
+        <label class="field"><span class="label">Brand (optional)</span><input class="input" name="brand" value="${p.brand ?? ''}" maxlength="60"></label>
+        <label class="field"><span class="label">Low-stock alert at</span><input class="input" name="low_stock_threshold" type="number" min="0" step="any" value="${p.low_stock_threshold ?? 0}"><span class="hint">Stock itself is changed under Inventory</span></label>
+        <label class="field"><span class="label">Category</span><select class="select" name="category_id" required>
+          <option value="">Choose…</option>
+          ${categories.map((c) => html`<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${c.name}</option>`)}</select></label>
+        <label class="field span-2"><span class="label">Description</span><textarea class="textarea" name="description" rows="2" maxlength="500">${p.description ?? ''}</textarea></label>
+        <div class="field span-2"><span class="label">Photo</span>
+          <div class="row"><div id="preview">${photoPath ? html`<img class="thumb" src="${photoUrl(photoPath)}" alt="">` : html`<div class="thumb-empty">None</div>`}</div>
+            <input type="file" id="photo" accept="image/jpeg,image/png,image/webp"></div>
+          <span class="hint">JPG, PNG or WebP, up to 5 MB.</span></div>
+        <label class="check"><input type="checkbox" name="in_stock" ${p.in_stock ? 'checked' : ''}> In stock</label>
+        <label class="check"><input type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''}> Listed in catalogue</label>
+      </div>
+      <p class="form-error" id="form-error" role="alert"></p>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save product</button></div>
+    </form>`, { title: product ? 'Edit product' : 'Add product', wide: true });
+
+  $('#photo', el).onchange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      photoPath = await uploadProductPhoto(file);
+      mount($('#preview', el), html`<img class="thumb" src="${photoUrl(photoPath)}" alt="">`);
+    } catch (error) { reportError(error); event.target.value = ''; }
+  };
+
+  $('#product-form', el).onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    if (!form.checkValidity()) { $('#form-error', el).textContent = 'Please fill in all required fields.'; return; }
+    const v = Object.fromEntries(new FormData(form));
+    try {
+      await withBusy($('button[type="submit"]', form), () => saveProduct({
+        ...v, id: product?.id, photo_path: photoPath,
+        in_stock: form.elements.in_stock.checked, is_active: form.elements.is_active.checked,
+      }));
+      toast('Product saved', 'success');
+      close(); onSaved();
+    } catch (error) { $('#form-error', el).textContent = error.message; }
+  };
+}
+
+function categoryManager(categories, onChanged) {
+  const { el, close } = openModal(html`<div id="cats"></div>`, { title: 'Categories' });
+  const host = $('#cats', el);
+  let list = categories;
+
+  function draw() {
+    mount(host, html`
+      ${list.map((c) => html`<div class="line" data-id="${c.id}">
+        <input class="input small" value="${c.name}" data-name aria-label="Name">
+        <input class="input small num" style="width:80px" type="number" value="${c.sort_order}" data-order aria-label="Sort order">
+        <button class="btn small" data-save>Save</button><button class="btn danger small" data-delete>Delete</button></div>`)}
+      <form id="add-cat" class="row" style="margin-top:var(--space-4)">
+        <input class="input" name="name" placeholder="New category name" required maxlength="60">
+        <button class="btn primary" type="submit">Add</button></form>`);
+  }
+
+  async function refresh() { list = await listCategories(); draw(); onChanged(); }
+
+  on(host, 'click', '[data-save]', async (_e, b) => {
+    const row = b.closest('[data-id]');
+    try { await saveCategory({ id: row.dataset.id, name: $('[data-name]', row).value, sort_order: $('[data-order]', row).value }); toast('Saved', 'success'); await refresh(); }
+    catch (error) { reportError(error); }
+  });
+  on(host, 'click', '[data-delete]', async (_e, b) => {
+    const row = b.closest('[data-id]');
+    if (!(await confirmDialog('Delete this category? This only works if no products use it.', { confirmText: 'Delete', danger: true }))) return;
+    try { await deleteCategory(row.dataset.id); await refresh(); }
+    catch (error) { reportError(/violates|23503|restrict/i.test(error.message) ? new Error('This category still has products. Move them first.') : error); }
+  });
+  on(host, 'submit', '#add-cat', async (event, form) => {
+    event.preventDefault();
+    try { await saveCategory({ name: form.elements.name.value, sort_order: (list.at(-1)?.sort_order ?? 0) + 10 }); await refresh(); } catch (error) { reportError(error); }
+  });
+  draw();
+}

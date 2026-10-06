@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fresh Supply — All your kitchen needs, delivered</title>
+  <meta name="description" content="Wholesale ingredients, packaging and kitchen essentials for restaurants, cloud kitchens and caterers. Next-day and express delivery.">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/landing.css">
+</head>
+<body class="landing">
+
+  <!-- ============ Header ============ -->
+  <header class="site-header">
+    <a class="brand" href="./"><span class="brand-mark">F</span><span>Fresh Supply</span></a>
+    <nav class="site-nav" aria-label="Site">
+      <a href="#catalogue">Catalogue</a>
+      <a href="#delivery">Delivery</a>
+      <a href="#how">How it works</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="site-actions">
+      <a class="btn" href="restaurant/login.html">Partner login</a>
+      <a class="btn primary" href="restaurant/login.html#register">Register your restaurant</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============ Hero ============ -->
+    <section class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">B2B supply for food businesses</p>
+        <h1>All your kitchen needs, delivered to your door.</h1>
+        <p class="lead">Fresh produce, dairy, meat, staples, packaging and cleaning supplies at wholesale rates —
+          one supplier, one invoice, next-day delivery.</p>
+        <div class="row-wrap">
+          <a class="btn primary large" href="restaurant/login.html#register">Start ordering</a>
+          <a class="btn large" href="#catalogue">Browse catalogue</a>
+        </div>
+        <p class="muted small">For restaurants, cloud kitchens, cafés, hotels and caterers.</p>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="hero-tile">🥬<span>Fruits &amp; Veg</span></div>
+        <div class="hero-tile">🧀<span>Dairy</span></div>
+        <div class="hero-tile">🍗<span>Poultry &amp; Meat</span></div>
+        <div class="hero-tile">🌾<span>Grains &amp; Pulses</span></div>
+        <div class="hero-tile">🫙<span>Oils &amp; Spices</span></div>
+        <div class="hero-tile">📦<span>Packaging</span></div>
+      </div>
+    </section>
+
+    <!-- ============ Trust numbers (edit these) ============ -->
+    <section class="stats-band" aria-label="Key numbers">
+      <div><strong>1</strong><span>city, growing</span></div>
+      <div><strong>100+</strong><span>products listed</span></div>
+      <div><strong>Next-day</strong><span>scheduled delivery</span></div>
+      <div><strong>Same-day</strong><span>express option</span></div>
+    </section>
+
+    <!-- ============ Catalogue preview (filled from the database) ============ -->
+    <section class="section" id="catalogue">
+      <div class="section-head">
+        <h2>Browse by category</h2>
+        <p class="muted">Live prices. Sign in to see stock and place orders.</p>
+      </div>
+      <div class="category-grid" id="categories"><div class="loading"><span class="spinner"></span></div></div>
+
+      <div class="section-head" style="margin-top:var(--space-7)">
+        <h2>Popular this week</h2>
+        <a class="small" href="restaurant/login.html">See full catalogue →</a>
+      </div>
+      <div class="product-grid" id="featured"></div>
+    </section>
+
+    <!-- ============ Delivery models ============ -->
+    <section class="section alt" id="delivery">
+      <div class="section-head"><h2>Delivery that fits your kitchen</h2></div>
+      <div class="two-up">
+        <article class="card card-pad">
+          <h3>Wholesale delivery</h3>
+          <p class="muted">Order by evening, receive next morning. Choose a morning, afternoon or evening slot up to 7 days ahead. Ideal for weekly restocking.</p>
+        </article>
+        <article class="card card-pad">
+          <h3>Express delivery</h3>
+          <p class="muted">Ran out mid-service? Express orders are delivered today, within hours, for urgent top-ups.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ How it works ============ -->
+    <section class="section" id="how">
+      <div class="section-head"><h2>How it works</h2></div>
+      <ol class="steps">
+        <li><strong>Register</strong><span>Tell us about your outlet, FSSAI licence and delivery address.</span></li>
+        <li><strong>Get approved</strong><span>Our team verifies the details, usually within a working day.</span></li>
+        <li><strong>Order</strong><span>Pick products, choose a delivery slot, pay on delivery or on credit.</span></li>
+        <li><strong>Track &amp; invoice</strong><span>Follow every order live and download GST invoices.</span></li>
+      </ol>
+    </section>
+
+    <!-- ============ Testimonials (replace with real ones) ============ -->
+    <section class="section alt">
+      <div class="section-head"><h2>Trusted by kitchens like yours</h2></div>
+      <div class="three-up">
+        <blockquote class="card card-pad"><p>“One supplier for everything. Our purchase costs dropped and stockouts stopped.”</p><footer>— Owner, cloud kitchen</footer></blockquote>
+        <blockquote class="card card-pad"><p>“Deliveries land in the slot we pick, with the weights we ordered.”</p><footer>— Head chef, café chain</footer></blockquote>
+        <blockquote class="card card-pad"><p>“GST invoices per order make our accounting painless.”</p><footer>— Finance, catering company</footer></blockquote>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section class="section" id="faq">
+      <div class="section-head"><h2>Frequently asked questions</h2></div>
+      <div class="faq">
+        <details><summary>Who can order?</summary><p>Any food business: restaurants, cloud kitchens, cafés, bakeries, hotels, caterers and canteens. Home chefs with an FSSAI registration are welcome too.</p></details>
+        <details><summary>Is there a minimum order?</summary><p>Each product has its own minimum quantity (shown on the product). There is no minimum order value.</p></details>
+        <details><summary>How do I pay?</summary><p>Cash on delivery, or credit for approved partners — settle your balance weekly or monthly.</p></details>
+        <details><summary>What if something arrives damaged or short?</summary><p>Tell the driver at the door or contact us the same day. We adjust the invoice or replace the item on the next delivery.</p></details>
+        <details><summary>Do you provide GST invoices?</summary><p>Yes. Every order has a GST invoice with your GSTIN, available in your account.</p></details>
+        <details><summary>Where do you source from?</summary><p>Directly from farms, mills and brand distributors. Perishables are bought daily and stored cold.</p></details>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ Footer (company details — edit) ============ -->
+  <footer class="site-footer">
+    <div>
+      <div class="brand"><span class="brand-mark">F</span><span>Fresh Supply</span></div>
+      <p class="muted small">Your Company Pvt. Ltd.<br>Address line, Hyderabad, Telangana<br>FSSAI Lic. No. 00000000000000 · GSTIN 36XXXXXXXXXXXXX</p>
+    </div>
+    <div>
+      <h4>Partners</h4>
+      <a href="restaurant/login.html">Restaurant login</a>
+      <a href="restaurant/login.html#register">Register</a>
+      <a href="reset.html">Reset password</a>
+    </div>
+    <div>
+      <h4>Staff</h4>
+      <a href="admin/login.html">Admin login</a>
+      <a href="delivery/login.html">Delivery staff login</a>
+    </div>
+    <div>
+      <h4>Contact</h4>
+      <a href="tel:+910000000000">+91 00000 00000</a>
+      <a href="mailto:help@example.com">help@example.com</a>
+      <span class="muted small">Mon–Sat, 7 am – 9 pm</span>
+    </div>
+  </footer>
+
+  <script src="vendor/supabase.js"></script>
+  <script type="module" src="js/pages/landing.js"></script>
+</body>
+</html>
