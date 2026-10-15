@@ -31,8 +31,8 @@ Logged-out visitors can browse the public catalogue, read the city and sector li
 | `super_admin` | The owner. Every permission, every city. Only a super admin can grant or remove super admin, or change the matrix. |
 | `city_manager` | Runs one city (scope = city). |
 | `warehouse_manager` | Runs one warehouse (scope = warehouse). |
-| `procurement_buyer` | Buys and records receipts. |
-| `pricing_manager` | Sets and approves prices. |
+| `procurement_buyer` | Buys and records receipts; types the morning mandi rates (pricing: view, edit). |
+| `pricing_manager` | Sets and approves prices (pricing: view, edit, approve, export). |
 | `finance` | Payments, credit, invoices. |
 | `sales` | Signs up and approves customers, sets their terms. |
 | `support` | Edits and cancels orders. |
@@ -44,7 +44,7 @@ The list lives in `team_roles`; add a role with a migration, then tick its boxes
 
 ## The permission matrix
 
-Modules: dashboard, orders, products, inventory, customers, payments, team, settings, audit, reports.
+Modules: dashboard, orders, products, inventory, customers, payments, team, settings, audit, reports, pricing (migration 009).
 Actions: **view**, **edit** (create / change), **approve**, **export**. A tick = allowed.
 Super admin needs no ticks. Starting ticks are seeded by migration 006; the owner changes them on
 Settings → Roles & permissions (`role_permissions` table).
@@ -64,6 +64,7 @@ Where each permission is checked:
 | `settings:view` / `settings:edit` | see / change company details, cities, warehouses, pin codes, sector terms |
 | `audit:view` / `audit:export` | read / export the audit log |
 | `reports:*` | reserved for the reports batch |
+| `pricing:view` / `pricing:edit` / `pricing:approve` / `pricing:export` | open the price board, rules, benchmarks, history / enter benchmarks and quotes, change rules and overrides / publish, schedule and cancel prices / export |
 
 ## Scope
 

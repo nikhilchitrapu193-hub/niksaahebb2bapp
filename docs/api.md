@@ -1,6 +1,6 @@
 # API reference
 
-All write operations are Postgres functions (migrations 003, 004, 005 and 006 in `supabase/migrations/`),
+All write operations are Postgres functions (migrations 003, 004, 005, 006 and 009 in `supabase/migrations/`),
 called via `supabase.rpc(name, args)` and wrapped in `web/js/core/api.js`.
 All require a signed-in user; each re-checks the role and raises `42501` (permission denied) otherwise.
 Since migration 006, admin-app functions check a **permission** (`has_permission(module, action)`, see
@@ -30,6 +30,12 @@ Since migration 006, admin-app functions check a **permission** (`has_permission
 | `set_order_payment` | payments:edit (in scope) | `p_order_id`, `p_status` (paid/unpaid) | – |
 | `admin_outstanding_balances` | customers:view | – | rows: restaurant_id, outstanding, unpaid_orders (in scope) |
 | `claim_first_admin` | any signed-in user | – | `true` if the caller became the first admin; `false` once any admin exists |
+| `price_board` | pricing:view | `p_category_id` (null = all) | rows of jsonb: every input of the formula (merged rule, costs, benchmark) + `cost_basis, landed_cost, suggested_price, capped, margin_amount, margin_pct, markup_effective_pct, flags` per active product |
+| `compute_price` | pricing:view | `p_product_id`, `p_on date` | the same object for one product |
+| `compute_price_from` | anyone (pure arithmetic) | `i jsonb` (the inputs) | the computed part only — mirrored by `computePrice()` in `web/js/core/pricing.js` |
+| `apply_prices` | pricing:approve | `p_items jsonb` `[{product_id, price?}]`, `p_reason`, `p_effective_at timestamptz` (future = schedule), `p_force` (publish past a warning) | `{applied, scheduled}` — refuses below cost / under minimum markup per the rule's `guard_mode` |
+| `publish_due_prices` | staff (and pg_cron) | – | number of scheduled prices applied |
+| `cancel_scheduled_price` | pricing:approve | `p_id` | – |
 
 `update_my_restaurant` also takes `p_fssai`. `apply_stock_movement(warehouse, product, delta, ...)` is internal
 (not callable from the API): every change to stock goes through it, updates `warehouse_stock` for that warehouse,
@@ -37,6 +43,7 @@ keeps `products.stock_qty` (the total across warehouses) in step, and leaves a r
 `default_warehouse_id()` picks the caller's own warehouse, else their city's default, else the only warehouse.
 
 ### Business rules inside `place_order`
+* Since migration 009 each line also carries `hsn_code` and its landed cost is written to `order_line_costs` (staff-only).
 * Caller must be a customer that is `approved`, has a delivery address **and a warehouse** (set from the pin code at sign-up, or by an admin).
 * Minimum order value and delivery fee come from the customer's sector (`sectors`), overridable per customer (`restaurants.min_order_value`, `delivery_fee_below_mov`). Below the minimum: the fee is added when it is > 0, otherwise the order is refused.
 * Sectors with `needs_po_reference` must pass `p_po_reference`; it is stored on the order and printed on the invoice.
@@ -60,19 +67,31 @@ See the diagram in [architecture.md](architecture.md#order-lifecycle).
 `orders` (own / assigned / staff within scope) · `order_items` · `order_status_history` · `company_settings` (all signed-in) ·
 `suppliers` (inventory:view) · `stock_movements` and `warehouse_stock` (staff within scope) ·
 `cities` and `sectors` (everyone, active rows) · `warehouses`, `service_zones`, `team_roles`, `role_permissions` (admin-app users) ·
-`product_city_availability` (signed-in) · `audit_log` (audit:view).
+`product_city_availability` (signed-in) · `audit_log` (audit:view) · `hsn_codes` (signed-in) ·
+`pricing_rules`, `product_pricing`, `benchmark_sources`, `benchmark_prices`, `price_history`, `scheduled_prices`,
+`order_line_costs`, views `v_product_cost` / `v_product_benchmark` (pricing:view).
 Logged-out visitors (`anon`) may read `categories`, listed `products`, `cities` and `sectors`, and call `check_pincode`.
 
 Direct writes from the browser, all gated by the permission matrix: `products`, `categories`, `product_city_availability`
 (products:edit) · `suppliers` (inventory:edit) · `restaurants` non-status columns (customers:edit; status goes through
 `set_customer_status`) · `company_settings`, `cities`, `warehouses`, `service_zones`, `sectors` terms (settings:edit) ·
-`role_permissions` (super admin only). `audit_log`, `warehouse_stock`, `stock_movements`, `orders`, `profiles` are never
-written directly.
+`role_permissions` (super admin only) · `hsn_codes`, `pricing_rules`, `product_pricing`, `benchmark_sources`, `benchmark_prices`
+(pricing:edit; `benchmark_prices.entered_by` is filled in by the database). `audit_log`, `warehouse_stock`, `stock_movements`,
+`orders`, `profiles`, `price_history`, `scheduled_prices`, `order_line_costs` are never written directly.
+
+## Pricing engine (migration 009)
+
+The formula, the tables and the starting values are in [modules/pricing.md](modules/pricing.md). From the browser:
+`listPriceBoard`, `applyPrices`, `publishDuePrices`, `listScheduledPrices`, `cancelScheduledPrice`, `listPricingRules`,
+`savePricingRule`, `listProductPricing`, `saveProductPricing`, `saveSupplierQuote`, `listBenchmarkSources`,
+`saveBenchmarkSource`, `listBenchmarkPrices`, `saveBenchmarkPrices` (upsert on source + product + day), `listPriceHistory`,
+`listHsnCodes` — all in `web/js/core/api.js`, section "Pricing engine".
 
 ## Audit log
 
-`audit_log` gets one row per insert / update / delete on products (price and listing columns), orders, restaurants,
-profiles, role_permissions, sectors, cities, warehouses, service_zones and company_settings, written by the
+`audit_log` gets one row per insert / update / delete on products (price, listing, HSN and pack columns), orders, restaurants,
+profiles, role_permissions, sectors, cities, warehouses, service_zones, company_settings, pricing_rules, product_pricing,
+benchmark_sources and hsn_codes, written by the
 `write_audit_log()` trigger with `changed_by = auth.uid()`. For updates `changes` holds only the changed columns:
 `{"price": {"old": 32, "new": 33}}`. Stock has its own ledger (`stock_movements`) and is not duplicated here.
 

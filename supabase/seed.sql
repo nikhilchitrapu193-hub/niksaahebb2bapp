@@ -69,3 +69,58 @@ insert into public.service_zones (warehouse_id, pincode, area_name)
 select w.id, '530001', 'Visakhapatnam GPO'
 from (select id from public.warehouses where is_default order by created_at limit 1) as w
 on conflict (pincode) do nothing;
+
+-- ---------- Pricing engine (migration 009) -----------------------------------
+-- HSN codes and pack sizes for the sample products, and the starting pricing
+-- variables per category (same values as the migration's backfill, which only
+-- helps an install that already had the catalogue).
+update public.products p
+set hsn_code = v.hsn, pack_size = v.size, pack_unit = v.pu
+from (values
+  ('VEG-001', '0702', 1, 'kg'),  ('VEG-002', '0703', 1, 'kg'),  ('VEG-003', '0701', 1, 'kg'),
+  ('VEG-004', '0709', 1, 'kg'),  ('VEG-005', '0709', 1, 'kg'),
+  ('FRT-001', '0803', 1, 'kg'),  ('FRT-002', '0805', 1, 'kg'),  ('FRT-003', '0807', 1, 'kg'),
+  ('DAI-001', '0401', 1, 'l'),   ('DAI-002', '0406', 1, 'kg'),  ('DAI-003', '0403', 1, 'kg'),
+  ('DAI-004', '0405', 500, 'g'), ('DAI-005', '0407', 30, 'pc'),
+  ('PLT-001', '0207', 1, 'kg'),  ('PLT-002', '0207', 1, 'kg'),  ('MTN-001', '0204', 1, 'kg'),
+  ('GRN-001', '1006', 1, 'kg'),  ('GRN-002', '0713', 1, 'kg'),  ('GRN-003', '1101', 1, 'kg'),
+  ('OIL-001', '1512', 15, 'l'),  ('SPC-001', '0910', 1, 'kg'),  ('SPC-002', '0904', 1, 'kg'),
+  ('PKG-001', '2103', 5, 'kg'),  ('KIT-001', '7607', 1, 'pc'),  ('KIT-002', '4015', 100, 'pc')
+) as v (sku, hsn, size, pu)
+where p.sku = v.sku and p.hsn_code is null;
+
+insert into public.pricing_rules (category_id, markup_pct, min_markup_pct, wastage_pct, rounding_step, benchmark_cap_pct, benchmark_source_id, note)
+select c.id, v.markup, v.min_markup, v.wastage, v.step, v.cap, s.id, 'Starting value from the Vizag pricing research'
+from (values
+  ('Vegetables',         15, 8, 8,   0.5, 10, 'rythu_bazaar'),
+  ('Fruits',             15, 8, 10,  0.5, 10, 'rythu_bazaar'),
+  ('Dairy & Eggs',        4, 2, 2,   1,   null, 'distributor'),
+  ('Poultry & Meat',     10, 5, 3,   5,   null, 'distributor'),
+  ('Grains & Pulses',     5, 2, 0.5, 1,   5,  'doca'),
+  ('Oils & Spices',       5, 2, 0.5, 1,   5,  'metro'),
+  ('Packaged Foods',      5, 2, 0.5, 1,   5,  'metro'),
+  ('Kitchen Essentials',  8, 3, 0,   1,   null, 'metro')
+) as v (category, markup, min_markup, wastage, step, cap, source)
+join public.categories c on c.name = v.category
+left join public.benchmark_sources s on s.code = v.source
+where not exists (select 1 from public.pricing_rules r where r.category_id = c.id);
+
+-- Eggs follow the NECC rate + ₹0.30 per egg (₹9 per tray of 30); chicken sells ~70% of live weight.
+insert into public.product_pricing (product_id, pricing_mode, fixed_margin_amount, rounding_step, benchmark_source_id, manual_reason)
+select p.id, 'fixed_over_benchmark', 9, 1, s.id, 'NECC rate + ₹0.30 per egg'
+from public.products p, public.benchmark_sources s
+where p.sku = 'DAI-005' and s.code = 'necc'
+on conflict (product_id) do nothing;
+insert into public.product_pricing (product_id, yield_pct, manual_reason)
+select p.id, 70, 'Dressing yield; confirm with the supplier'
+from public.products p where p.sku in ('PLT-001', 'PLT-002')
+on conflict (product_id) do nothing;
+
+-- Sample supplier quotes (today's buying price) so the price board has a cost
+-- to work from before any stock has been received. Placeholders, like the prices.
+insert into public.product_pricing (product_id, supplier_quote, quote_date)
+select p.id, v.cost, (now() at time zone 'Asia/Kolkata')::date
+from (values ('VEG-001', 24.00), ('VEG-002', 22.00), ('VEG-003', 18.00), ('VEG-004', 55.00),
+             ('FRT-001', 36.00), ('DAI-002', 300.00), ('GRN-001', 98.00), ('GRN-002', 135.00)) as v (sku, cost)
+join public.products p on p.sku = v.sku
+on conflict (product_id) do nothing;

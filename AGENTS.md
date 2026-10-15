@@ -16,6 +16,7 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 | Product scope / what Hyperpure does | `docs/hyperpure-feature-map.md` |
 | What to build next, in which order | `docs/build-roadmap.md` |
 | Cities, sectors, roles, audit (migration 006) | `docs/modules/foundation.md` |
+| Prices, benchmarks, HSN, margin guard (migration 009) | `docs/modules/pricing.md` |
 | Running, deploying, first admin | `docs/runbook.md`, `docs/deployment.md` |
 | Tests | `docs/testing.md` |
 
@@ -44,16 +45,23 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 12. **Every operational record carries `city_id` / `warehouse_id`.** Stock changes name a warehouse.
 13. **Smallest complete change, plain comments, plain words** — `docs/code-rules.md`. Use the project
     skills: `/fs-feature` to build, `/fs-review` to review, `/fs-security-check` before finishing.
+14. **A change lands everywhere the thing appears.** Lists from a table (sectors, cities, roles, HSN codes,
+    benchmark sources) show every active row on every screen; a filter must be a named rule the admin can
+    see and change. Grep what you changed and walk every hit before finishing (code-rules rule 7).
+15. **Prices come from the formula.** `compute_price_from()` in SQL and `computePrice()` in
+    `web/js/core/pricing.js` are the same formula; change both and the shared test numbers (T30 ↔
+    `tests/unit.test.js`). Publishing goes through `apply_prices()`; never `update products set price`
+    from a screen (the product form only edits hand-priced products).
 
 ## Where things live
 ```
 web/index.html                 public landing page
 web/<role>/login.html          per-role login (shared module web/js/pages/login.js)
 web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
-web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv
-web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit added in 006)
+web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, pricing
+web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit in 006; price-board, pricing-rules, benchmarks in 009)
 web/css/                       base.css (tokens), components.css, landing.css
-supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) (apply in order)
+supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) → all sectors sign up (008) → pricing engine (009), in order
 supabase/seed.sql              sample catalogue
 supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres

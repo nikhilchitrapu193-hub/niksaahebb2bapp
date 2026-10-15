@@ -29,7 +29,7 @@ async function fillCatalogue() {
           <div class="muted small">${p.brand ? html`${p.brand} · ` : ''}min ${Number(p.min_order_qty)} ${p.unit}</div>
           <div class="product-price">${formatINR(p.price)} <small>/ ${p.unit}</small>
             ${saving ? html`<span class="price-strike">${formatINR(p.market_price)}</span>` : ''}</div>
-          ${saving ? html`<div class="best-rate">Best rate · save ${Math.round((1 - p.price / p.market_price) * 100)}%</div>` : ''}
+          ${saving ? html`<div class="best-rate">Best rate · save ${Math.round((1 - p.price / p.market_price) * 100)}%${p.benchmark_label ? html` <span class="muted">vs ${p.benchmark_label}</span>` : ''}</div>` : ''}
           <div class="product-actions"><a class="btn block" href="restaurant/login.html">Sign in to order</a></div>
         </div>
       </article>`;

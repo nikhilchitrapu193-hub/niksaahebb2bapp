@@ -23,7 +23,9 @@ const canRegister = ROLE === 'restaurant';
 const canSetup = ROLE === 'admin';          // first-admin setup, works only while no admin exists
 let mode = (canRegister && location.hash === '#register') ? 'register' : 'signin'; // 'signin' | 'register' | 'setup' | 'forgot'
 
-// Cities and self-registering sectors for the register form (public lists).
+// Cities and sectors for the register form (public lists). Every active sector
+// with can_self_register (all of them unless switched off under Settings →
+// Sectors) is offered; the hint under the dropdown shows what the sector gets.
 let cities = [];
 let sectors = [];
 
@@ -77,13 +79,14 @@ function view() {
   if (mode === 'register') {
     return html`${brand}${tabs}
       <form id="form" class="stack" novalidate>
-        <label class="field"><span class="label">Restaurant / outlet name</span><input class="input" name="restaurantName" required maxlength="120"></label>
+        <label class="field"><span class="label">Business / outlet name</span><input class="input" name="restaurantName" required maxlength="120"><span class="hint">Restaurant, hotel, hospital, mess, canteen or shop</span></label>
         <div class="form-grid">
           <label class="field"><span class="label">Your name</span><input class="input" name="fullName" autocomplete="name" required maxlength="120"></label>
           <label class="field"><span class="label">Phone</span><input class="input" name="phone" type="tel" autocomplete="tel" required maxlength="20"></label>
         </div>
         ${sectors.length > 1 ? html`<label class="field"><span class="label">Type of business</span><select class="select" name="sectorCode">
-          ${sectors.map((s) => html`<option value="${s.code}">${s.name}</option>`)}</select></label>` : ''}
+          ${sectors.map((s) => html`<option value="${s.code}">${s.name}</option>`)}</select>
+          <span class="hint" id="sector-hint">${sectors[0]?.description ?? ''}</span></label>` : ''}
         <label class="field"><span class="label">Delivery address</span><textarea class="textarea" name="address" rows="2" required maxlength="300"></textarea></label>
         <div class="form-grid">
           <label class="field"><span class="label">City</span>${cities.length
@@ -119,6 +122,10 @@ function render() { mount(root, view()); }
 function showError(message) { const el = $('#error', root); if (el) el.textContent = message; }
 
 on(root, 'click', '[data-mode]', (e, el) => { e.preventDefault(); mode = el.dataset.mode; render(); });
+on(root, 'change', '[name=sectorCode]', (_e, el) => {
+  const hint = $('#sector-hint', root);
+  if (hint) hint.textContent = sectors.find((s) => s.code === el.value)?.description ?? '';
+});
 
 on(root, 'submit', '#form', async (event, form) => {
   event.preventDefault();

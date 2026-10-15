@@ -2,6 +2,7 @@
 // main.js — admin app entry. Routes:
 //   #dashboard (default) · #orders · #products · #inventory · #customers · #team
 //   #settings (company) · #locations · #sectors · #roles · #audit
+//   #pricing (price board) · #pricing-rules · #benchmarks
 //
 // The menu shows only the modules the signed-in team member may VIEW
 // (web/js/core/permissions.js). Opening a route by hand without permission
@@ -24,9 +25,13 @@ import { renderLocations } from './locations.js';
 import { renderSectors } from './sectors.js';
 import { renderRoles } from './roles.js';
 import { renderAudit } from './audit.js';
+import { renderPriceBoard } from './price-board.js';
+import { renderPricingRules } from './pricing-rules.js';
+import { renderBenchmarks } from './benchmarks.js';
 
-/** Sub-pages of Settings keep the Settings menu item highlighted. */
-const SETTINGS_ROUTES = new Set(['#locations', '#sectors', '#roles']);
+/** Sub-pages keep their parent menu item highlighted. */
+const PARENT_OF = { '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
+                    '#pricing-rules': '#pricing', '#benchmarks': '#pricing' };
 
 const me = await requireRole('admin');
 if (me) {
@@ -49,7 +54,7 @@ if (me) {
   startRouter({
     container: $('#view'),
     fallback: can(me, 'dashboard', 'view') ? '#dashboard' : (visibleNav(me)[0]?.href ?? '#dashboard'),
-    onRoute: (key) => shell.setActive(SETTINGS_ROUTES.has(key) ? '#settings' : key),
+    onRoute: (key) => shell.setActive(PARENT_OF[key] ?? key),
     routes: {
       '#dashboard': guard('dashboard', renderDashboard),
       '#orders':    guard('orders', (c) => renderOrders(c, me)),
@@ -62,6 +67,9 @@ if (me) {
       '#sectors':   guard('settings', (c) => renderSectors(c, me)),
       '#roles':     guard('team', (c) => renderRoles(c, me)),
       '#audit':     guard('audit', (c) => renderAudit(c, me)),
+      '#pricing':   guard('pricing', (c) => renderPriceBoard(c, me)),
+      '#pricing-rules': guard('pricing', (c) => renderPricingRules(c, me)),
+      '#benchmarks': guard('pricing', (c) => renderBenchmarks(c, me)),
     },
   });
 }

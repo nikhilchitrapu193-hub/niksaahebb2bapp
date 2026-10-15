@@ -6,7 +6,17 @@ import { html, mount, $, on, formatINR } from '../../core/ui.js';
 import { photoUrl } from '../../core/api.js';
 import { getQty, setQty } from './cart.js';
 
-/** state: { products, categories } — loaded once by main.js. */
+/**
+ * Price as the catalogue shows it: excluding GST (default) or including it
+ * when the company setting says so. Pure.
+ */
+export function displayPrice(product, settings) {
+  const price = Number(product.price);
+  const incl = Boolean(settings?.show_prices_incl_gst);
+  return { amount: incl ? Math.round(price * (1 + Number(product.gst_rate || 0) / 100) * 100) / 100 : price, inclGst: incl };
+}
+
+/** state: { products, categories, settings } — loaded once by main.js. */
 export function renderCatalogue(container, state) {
   let search = '';
   let categoryId = '';
@@ -38,7 +48,7 @@ export function renderCatalogue(container, state) {
       mount(grid, html`<div class="empty"><strong>No products found</strong>Try a different search or category.</div>`);
       return;
     }
-    mount(grid, html`<div class="product-grid">${visible.map(productCard)}</div>`);
+    mount(grid, html`<div class="product-grid">${visible.map((p) => productCard(p, state.settings))}</div>`);
   }
 
   on(container, 'input', '#search', (_e, el) => { search = el.value; drawGrid(); });
@@ -70,10 +80,11 @@ export function renderCatalogue(container, state) {
 /** True when the product cannot be ordered right now. */
 export function isUnavailable(p) { return !p.in_stock || Number(p.stock_qty) <= 0; }
 
-function productCard(p) {
+function productCard(p, settings) {
   const qty = getQty(p.id);
   const unavailable = isUnavailable(p);
   const lowStock = !unavailable && Number(p.stock_qty) <= Number(p.low_stock_threshold);
+  const shown = displayPrice(p, settings);
   const saving = p.market_price && Number(p.market_price) > Number(p.price);
   const url = photoUrl(p.photo_path);
   return html`
@@ -82,11 +93,11 @@ function productCard(p) {
       <div class="product-body">
         <div class="product-name">${p.name}</div>
         <div class="muted small">${p.brand ? html`${p.brand} · ` : ''}${p.categories?.name ?? ''} · Min ${Number(p.min_order_qty)} ${p.unit}</div>
-        <div class="product-price">${formatINR(p.price)} <small>/ ${p.unit}</small>
-          ${saving ? html`<span class="price-strike">${formatINR(p.market_price)}</span>` : ''}</div>
-        ${saving ? html`<div class="best-rate">Best rate · save ${Math.round((1 - p.price / p.market_price) * 100)}%</div>` : ''}
+        <div class="product-price">${formatINR(shown.amount)} <small>/ ${p.unit}</small>
+          ${saving ? html`<span class="price-strike" title="${p.benchmark_label ?? 'Market rate'}">${formatINR(p.market_price)}</span>` : ''}</div>
+        ${saving ? html`<div class="best-rate">Best rate · save ${Math.round((1 - p.price / p.market_price) * 100)}%${p.benchmark_label ? html` <span class="muted">vs ${p.benchmark_label}</span>` : ''}</div>` : ''}
         ${lowStock ? html`<div class="tiny" style="color:var(--accent);font-weight:600">Only ${Number(p.stock_qty)} ${p.unit} left</div>` : ''}
-        ${p.gst_rate > 0 ? html`<div class="muted tiny">+ ${Number(p.gst_rate)}% GST</div>` : ''}
+        ${p.gst_rate > 0 ? html`<div class="muted tiny">${shown.inclGst ? `incl. ${Number(p.gst_rate)}% GST` : `+ ${Number(p.gst_rate)}% GST`}</div>` : ''}
         <div class="product-actions">
           ${unavailable
             ? html`<span class="badge out-of-stock">Out of stock</span>`

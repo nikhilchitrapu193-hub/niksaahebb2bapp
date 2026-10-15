@@ -1,6 +1,8 @@
 # Module: Foundation (cities, warehouses, sectors, roles, audit)
 
-Build list section 1, Phase 1. Shipped as migration 006 (`supabase/migrations/20261015000001_foundation_cities_sectors_roles.sql`).
+Build list section 1, Phase 1. Shipped as migration 006 (`supabase/migrations/20261015000001_foundation_cities_sectors_roles.sql`),
+with 007 (anon revoke on the inventory tables) and 008 (every sector may self-register: 006 had seeded the flag
+on for two of the five, so the sign-up form showed only those — see code-rules rule 7).
 
 ## What it does, in one paragraph
 Every order, customer and stock figure belongs to a city and a warehouse. Customers have a sector whose

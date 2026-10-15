@@ -38,7 +38,8 @@ Products are listed everywhere by default; untick a city on the product form to 
 
 ## Sectors and trading terms
 Admin → **Settings → Sectors & terms**: minimum order value, delivery fee below it, credit days, whether a
-PO number is required, whether orders need approval (Phase 2), and whether the sector may self-register.
+PO number is required, whether orders need approval (Phase 2), and whether the sector may self-register
+(all five may by default since migration 008; untick a sector to take it off the public sign-up form).
 Rule: below the minimum, the fee is charged; if the fee is ₹0 the order is refused.
 Per-customer overrides: Customers → **Terms** (also sets sector, city, pin code and warehouse).
 
@@ -56,7 +57,34 @@ their pin code under Settings → Cities & warehouses), then approve. Needs the 
 Admin → Team → untick *Active* → Save. They lose all access immediately.
 
 ## Change prices / photos / GST
-Admin → Products. Clicking the stock or listed badge toggles it instantly. Past orders keep their original prices.
+Admin → Products for photos, HSN code, pack size (what one selling unit holds: 1 kg, 15 litre tin, tray of
+30) and GST. Clicking the stock or listed badge toggles it instantly. Past orders keep their original prices.
+A price published from the price board is read-only here — change it on the board.
+
+## Prices: the morning routine (Pricing)
+1. **Benchmarks** — pick the source (Rythu Bazaar board, NECC, DoCA, METRO…) and today's date, type the
+   rates, *Save rates*. Or *Upload CSV* (`sku,price` and optionally `source,date,market`).
+2. **Price board** — type today's supplier quote where it changed (saved when you leave the box). Every row
+   shows cost basis, landed cost, markup, the suggested price, the current price, the benchmark and its age,
+   margin and flags (*No cost on file*, *Below cost*, *Under minimum markup*, *Held at benchmark cap*,
+   *Benchmark older than 3 days*, *Cost moved > 10 %*). Edit a suggested price if you must.
+3. Tick the rows (or *Select all shown*), **Publish**, give a reason. Pick *At a set time…* to prepare
+   tomorrow's prices today: they go live by themselves (every 5 minutes where pg_cron is on, and whenever
+   someone opens the board). A pending change is shown at the top and can be cancelled.
+4. Below cost or under the minimum markup the publish asks for *Publish anyway*; a category whose rule
+   says *block* refuses outright.
+
+The *…* button on a row explains the price step by step, shows the price history chart, and holds the
+product's override: how to price (cost + markup / benchmark + fixed amount / manual), where the cost comes
+from, yield % (chicken ~70 %), and any variable the category rule should not apply to this product.
+
+**Rules** — one card per category (and the global default): markup, minimum markup, wastage, transport and
+handling per kg, packing per unit, market fee, rounding step, benchmark cap and source, cost method, margin
+guard. *Change* saves a new rule from a chosen date and keeps the old one on record; the test box shows what
+₹100 of cost would sell for. Needs `pricing:edit`; publishing needs `pricing:approve`.
+
+Customers see the benchmark as the struck-through "market rate" with its source and date. Settings →
+*Show catalogue prices including GST* switches the catalogue display; invoices always show the split.
 
 ## Warehouse: receive, count, write off
 Admin → **Inventory**. With several warehouses, pick one in the dropdown (totals are read-only).
@@ -77,6 +105,9 @@ settings, with the person and the old and new values. Filter by table or person;
 | Symptom | Likely cause |
 |---|---|
 | Blank page, console says modules blocked | Opened via `file://`. Use `npm start`. |
+| Price board shows "No cost on file" for everything | No receipts with a unit cost yet: type supplier quotes on the board, or receive stock with costs under Inventory. |
+| Scheduled price did not go live | pg_cron is not enabled on the project (Database → Extensions); opening the price board applies anything due. |
+| "You do not have permission to publish prices" | The team role lacks `pricing:approve`; tick it under Settings → Roles & permissions. |
 | "Invalid login credentials" | Wrong password, or email not confirmed. |
 | Reset link goes to the wrong place | Fix *Site URL / Redirect URLs* in Supabase. |
 | User signs in but is bounced to login | Account deactivated (`is_active = false`). |
