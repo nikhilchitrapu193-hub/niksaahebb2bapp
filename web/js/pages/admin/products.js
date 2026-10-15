@@ -8,13 +8,14 @@
 
 import { html, mount, on, $, formatINR, openModal, reportError, toast, withBusy, confirmDialog } from '../../core/ui.js';
 import { listProducts, listCategories, saveProduct, setProductFlags, uploadProductPhoto, photoUrl,
-         saveCategory, deleteCategory, listCities, listProductAvailability, setProductAvailability } from '../../core/api.js';
+         saveCategory, deleteCategory, listCities, listProductAvailability, setProductAvailability, listHsnCodes } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
+import { PACK_UNITS } from '../../core/config.js';
 
 export async function renderProducts(container, me) {
   let search = '';
   const editable = can(me, 'products', 'edit');
-  let [products, categories, cities, availability] = await Promise.all([listProducts(), listCategories(), listCities(), listProductAvailability()]);
+  let [products, categories, cities, availability, hsnCodes] = await Promise.all([listProducts(), listCategories(), listCities(), listProductAvailability(), listHsnCodes()]);
 
   async function reload() {
     [products, categories, availability] = await Promise.all([listProducts(), listCategories(), listProductAvailability()]);
@@ -41,7 +42,7 @@ export async function renderProducts(container, me) {
             <td><strong>${p.name}</strong><div class="muted small">${p.sku} · min ${Number(p.min_order_qty)} ${p.unit}</div>
               ${hiddenIn(p.id).length ? html`<div class="tiny" style="color:var(--accent)">Hidden in ${hiddenIn(p.id).join(', ')}</div>` : ''}</td>
             <td>${p.categories?.name ?? '—'}</td>
-            <td class="right money">${formatINR(p.price)}<div class="muted tiny">per ${p.unit}${p.gst_rate > 0 ? ` · ${Number(p.gst_rate)}% GST` : ''}</div></td>
+            <td class="right money">${formatINR(p.price)}<div class="muted tiny">per ${p.unit}${p.gst_rate > 0 ? ` · ${Number(p.gst_rate)}% GST` : ''}${p.price_source === 'rule' ? ' · from board' : ''}</div></td>
             <td class="right num">${Number(p.stock_qty)}</td>
             <td><button class="badge ${p.in_stock ? 'in-stock' : 'out-of-stock'}" style="border:0;cursor:pointer" data-flag="in_stock" data-id="${p.id}" title="Click to toggle" ${editable ? '' : 'disabled'}>${p.in_stock ? 'In stock' : 'Out of stock'}</button></td>
             <td><button class="badge ${p.is_active ? 'approved' : 'inactive'}" style="border:0;cursor:pointer" data-flag="is_active" data-id="${p.id}" title="Click to toggle" ${editable ? '' : 'disabled'}>${p.is_active ? 'Listed' : 'Hidden'}</button></td>
@@ -51,9 +52,9 @@ export async function renderProducts(container, me) {
     input.oninput = () => { search = input.value; draw(); $('#search', container).focus(); };
   }
 
-  on(container, 'click', '#new', () => productForm(null, categories, cities, availability, reload));
+  on(container, 'click', '#new', () => productForm(null, { categories, cities, availability, hsnCodes }, reload));
   on(container, 'click', '#categories', () => categoryManager(categories, reload));
-  on(container, 'click', '[data-edit]', (_e, el) => productForm(products.find((p) => p.id === el.dataset.edit), categories, cities, availability, reload));
+  on(container, 'click', '[data-edit]', (_e, el) => productForm(products.find((p) => p.id === el.dataset.edit), { categories, cities, availability, hsnCodes }, reload));
   on(container, 'click', '[data-flag]', async (_e, el) => {
     const product = products.find((p) => p.id === el.dataset.id);
     const flag = el.dataset.flag;
@@ -63,8 +64,9 @@ export async function renderProducts(container, me) {
   draw();
 }
 
-function productForm(product, categories, cities, availability, onSaved) {
-  const p = product ?? { in_stock: true, is_active: true, min_order_qty: 1, unit: 'kg' };
+function productForm(product, { categories, cities, availability, hsnCodes }, onSaved) {
+  const p = product ?? { in_stock: true, is_active: true, min_order_qty: 1, unit: 'kg', pack_size: 1, pack_unit: 'kg' };
+  const priceFromBoard = p.price_source === 'rule';
   let photoPath = p.photo_path ?? null;
   const listedIn = (cityId) => !availability.some((a) => a.product_id === p.id && a.city_id === cityId && !a.is_available);
 
@@ -73,10 +75,16 @@ function productForm(product, categories, cities, availability, onSaved) {
       <div class="form-grid">
         <label class="field"><span class="label">Name</span><input class="input" name="name" value="${p.name ?? ''}" required maxlength="120"></label>
         <label class="field"><span class="label">SKU</span><input class="input" name="sku" value="${p.sku ?? ''}" required maxlength="40"><span class="hint">Unique code, e.g. VEG-010</span></label>
-        <label class="field"><span class="label">Price (₹)</span><input class="input" name="price" type="number" min="0" step="0.01" value="${p.price ?? ''}" required></label>
+        <label class="field"><span class="label">Price (₹)</span><input class="input" name="price" type="number" min="0" step="0.01" value="${p.price ?? ''}" required ${priceFromBoard ? 'readonly' : ''}>
+          ${priceFromBoard ? html`<span class="hint">Published from the <a href="#pricing">price board</a>; change it there.</span>` : ''}</label>
         <label class="field"><span class="label">Unit</span><input class="input" name="unit" value="${p.unit ?? ''}" required maxlength="20" placeholder="kg, litre, pack…"></label>
+        <label class="field"><span class="label">One unit holds</span><div class="row"><input class="input" name="pack_size" type="number" min="0.001" step="any" value="${p.pack_size ?? 1}" required style="width:110px">
+          <select class="select" name="pack_unit">${Object.entries(PACK_UNITS).map(([k, v]) => html`<option value="${k}" ${(p.pack_unit ?? 'kg') === k ? 'selected' : ''}>${v}</option>`)}</select></div>
+          <span class="hint">1 kg, 15 litre (a tin), 30 pieces (a tray). Per-kg costs on the price board use this.</span></label>
+        <label class="field"><span class="label">HSN code</span><select class="select" name="hsn_code"><option value="">— none —</option>
+          ${hsnCodes.map((h) => html`<option value="${h.code}" ${h.code === p.hsn_code ? 'selected' : ''}>${h.code} · ${h.description}</option>`)}</select><span class="hint">Printed on invoices; sets the GST rate below when chosen</span></label>
         <label class="field"><span class="label">Minimum order qty</span><input class="input" name="min_order_qty" type="number" min="0.01" step="any" value="${p.min_order_qty ?? 1}" required></label>
-        <label class="field"><span class="label">Market price (₹, optional)</span><input class="input" name="market_price" type="number" min="0" step="0.01" value="${p.market_price ?? ''}"><span class="hint">Shown struck through as the "best rate" comparison</span></label>
+        <label class="field"><span class="label">Market price (₹, optional)</span><input class="input" name="market_price" type="number" min="0" step="0.01" value="${p.market_price ?? ''}" ${priceFromBoard ? 'readonly' : ''}><span class="hint">${priceFromBoard ? html`Set from the benchmark when the board publishes (${p.benchmark_label ?? 'no benchmark yet'})` : 'Shown struck through as the "best rate" comparison'}</span></label>
         <label class="field"><span class="label">GST rate (%)</span><select class="select" name="gst_rate">
           ${[0, 5, 12, 18, 28].map((r) => html`<option value="${r}" ${Number(p.gst_rate ?? 0) === r ? 'selected' : ''}>${r}%</option>`)}</select></label>
         <label class="field"><span class="label">Brand (optional)</span><input class="input" name="brand" value="${p.brand ?? ''}" maxlength="60"></label>
@@ -99,6 +107,12 @@ function productForm(product, categories, cities, availability, onSaved) {
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save product</button></div>
     </form>`, { title: product ? 'Edit product' : 'Add product', wide: true });
 
+  // Choosing an HSN code fills in its usual GST rate (still editable).
+  $('[name=hsn_code]', el).onchange = (event) => {
+    const h = hsnCodes.find((x) => x.code === event.target.value);
+    if (h) $('[name=gst_rate]', el).value = String(Number(h.default_gst_rate));
+  };
+
   $('#photo', el).onchange = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -116,7 +130,7 @@ function productForm(product, categories, cities, availability, onSaved) {
     try {
       await withBusy($('button[type="submit"]', form), async () => {
         const saved = await saveProduct({
-          ...v, id: product?.id, photo_path: photoPath,
+          ...v, id: product?.id, photo_path: photoPath, price_source: p.price_source,
           in_stock: form.elements.in_stock.checked, is_active: form.elements.is_active.checked,
         });
         // Per-city listing: only write rows whose tick changed.

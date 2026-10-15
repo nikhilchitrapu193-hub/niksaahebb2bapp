@@ -33,3 +33,38 @@ export function downloadCsv(filename, rows, columns) {
   link.remove();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Parse CSV text into objects keyed by the header row (benchmark uploads).
+ * Handles quoted cells, doubled quotes, CRLF and a leading BOM. Pure.
+ * Returns { headers: ['sku', ...], rows: [{ sku: '...', ... }] }.
+ */
+export function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  const src = String(text ?? '').replace(/^﻿/, '');
+  for (let n = 0; n < src.length; n += 1) {
+    const ch = src[n];
+    if (quoted) {
+      if (ch === '"' && src[n + 1] === '"') { field += '"'; n += 1; }
+      else if (ch === '"') quoted = false;
+      else field += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',') { row.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && src[n + 1] === '\n') n += 1;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += ch;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+
+  const nonEmpty = rows.filter((r) => r.some((c) => c.trim() !== ''));
+  if (!nonEmpty.length) return { headers: [], rows: [] };
+  const headers = nonEmpty[0].map((h) => h.trim().toLowerCase());
+  return {
+    headers,
+    rows: nonEmpty.slice(1).map((r) => Object.fromEntries(headers.map((h, i) => [h, (r[i] ?? '').trim()]))),
+  };
+}

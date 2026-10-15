@@ -10,3 +10,4 @@ Follow docs/code-rules.md. The short version:
 4. Plain words in docs, UI text and errors. Errors say what to do next.
 5. Finish with the review order correct → safe → load → tested → fast → lean (use /fs-review), then `npm test` and the SQL security test (use /fs-security-check).
 6. Never: call Supabase from a page, concatenate strings into innerHTML, edit an applied migration, update stock_qty directly, add a framework or build step.
+7. A change lands everywhere the thing appears. Lists from a table (sectors, cities, roles, HSN codes, sources) show every active row on every screen; a filter must be a named rule the admin can see and change. Before finishing, grep the thing you changed and walk every hit: screens, exports, fixtures, seed, SQL test, docs. SQL rules and their JS mirrors (`place_order`/`orderPreview`, `compute_price_from`/`computePrice`) change together, with shared test numbers.

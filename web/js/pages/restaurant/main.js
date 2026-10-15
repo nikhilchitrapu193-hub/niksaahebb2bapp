@@ -6,7 +6,7 @@
 import { html, mount, $, on, formatINR, reportError, toast, withBusy } from '../../core/ui.js';
 import { requireRole } from '../../core/auth.js';
 import { renderShell, startRouter } from '../../core/shell.js';
-import { listProducts, listCategories, placeOrder, getMyOrderTerms } from '../../core/api.js';
+import { listProducts, listCategories, placeOrder, getMyOrderTerms, getCompanySettings } from '../../core/api.js';
 import { renderCatalogue } from './catalogue.js';
 import { renderOrders } from './orders.js';
 import { renderAccount } from './account.js';
@@ -25,7 +25,8 @@ if (me) start();
 
 async function start() {
   // terms: MOV, delivery fee, PO rule and whether we deliver (my_order_terms).
-  const state = { me, products: [], categories: [], byId: {}, terms: null };
+  // settings: company_settings (show_prices_incl_gst decides how the catalogue shows prices).
+  const state = { me, products: [], categories: [], byId: {}, terms: null, settings: null };
   const canOrder = () => state.me.restaurant?.status === 'approved' && state.terms?.delivers !== false;
 
   const shell = renderShell({
@@ -42,7 +43,8 @@ async function start() {
   const view = $('#view');
 
   async function loadCatalogue() {
-    [state.products, state.categories, state.terms] = await Promise.all([listProducts(), listCategories(), getMyOrderTerms().catch(() => null)]);
+    [state.products, state.categories, state.terms, state.settings] = await Promise.all([
+      listProducts(), listCategories(), getMyOrderTerms().catch(() => null), getCompanySettings().catch(() => null)]);
     state.byId = Object.fromEntries(state.products.map((p) => [p.id, p]));
   }
 

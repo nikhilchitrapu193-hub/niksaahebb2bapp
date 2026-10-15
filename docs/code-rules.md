@@ -59,3 +59,30 @@ Pages never call Supabase directly · markup only via `html``` · never edit an 
 stock only through the stock functions · orders snapshot prices · no frameworks or build step ·
 `npm test` green and `security_test.sql` all PASS before finishing · docs and ADRs updated in the
 same change.
+
+## 7. A change lands everywhere the thing appears (consistency sweep)
+
+Added on 15 Oct 2026 after the sign-up form offered two of the five sectors: migration 006 seeded
+`can_self_register = true` for restaurants and hotels only, and nobody checked the form against the
+sector list. The rule:
+
+* **Reference data shows in full everywhere.** When a list comes from a table (sectors, cities, team
+  roles, HSN codes, benchmark sources, categories…), every screen that offers a choice from it shows
+  **every active row**. A filter is allowed only when it is a named business rule *and* the admin can see
+  and change it (the `can_self_register` tick under Settings → Sectors is that rule; it now defaults on).
+  Seed data must not quietly hide rows: a new row is visible unless someone decides otherwise.
+* **Before finishing a change, grep for the thing you changed** and walk every hit: screens, tests,
+  docs, seed, the SQL test. Columns added to a table go into the form that edits it, the list that shows
+  it, the export, the fixture and `docs/api.md`. A rule changed in SQL is changed in its JS mirror
+  (`place_order` ↔ `orderPreview`, `compute_price_from` ↔ `computePrice`) and in the test that proves
+  both agree. The `/fs-feature` skill has this sweep as its step 5.
+* **Wording follows the data.** Labels name the general thing ("Business / outlet name"), not the first
+  sector we happened to launch with.
+
+## 8. One formula, two copies, one set of numbers
+
+Business arithmetic lives in SQL (the database is the source of truth and re-computes before writing)
+and is mirrored in a pure JS module for instant previews. The two copies are kept honest by **shared
+fixtures**: `security_test.sql` and `tests/unit.test.js` feed the same inputs and expect the same
+outputs (T30 ↔ `computePrice` tests). Change both or neither; when you change one, the other's test
+goes red.

@@ -256,7 +256,13 @@ export async function saveProduct(product) {
     market_price: product.market_price === '' || product.market_price == null ? null : Number(product.market_price),
     gst_rate: Number(product.gst_rate) || 0,
     low_stock_threshold: Number(product.low_stock_threshold) || 0,
+    hsn_code: product.hsn_code || null,
+    pack_size: Number(product.pack_size) > 0 ? Number(product.pack_size) : 1,
+    pack_unit: product.pack_unit || 'kg',
   };
+  // A price published from the board stays as the board set it; the form only
+  // changes it when the product is priced by hand.
+  if (product.price_source === 'rule' && product.id) { delete row.price; delete row.market_price; }
   const query = product.id
     ? supabase.from('products').update(row).eq('id', product.id).select().single()
     : supabase.from('products').insert(row).select().single();
@@ -409,4 +415,143 @@ export async function setTeamMember(userId, { role, isActive, teamRole, cityId, 
 
 export async function getDashboardStats() {
   return unwrap(await supabase.rpc('admin_dashboard_stats'));
+}
+
+// ---------- Pricing engine (migration 009) -----------------------------------
+// Staff-only tables: every read here needs pricing:view, writes pricing:edit,
+// publishing pricing:approve. The database checks; the screens only hide.
+
+/** HSN list for the product form and invoices (any signed-in user). */
+export async function listHsnCodes() {
+  return unwrap(await supabase.from('hsn_codes').select('*').order('code'));
+}
+
+/** The board: one object per active product with inputs, costs, benchmark and the computed price. */
+export async function listPriceBoard(categoryId) {
+  return unwrap(await supabase.rpc('price_board', { p_category_id: categoryId || null }));
+}
+
+/**
+ * Publish prices. items = [{ product_id, price? }] (no price = the suggestion).
+ * options: { reason, effectiveAt (ISO string, future = scheduled), force (publish past a warning) }.
+ * Returns { applied, scheduled }.
+ */
+export async function applyPrices(items, { reason, effectiveAt, force = false } = {}) {
+  return unwrap(await supabase.rpc('apply_prices', {
+    p_items: items, p_reason: reason || null, p_effective_at: effectiveAt || null, p_force: force,
+  }));
+}
+
+/** Apply any scheduled prices whose time has come; returns how many. */
+export async function publishDuePrices() {
+  return unwrap(await supabase.rpc('publish_due_prices'));
+}
+
+export async function listScheduledPrices() {
+  return unwrap(await supabase.from('scheduled_prices').select('*').eq('status', 'pending').order('effective_at'));
+}
+
+export async function cancelScheduledPrice(id) {
+  unwrap(await supabase.rpc('cancel_scheduled_price', { p_id: id }));
+}
+
+/** Every rule row (global + per category, all effective dates), newest first. */
+export async function listPricingRules() {
+  return unwrap(await supabase.from('pricing_rules').select('*, categories(name)').order('effective_from', { ascending: false }));
+}
+
+/** Insert or update one rule row. Pass id to update. Numbers may arrive as strings from a form. */
+export async function savePricingRule(rule) {
+  const n = (v) => (v === '' || v == null ? null : Number(v));
+  const row = {
+    category_id: rule.category_id || null,
+    markup_pct: n(rule.markup_pct) ?? 0,
+    min_markup_pct: n(rule.min_markup_pct) ?? 0,
+    wastage_pct: n(rule.wastage_pct) ?? 0,
+    handling_per_kg: n(rule.handling_per_kg) ?? 0,
+    packing_per_unit: n(rule.packing_per_unit) ?? 0,
+    transport_per_kg: n(rule.transport_per_kg) ?? 0,
+    market_fee_pct: n(rule.market_fee_pct) ?? 0,
+    other_cost_pct: n(rule.other_cost_pct) ?? 0,
+    rounding_step: n(rule.rounding_step) ?? 1,
+    round_mode: rule.round_mode || 'nearest',
+    benchmark_cap_pct: n(rule.benchmark_cap_pct),
+    benchmark_source_id: rule.benchmark_source_id || null,
+    cost_method: rule.cost_method || 'weighted_avg_30d',
+    guard_mode: rule.guard_mode || 'warn',
+    effective_from: rule.effective_from,
+    effective_to: rule.effective_to || null,
+    note: rule.note?.trim() || null,
+  };
+  const query = rule.id
+    ? supabase.from('pricing_rules').update(row).eq('id', rule.id).select().single()
+    : supabase.from('pricing_rules').insert(row).select().single();
+  return unwrap(await query);
+}
+
+export async function listProductPricing() {
+  return unwrap(await supabase.from('product_pricing').select('*'));
+}
+
+/**
+ * Save a product's override (upsert on product_id). Every field is optional;
+ * blank = "use the category rule". Returns the saved row.
+ */
+export async function saveProductPricing(productId, o) {
+  const n = (v) => (v === '' || v == null ? null : Number(v));
+  const row = {
+    product_id: productId,
+    pricing_mode: o.pricing_mode || 'rule',
+    markup_pct: n(o.markup_pct), min_markup_pct: n(o.min_markup_pct), wastage_pct: n(o.wastage_pct),
+    yield_pct: n(o.yield_pct) ?? 100,
+    handling_per_kg: n(o.handling_per_kg), packing_per_unit: n(o.packing_per_unit), transport_per_kg: n(o.transport_per_kg),
+    market_fee_pct: n(o.market_fee_pct), other_cost_pct: n(o.other_cost_pct),
+    rounding_step: n(o.rounding_step), round_mode: o.round_mode || null,
+    benchmark_cap_pct: n(o.benchmark_cap_pct), benchmark_source_id: o.benchmark_source_id || null,
+    fixed_margin_amount: n(o.fixed_margin_amount),
+    manual_price: n(o.manual_price), manual_reason: o.manual_reason?.trim() || null,
+    cost_method: o.cost_method || null, manual_cost: n(o.manual_cost),
+    supplier_quote: n(o.supplier_quote), quote_date: o.quote_date || null,
+  };
+  return unwrap(await supabase.from('product_pricing').upsert(row, { onConflict: 'product_id' }).select().single());
+}
+
+/** Today's buying price for one product, straight from the board. */
+export async function saveSupplierQuote(productId, quote, quoteDate) {
+  return unwrap(await supabase.from('product_pricing')
+    .upsert({ product_id: productId, supplier_quote: quote === '' || quote == null ? null : Number(quote), quote_date: quoteDate }, { onConflict: 'product_id' })
+    .select().single());
+}
+
+export async function listBenchmarkSources() {
+  return unwrap(await supabase.from('benchmark_sources').select('*').order('sort_order').order('name'));
+}
+
+export async function saveBenchmarkSource(source) {
+  const row = { code: source.code.trim().toLowerCase(), name: source.name.trim(), url: source.url?.trim() || null,
+                is_active: source.is_active !== false, sort_order: Number(source.sort_order) || 0 };
+  const query = source.id
+    ? supabase.from('benchmark_sources').update(row).eq('id', source.id).select().single()
+    : supabase.from('benchmark_sources').insert(row).select().single();
+  return unwrap(await query);
+}
+
+/** Benchmark entries, newest first. filters: { productId, sourceId, since (YYYY-MM-DD), limit } */
+export async function listBenchmarkPrices({ productId, sourceId, since, limit = 500 } = {}) {
+  let query = supabase.from('benchmark_prices').select('*').order('price_date', { ascending: false }).limit(limit);
+  if (productId) query = query.eq('product_id', productId);
+  if (sourceId) query = query.eq('source_id', sourceId);
+  if (since) query = query.gte('price_date', since);
+  return unwrap(await query);
+}
+
+/** Enter or correct market rates: rows = [{ source_id, product_id, price_date, price, market? }]. Same day overwrites. */
+export async function saveBenchmarkPrices(rows) {
+  if (!rows.length) return [];
+  return unwrap(await supabase.from('benchmark_prices').upsert(rows, { onConflict: 'source_id,product_id,price_date' }).select());
+}
+
+/** Published price changes for one product, newest first (the chart and the "why" trail). */
+export async function listPriceHistory(productId, limit = 60) {
+  return unwrap(await supabase.from('price_history').select('*').eq('product_id', productId).order('created_at', { ascending: false }).limit(limit));
 }

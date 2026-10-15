@@ -2,7 +2,7 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 86
+-- psql). It creates throw-away users, impersonates each role, checks 121
 -- rules, then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
@@ -11,7 +11,8 @@
 --
 -- Roles simulated: admin (super admin), restaurant A (approved), restaurant B
 -- (pending), delivery driver, a sign-up attempting to inject role=admin, and
--- from T20 on: a city manager of another city, a picker, and a defence unit.
+-- from T20 on: a city manager of another city, a picker, and a defence unit;
+-- from T30 on (migration 009): a pricing manager.
 -- =============================================================================
 
 do $$
@@ -28,6 +29,8 @@ declare
   -- Migration 006 (cities, sectors, roles, audit)
   v_city uuid; v_wh uuid; v_city2 uuid; v_wh2 uuid; v_cm uuid := gen_random_uuid(); v_pick uuid := gen_random_uuid();
   v_o3 jsonb; v_json jsonb;
+  -- Migration 009 (pricing engine)
+  v_pm uuid := gen_random_uuid(); v_sched bigint; v_src uuid;
 begin
   select id into v_city from public.cities where name = 'Visakhapatnam';
   select id into v_wh from public.warehouses where city_id = v_city and is_default;
@@ -78,6 +81,12 @@ begin
     v_res := v_res || jsonb_build_array('FAIL T2d anon can read suppliers');
   exception when insufficient_privilege then
     v_res := v_res || jsonb_build_array('PASS T2d anonymous visitors blocked from suppliers (migration 007)');
+  end;
+  begin
+    perform 1 from public.pricing_rules limit 1;
+    v_res := v_res || jsonb_build_array('FAIL T2e anon can read pricing rules');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T2e anonymous visitors blocked from pricing rules (migration 009)');
   end;
   reset role;
 
@@ -348,7 +357,7 @@ begin
   select count(*) into v_n from public.cities;
   v_res := v_res || jsonb_build_array(case when v_n >= 1 then 'PASS T21a anonymous can read cities' else 'FAIL T21a cities ' || v_n end);
   select count(*) into v_n from public.sectors where can_self_register;
-  v_res := v_res || jsonb_build_array(case when v_n = 2 then 'PASS T21b anonymous sees the 2 self-registering sectors' else 'FAIL T21b ' || v_n end);
+  v_res := v_res || jsonb_build_array(case when v_n = (select count(*) from public.sectors where is_active) and v_n >= 5 then 'PASS T21b anonymous sees all ' || v_n || ' sectors on the sign-up form (migration 008)' else 'FAIL T21b ' || v_n end);
   v_json := public.check_pincode('530001');
   v_res := v_res || jsonb_build_array(case when (v_json ->> 'delivers')::boolean and v_json ->> 'city' = 'Visakhapatnam' then 'PASS T21c check_pincode(530001) = Visakhapatnam' else 'FAIL T21c ' || v_json::text end);
   v_json := public.check_pincode('999999');
@@ -534,6 +543,195 @@ begin
   update public.profiles set role = 'admin' where id = v_inj;
   select team_role into v_txt from public.profiles where id = v_inj;
   v_res := v_res || jsonb_build_array(case when v_txt = 'super_admin' then 'PASS T29 promoted login defaults to super_admin team role' else 'FAIL T29 team_role ' || coalesce(v_txt, 'null') end);
+
+
+  -- ===========================================================================
+  -- Migration 009: pricing engine
+  -- ===========================================================================
+
+  -- T30 the formula itself, on fixed inputs. The same four cases live in
+  -- tests/unit.test.js for web/js/core/pricing.js: both must give these numbers.
+  v_json := public.compute_price_from('{"pricing_mode":"rule","cost_method":"quote","supplier_quote":24,"weight_kg":1,"transport_per_kg":1.5,"handling_per_kg":0.5,"packing_per_unit":0,"market_fee_pct":2,"other_cost_pct":0,"yield_pct":100,"wastage_pct":8,"markup_pct":15,"min_markup_pct":8,"rounding_step":0.5,"round_mode":"nearest","benchmark_price":32,"benchmark_cap_pct":10,"benchmark_age_days":1}'::jsonb);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'landed_cost')::numeric = 28.83 and (v_json ->> 'suggested_price')::numeric = 33 and (v_json ->> 'margin_amount')::numeric = 4.17 and v_json -> 'flags' = '[]'::jsonb
+    then 'PASS T30a landed 28.83, price 33.00 (quote 24 + 2/kg, 2% fee, 8% wastage, 15% markup, step 0.5)' else 'FAIL T30a ' || v_json::text end);
+  v_json := public.compute_price_from('{"pricing_mode":"rule","cost_method":"weighted_avg_30d","avg_cost_30d":100,"latest_cost":120,"weight_kg":1,"yield_pct":70,"wastage_pct":3,"markup_pct":10,"min_markup_pct":5,"rounding_step":5,"round_mode":"up","benchmark_price":150,"benchmark_age_days":9}'::jsonb);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'landed_cost')::numeric = 147.28 and (v_json ->> 'suggested_price')::numeric = 165 and v_json -> 'flags' = '["stale_benchmark","cost_moved"]'::jsonb
+    then 'PASS T30b yield 70% and wastage 3% give landed 147.28, rounded up to 165; stale benchmark and cost move flagged' else 'FAIL T30b ' || v_json::text end);
+  v_json := public.compute_price_from('{"pricing_mode":"manual","manual_price":20,"latest_cost":25,"cost_method":"latest","rounding_step":1,"round_mode":"nearest"}'::jsonb);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'suggested_price')::numeric = 20 and v_json -> 'flags' = '["manual","below_cost"]'::jsonb
+    then 'PASS T30c manual price below cost is flagged below_cost' else 'FAIL T30c ' || v_json::text end);
+  v_json := public.compute_price_from('{"pricing_mode":"rule","cost_method":"quote","supplier_quote":100,"markup_pct":50,"benchmark_price":120,"benchmark_cap_pct":10,"rounding_step":1,"round_mode":"nearest","min_markup_pct":40}'::jsonb);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'suggested_price')::numeric = 132 and (v_json ->> 'capped')::boolean and v_json -> 'flags' = '["capped","below_min_markup"]'::jsonb
+    then 'PASS T30d benchmark cap 10% holds 150 down to 132 and flags the markup below the minimum' else 'FAIL T30d ' || v_json::text end);
+  v_json := public.compute_price_from('{"pricing_mode":"rule","cost_method":"latest","markup_pct":10}'::jsonb);
+  v_res := v_res || jsonb_build_array(case when v_json ->> 'suggested_price' is null and v_json -> 'flags' = '["no_cost"]'::jsonb
+    then 'PASS T30e no cost on file gives no price and the no_cost flag' else 'FAIL T30e ' || v_json::text end);
+
+  -- T31 customers see nothing of costs, rules or benchmarks
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.pricing_rules;
+  select count(*) + v_n into v_n from public.product_pricing;
+  select count(*) + v_n into v_n from public.benchmark_prices;
+  select count(*) + v_n into v_n from public.price_history;
+  select count(*) + v_n into v_n from public.order_line_costs;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T31a customer sees 0 rows of rules, overrides, benchmarks, history and line costs' else 'FAIL T31a sees ' || v_n end);
+  begin
+    perform public.compute_price(v_p1);
+    v_res := v_res || jsonb_build_array('FAIL T31b customer computed a price');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T31b customer cannot call compute_price');
+  end;
+  begin
+    perform public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'price', 1)));
+    v_res := v_res || jsonb_build_array('FAIL T31c customer published a price');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T31c customer cannot publish prices');
+  end;
+  select count(*) into v_n from public.hsn_codes;
+  v_res := v_res || jsonb_build_array(case when v_n > 20 then 'PASS T31d signed-in users can read the HSN list (' || v_n || ' codes)' else 'FAIL T31d hsn ' || v_n end);
+  reset role;
+
+  -- T32 the board: tomato = weighted-average cost 20 (T12h receipt) → landed 21.74 → ×1.15 → 25.00
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.price_board();
+  v_res := v_res || jsonb_build_array(case when v_n = 25 then 'PASS T32a price board lists all 25 active products' else 'FAIL T32a rows ' || v_n end);
+  v_json := public.compute_price(v_p1);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'cost_basis')::numeric = 20 and (v_json ->> 'landed_cost')::numeric = 21.74 and (v_json ->> 'suggested_price')::numeric = 25 and v_json ->> 'rule_source' = 'category'
+    then 'PASS T32b tomato: ledger cost 20, 8% wastage, 15% markup, step 0.5 → suggested 25.00 from the Vegetables rule' else 'FAIL T32b ' || v_json::text end);
+  v_res := v_res || jsonb_build_array(case when v_json ->> 'benchmark_price' is null and v_json ->> 'hsn_code' is null then 'PASS T32c no benchmark on file yet' else 'FAIL T32c ' || coalesce(v_json ->> 'benchmark_price', 'null') end);
+
+  -- T33 a benchmark caps the price: Rythu Bazaar 22 today, cap 10% → 24.2 → rounded 24.00; publishing writes product + history
+  select id into v_src from public.benchmark_sources where code = 'rythu_bazaar';
+  insert into public.benchmark_prices (source_id, product_id, price_date, price, market)
+  values (v_src, v_p1, (now() at time zone 'Asia/Kolkata')::date, 22, 'MVP Colony');
+  v_json := public.compute_price(v_p1);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'suggested_price')::numeric = 24 and (v_json ->> 'capped')::boolean and (v_json ->> 'benchmark_source') = 'rythu_bazaar'
+    then 'PASS T33a benchmark 22 with 10% cap brings tomato from 25.00 to 24.00 (capped)' else 'FAIL T33a ' || v_json::text end);
+  v_json := public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', v_p1)), 'morning board');
+  select price || '/' || market_price || '/' || price_source || '/' || benchmark_label into v_txt from public.products where id = v_p1;
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'applied')::int = 1 and v_txt like '24.00/22.00/rule/Rythu Bazaar board (Visakhapatnam) · %'
+    then 'PASS T33b publish set price 24, market price 22, source rule and the benchmark label' else 'FAIL T33b ' || v_txt end);
+  select count(*) into v_n from public.price_history where product_id = v_p1 and old_price = 32 and new_price = 24 and reason = 'morning board' and changed_by = v_admin and cost_used = 21.74;
+  v_res := v_res || jsonb_build_array(case when v_n = 1 then 'PASS T33c price history records old 32 → new 24, cost used and who' else 'FAIL T33c rows ' || v_n end);
+  select count(*) into v_n from public.audit_log where table_name = 'products' and row_id = v_p1::text and changes -> 'price' ->> 'new' = '24.00';
+  v_res := v_res || jsonb_build_array(case when v_n = 1 then 'PASS T33d audit log also saw the price change' else 'FAIL T33d rows ' || v_n end);
+
+  -- T34 margin guard: below landed cost needs "publish anyway"; blocked outright when the rule says block
+  begin
+    perform public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'price', 20)));
+    v_res := v_res || jsonb_build_array('FAIL T34a published below cost without confirmation');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T34a below cost refused: ' || sqlerrm);
+  end;
+  v_json := public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'price', 20)), 'clearance', null, true);
+  select price into v_num from public.products where id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = 20 then 'PASS T34b "publish anyway" allows it under guard_mode = warn' else 'FAIL T34b price ' || v_num end);
+  begin
+    perform public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'price', 22)));
+    v_res := v_res || jsonb_build_array('FAIL T34c published under the minimum markup without confirmation');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T34c under minimum markup refused: ' || sqlerrm);
+  end;
+  reset role;
+  update public.pricing_rules set guard_mode = 'block' where category_id = (select category_id from public.products where id = v_p1);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'price', 20)), null, null, true);
+    v_res := v_res || jsonb_build_array('FAIL T34d guard_mode = block let a below-cost price through');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T34d guard_mode = block refuses even with "publish anyway"');
+  end;
+  reset role;
+  update public.pricing_rules set guard_mode = 'warn' where category_id = (select category_id from public.products where id = v_p1);
+
+  -- T35 a picker has no pricing permission
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.price_board();
+    v_res := v_res || jsonb_build_array('FAIL T35a picker opened the price board');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T35a picker cannot open the price board (pricing:view)');
+  end;
+  begin
+    insert into public.benchmark_prices (source_id, product_id, price_date, price) values (v_src, v_p2, (now() at time zone 'Asia/Kolkata')::date, 1);
+    v_res := v_res || jsonb_build_array('FAIL T35b picker entered a benchmark');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T35b picker cannot enter benchmarks (pricing:edit)');
+  end;
+  reset role;
+
+  -- T36 a pricing manager (matrix row) can publish but cannot approve customers
+  insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data, created_at, updated_at) values
+    (v_pm, 'authenticated', 'authenticated', 'pm@test.local', now(), '{}'::jsonb, now(), now());
+  update public.profiles set role = 'admin', team_role = 'pricing_manager' where id = v_pm;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pm, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select (public.compute_price(v_p2) ->> 'suggested_price')::numeric into v_num;
+  v_res := v_res || jsonb_build_array(case when v_num = 318 then 'PASS T36a pricing manager sees paneer suggested at 318 (quote 300 ÷ 0.98 wastage × 1.04 markup, step 1)' else 'FAIL T36a ' || coalesce(v_num::text, 'null') end);
+  v_json := public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', v_p2)), 'pm publish');
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'applied')::int = 1 then 'PASS T36b pricing manager published paneer (pricing:approve from the matrix)' else 'FAIL T36b ' || v_json::text end);
+  begin
+    perform public.set_customer_status((select id from public.restaurants where owner_id = v_ra), 'suspended');
+    v_res := v_res || jsonb_build_array('FAIL T36c pricing manager changed a customer status');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T36c pricing manager cannot approve or suspend customers');
+  end;
+  reset role;
+
+  -- T37 scheduled prices go live only when due; cancelling needs pricing:approve
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select price into v_num from public.products where sku = 'VEG-002';
+  v_json := public.apply_prices(jsonb_build_array(jsonb_build_object('product_id', (select id from public.products where sku = 'VEG-002'), 'price', 30)), 'tomorrow', now() + interval '1 day');
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'scheduled')::int = 1 and (select price from public.products where sku = 'VEG-002') = v_num
+    then 'PASS T37a price for tomorrow is scheduled, today''s price unchanged (' || v_num || ')' else 'FAIL T37a ' || v_json::text end);
+  select public.publish_due_prices() into v_n;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T37b nothing due yet: publish_due_prices applied 0' else 'FAIL T37b applied ' || v_n end);
+  reset role;
+  update public.scheduled_prices set effective_at = now() - interval '1 minute' where status = 'pending' returning id into v_sched;
+  select public.publish_due_prices() into v_n;   -- as the cron job would (no session user)
+  select price into v_num from public.products where sku = 'VEG-002';
+  v_res := v_res || jsonb_build_array(case when v_n = 1 and v_num = 30 then 'PASS T37c once due, publish_due_prices applied it: onion now 30' else 'FAIL T37c applied ' || v_n || ' price ' || v_num end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.cancel_scheduled_price(v_sched);
+    v_res := v_res || jsonb_build_array('FAIL T37d cancelled an already applied price');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T37d an applied price cannot be cancelled: ' || sqlerrm);
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.publish_due_prices();
+    v_res := v_res || jsonb_build_array('FAIL T37e customer ran publish_due_prices');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T37e customers cannot run publish_due_prices');
+  end;
+  reset role;
+
+  -- T38 orders snapshot HSN and landed cost (order 1 was placed when tomato cost was the 24 quote → landed 26.09)
+  select hsn_code into v_txt from public.order_items where order_id = (v_o1 ->> 'id')::uuid and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_txt = '0702' then 'PASS T38a order line carries HSN 0702 for the invoice' else 'FAIL T38a hsn ' || coalesce(v_txt, 'null') end);
+  select c.unit_cost into v_num from public.order_line_costs c join public.order_items i on i.id = c.order_item_id
+  where c.order_id = (v_o1 ->> 'id')::uuid and i.product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = 26.09 then 'PASS T38b order line cost snapshot 26.09 kept apart from the customer-visible line' else 'FAIL T38b cost ' || coalesce(v_num::text, 'null') end);
+  select count(*) into v_n from public.order_line_costs where order_id = (v_o1 ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_n = 2 then 'PASS T38c both lines of order 1 have a cost row' else 'FAIL T38c rows ' || v_n end);
+
+  -- T39 a 30-day weighted average: receipts of 50 @ 20 (T12h) and 50 @ 30 → 25
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.receive_stock(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 50, 'unit_cost', 30)), null, 'second lot', v_wh);
+  v_json := public.compute_price(v_p1);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'avg_cost_30d')::numeric = 25 and (v_json ->> 'latest_cost')::numeric = 30 and v_json -> 'flags' ? 'cost_moved'
+    then 'PASS T39 weighted average 25 (50@20 + 50@30), latest 30, cost_moved flagged' else 'FAIL T39 ' || v_json::text end);
+  reset role;
 
   -- Abort on purpose so no test data is ever saved. The message IS the report.
   raise exception E'SECURITY TEST REPORT (rolled back, no data kept)\n%', jsonb_pretty(v_res);

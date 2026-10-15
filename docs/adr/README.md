@@ -16,3 +16,4 @@ Short notes on *why* we chose something. Add a new numbered file for each signif
 | [0010](0010-team-roles-permission-matrix-scope.md) | Team roles, permission matrix and city / warehouse scope |
 | [0011](0011-sectors-and-trading-terms.md) | Sectors (customer types) carry the trading terms |
 | [0012](0012-audit-log-by-trigger.md) | Audit log written by a database trigger |
+| [0013](0013-pricing-engine-rules-and-board.md) | Prices come from a formula in the database, mirrored in the browser |

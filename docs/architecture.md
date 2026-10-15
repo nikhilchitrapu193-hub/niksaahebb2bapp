@@ -139,3 +139,15 @@ audit_log  <── write_audit_log() trigger on products, orders, restaurants, p
 
 Every admin-app function and policy asks those two questions. The browser asks the same ones
 (`web/js/core/permissions.js`) only to decide what to show.
+
+## Pricing (migration 009)
+
+```
+benchmark_prices ─┐                         ┌─ products.price / market_price / benchmark_label
+stock_movements ──┼─► pricing_inputs() ─► compute_price_from() ─► apply_prices() ─┼─ price_history (why)
+pricing_rules ────┤   (override → category   (the formula; mirrored     (guard, now or   └─ scheduled_prices → publish_due_prices()
+product_pricing ──┘    → global, costs, bm)   by pricing.js)              scheduled)
+```
+The browser previews with `web/js/core/pricing.js`; the database recomputes before writing. Every table in
+the left column is staff-only (`pricing` permission module). Order lines snapshot HSN on `order_items` and
+landed cost in `order_line_costs`. Details: `docs/modules/pricing.md`, ADR 0013.

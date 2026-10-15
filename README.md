@@ -29,7 +29,7 @@ Then open http://localhost:3000 (the public site), click **Register your restaur
 |---|---|---|---|
 | Public | — | `/` | Landing page, live catalogue preview, FAQ, links to every login |
 | Customer | `/restaurant/login.html` | `/restaurant/` | Catalogue for their city, cart with minimum-order / delivery-fee / PO rules, delivery slot + COD/credit checkout, track/cancel/reorder, GST invoices, account (city, pin code) |
-| Admin | `/admin/login.html` | `/admin/` | Dashboard, orders (filters, status, driver, payment, invoice, export), products (photos, GST, per-city listing), **inventory per warehouse** (receive, adjust, wastage, ledger, suppliers), customers (sector, terms, approve), team (team roles, city / warehouse scope), settings (company, **cities & warehouses & pin codes**, **sectors & terms**, **roles & permissions**), **audit log** |
+| Admin | `/admin/login.html` | `/admin/` | Dashboard, orders (filters, status, driver, payment, invoice, export), products (photos, GST, HSN, pack size, per-city listing), **inventory per warehouse** (receive, adjust, wastage, ledger, suppliers), customers (sector, terms, approve), team (team roles, city / warehouse scope), settings (company, cities & warehouses & pin codes, sectors & terms, roles & permissions), audit log, **pricing** (price board with margin guard and scheduled changes, rules per category, benchmarks by hand or CSV, price history) |
 | Delivery | `/delivery/login.html` | `/delivery/` | Assigned orders by slot, map/call, cash to collect, start and complete deliveries |
 
 Only customers can self-register; staff logins are created by invitation and get a team role
@@ -44,13 +44,13 @@ web/
   invoice.html, reset.html      printable GST invoice · password reset
   restaurant/ admin/ delivery/  login.html + index.html per area
   css/                          base.css (tokens) + components.css (UI parts)
-  js/core/                      config, supabase client, auth, api, ui helpers, shell/router, permissions, csv
+  js/core/                      config, supabase client, auth, api, ui helpers, shell/router, permissions, csv, pricing (the formula)
   js/pages/<app>/               one module per screen
   vendor/supabase.js            vendored supabase-js (see vendor/README.md)
 supabase/
-  migrations/                   the database, in order (schema → security → functions → inventory → foundation)
+  migrations/                   the database, in order (schema → security → functions → inventory → foundation → pricing)
   seed.sql                      sample categories and products
-  tests/security_test.sql       role/permission regression test (86 checks)
+  tests/security_test.sql       role/permission regression test (121 checks)
   tests/local_postgres_stub.sql run the same test on a plain local Postgres
 scripts/dev-server.js           zero-dependency local server
 tests/                          Node tests (unit + page smoke tests + static checks)
@@ -72,7 +72,7 @@ docs/                           architecture, ADRs, API, roles, deployment, runb
 
 ## Roadmap
 
-Batch 1 of Phase 1 (cities, warehouses, sectors, roles, audit) is in. Next: the pricing engine, catalogue
-extensions, procurement, fulfilment, payments and credit, notifications, reports — see
+Batches 1 and 2 of Phase 1 (cities, warehouses, sectors, roles, audit; the pricing engine) are in. Next:
+catalogue extensions, procurement, fulfilment, payments and credit, notifications, reports — see
 [docs/build-roadmap.md](docs/build-roadmap.md). AI stays out of the product by design
 ([docs/contributing.md](docs/contributing.md#adding-ai-later)).

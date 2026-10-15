@@ -35,6 +35,7 @@ export async function renderSettings(container, me) {
         <label class="field"><span class="label">GSTIN</span><input class="input" name="gstin" value="${s.gstin}" maxlength="15" ${readOnly ? 'disabled' : ''}></label>
         <label class="field"><span class="label">FSSAI licence no.</span><input class="input" name="fssai" value="${s.fssai}" maxlength="20" ${readOnly ? 'disabled' : ''}></label>
         <label class="field span-2"><span class="label">Invoice footer note</span><input class="input" name="invoice_note" value="${s.invoice_note}" maxlength="300" ${readOnly ? 'disabled' : ''}></label>
+        <label class="check span-2"><input type="checkbox" name="show_prices_incl_gst" ${s.show_prices_incl_gst ? 'checked' : ''} ${readOnly ? 'disabled' : ''}> Show catalogue prices including GST <span class="muted small">(invoices always show the split)</span></label>
       </div>
       ${readOnly ? html`<p class="muted small">You can view these settings but not change them (needs settings: edit).</p>`
                  : html`<div><button class="btn primary" type="submit">Save settings</button></div>`}
@@ -43,6 +44,7 @@ export async function renderSettings(container, me) {
   on(container, 'submit', '#settings-form', async (event, form) => {
     event.preventDefault();
     const v = Object.fromEntries(new FormData(form));
+    v.show_prices_incl_gst = form.elements.show_prices_incl_gst.checked;
     try {
       await withBusy($('button[type="submit"]', form), () => saveCompanySettings(v));
       toast('Settings saved', 'success');

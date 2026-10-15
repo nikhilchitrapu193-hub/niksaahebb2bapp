@@ -28,7 +28,8 @@ const WAREHOUSE = { id: 'wh-1', city_id: 'city-vz', name: 'Vizag main warehouse'
 const ZONE = { id: 'z1', warehouse_id: 'wh-1', pincode: '530001', area_name: 'GPO', is_active: true };
 const SECTORS = [
   { code: 'restaurant', name: 'Restaurants & cloud kitchens', description: '', min_order_value: 2000, delivery_fee_below_mov: 99, credit_days: 7, needs_po_reference: false, needs_order_approval: false, can_self_register: true, is_active: true, sort_order: 10 },
-  { code: 'defence', name: 'Army cantonments & unit messes', description: '', min_order_value: 0, delivery_fee_below_mov: 0, credit_days: 60, needs_po_reference: true, needs_order_approval: true, can_self_register: false, is_active: true, sort_order: 40 },
+  { code: 'defence', name: 'Army cantonments & unit messes', description: 'Contract rates, PO on every order', min_order_value: 0, delivery_fee_below_mov: 0, credit_days: 60, needs_po_reference: true, needs_order_approval: true, can_self_register: true, is_active: true, sort_order: 40 },
+  { code: 'retail', name: 'Small retailers & kiranas', description: 'Smaller packs, pay now', min_order_value: 500, delivery_fee_below_mov: 49, credit_days: 0, needs_po_reference: false, needs_order_approval: false, can_self_register: false, is_active: true, sort_order: 50 },
 ];
 const TEAM_ROLES = [
   { code: 'super_admin', name: 'Super admin', description: '', sort_order: 10 },
@@ -39,6 +40,26 @@ const PICKER = { id: 'u-pick', role: 'admin', team_role: 'picker', full_name: 'P
 const PICKER_PERMISSIONS = [{ team_role: 'picker', module: 'orders', action: 'view' }, { team_role: 'picker', module: 'orders', action: 'edit' }];
 const RESTAURANT = { id: 'r1', owner_id: 'u-r', name: 'Spice Hut', status: 'approved', sector_code: 'restaurant', city_id: 'city-vz', warehouse_id: 'wh-1', pincode: '530001' };
 const ADMIN_RPC = { admin_dashboard_stats: () => ({ pending_restaurants: 0 }), admin_list_users: () => [ADMIN] };
+// Migration 009 fixtures: HSN codes, one global + one category rule, two benchmark sources, and
+// what price_board() returns for tomato (inputs + computed result, as the database builds it).
+const HSN = [{ code: '0702', description: 'Tomatoes, fresh', default_gst_rate: 0 }, { code: '0406', description: 'Paneer', default_gst_rate: 5 }];
+const RULES = [
+  { id: 'rule-g', category_id: null, categories: null, markup_pct: 10, min_markup_pct: 3, wastage_pct: 2, handling_per_kg: 0, packing_per_unit: 0, transport_per_kg: 0, market_fee_pct: 0, other_cost_pct: 0, rounding_step: 1, round_mode: 'nearest', benchmark_cap_pct: null, benchmark_source_id: null, cost_method: 'weighted_avg_30d', guard_mode: 'warn', effective_from: '2026-01-01', effective_to: null, note: 'Global default' },
+  { id: 'rule-v', category_id: 'c1', categories: { name: 'Vegetables' }, markup_pct: 15, min_markup_pct: 8, wastage_pct: 8, handling_per_kg: 0, packing_per_unit: 0, transport_per_kg: 0, market_fee_pct: 0, other_cost_pct: 0, rounding_step: 0.5, round_mode: 'nearest', benchmark_cap_pct: 10, benchmark_source_id: 'src-rb', cost_method: 'weighted_avg_30d', guard_mode: 'warn', effective_from: '2026-01-01', effective_to: null, note: null },
+];
+const SOURCES = [{ id: 'src-rb', code: 'rythu_bazaar', name: 'Rythu Bazaar board', kind: 'manual', url: null, is_active: true, sort_order: 10 }, { id: 'src-necc', code: 'necc', name: 'NECC egg rate', kind: 'manual', url: null, is_active: true, sort_order: 20 }];
+const BOARD_TOMATO = {
+  product_id: 'p1', sku: 'VEG-001', name: 'Tomato', unit: 'kg', category_id: 'c1', category_name: 'Vegetables', current_price: 32, current_market_price: 40, price_source: 'manual', gst_rate: 0,
+  weight_kg: 1, rule_source: 'category', has_override: false, pricing_mode: 'rule', cost_method: 'weighted_avg_30d', markup_pct: 15, min_markup_pct: 8, wastage_pct: 8, yield_pct: 100,
+  handling_per_kg: 0, packing_per_unit: 0, transport_per_kg: 0, market_fee_pct: 0, other_cost_pct: 0, rounding_step: 0.5, round_mode: 'nearest', benchmark_cap_pct: 10, guard_mode: 'warn',
+  fixed_margin_amount: null, manual_price: null, manual_reason: null, manual_cost: null, supplier_quote: null, quote_date: null,
+  latest_cost: 20, latest_cost_date: '2026-10-14', avg_cost_30d: 20, benchmark_price: 22, benchmark_date: '2026-10-15', benchmark_source: 'rythu_bazaar', benchmark_source_name: 'Rythu Bazaar board', benchmark_age_days: 0,
+  cost_basis: 20, landed_cost: 21.74, raw_price: 24.2, suggested_price: 24, capped: true, margin_amount: 2.26, margin_pct: 9.42, markup_effective_pct: 10.4, flags: ['capped'],
+};
+const BOARD_PANEER = { ...BOARD_TOMATO, product_id: 'p3', sku: 'DAI-002', name: 'Paneer', category_name: 'Vegetables', current_price: 340, latest_cost: null, avg_cost_30d: null, benchmark_price: null, benchmark_source: null, benchmark_source_name: null, benchmark_age_days: null, benchmark_date: null,
+  cost_basis: null, landed_cost: null, raw_price: null, suggested_price: null, capped: false, margin_amount: null, margin_pct: null, markup_effective_pct: null, flags: ['no_cost'] };
+const PRICING_RPC = { ...ADMIN_RPC, publish_due_prices: () => 0, price_board: () => [BOARD_PANEER, BOARD_TOMATO], apply_prices: () => ({ applied: 1, scheduled: 0 }) };
+
 const TERMS = { min_order_value: 2000, delivery_fee_below_mov: 99, credit_days: 7, needs_po_reference: false, sector_name: 'Restaurants & cloud kitchens', delivers: true };
 
 /** Install DOM + fake backend for one test. */
@@ -50,6 +71,8 @@ function setup({ session, profile, tables = {}, rpc = {}, body }) {
       profiles: profile ? [profile] : [], categories: [{ id: 'c1', name: 'Vegetables', sort_order: 10 }],
       cities: [CITY], warehouses: [WAREHOUSE], service_zones: [ZONE], sectors: SECTORS, team_roles: TEAM_ROLES,
       role_permissions: PICKER_PERMISSIONS, warehouse_stock: [], product_city_availability: [], audit_log: [],
+      hsn_codes: HSN, pricing_rules: RULES, product_pricing: [], benchmark_sources: SOURCES, benchmark_prices: [], price_history: [], scheduled_prices: [],
+      company_settings: [COMPANY],
       ...tables,
     },
     rpc,
@@ -95,7 +118,7 @@ test('login: a restaurant account signing in on the admin page is rejected', asy
   document.querySelector('[name=password]').value = 'secret123';
   document.querySelector('#form').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => document.querySelector('#error').textContent);
-  assert.match(document.querySelector('#error').textContent, /restaurant partner account/i);
+  assert.match(document.querySelector('#error').textContent, /customer account/i);
   assert.equal(fake.state.session, null, 'signed out again');
 });
 
@@ -640,3 +663,170 @@ test('landing: pin-code check calls check_pincode and shows the answer', async (
 });
 
 test.after(() => setTimeout(() => process.exit(0), 50)); // delivery page leaves a polling timer running
+
+// -----------------------------------------------------------------------------
+// Migration 008 + 009: all sectors on the sign-up form; pricing engine screens
+// -----------------------------------------------------------------------------
+
+test('login: every sector that may self-register is offered, with its description as a hint', async () => {
+  const { document } = setup({ body: '<div id="auth-root" data-role="restaurant"></div>' });
+  await importFresh('web/js/pages/login.js');
+  await waitFor(() => document.querySelector('[data-mode="register"]')).then((b) => b.click());
+  const select = await waitFor(() => document.querySelector('[name=sectorCode]'));
+  assert.deepEqual([...select.options].map((o) => o.value), ['restaurant', 'defence'], 'retail is switched off in the fixture, the other two show');
+  select.value = 'defence';
+  select.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  assert.equal(document.querySelector('#sector-hint').textContent, 'Contract rates, PO on every order');
+  assert.match(document.querySelector('#form').textContent, /Business \/ outlet name/);
+});
+
+test('admin: price board lists products with flags, recalculates a typed quote locally, and publishes the selected row', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: PRICING_RPC,
+    tables: { products: PRODUCTS },
+  });
+  location.hash = '#pricing';
+  await importFresh('web/js/pages/admin/main.js');
+  const row = await waitFor(() => document.querySelector('tr[data-id="p1"]'));
+  assert.ok(fake.calls.some((c) => c.name === 'publish_due_prices'), 'due scheduled prices are applied when the board opens');
+  assert.match(row.textContent, /Held at benchmark cap/);
+  assert.equal(row.querySelector('[data-price]').value, '24', 'suggested price from the database is the starting value');
+  assert.match(document.querySelector('tr[data-id="p3"]').textContent, /No cost on file/);
+  assert.match(document.querySelector('.page-head').textContent, /1 without a cost/);
+
+  // Typing a quote of 30 → cost 30 → landed 32.61 → ×1.15 = 37.5 → cap 24.2 → 24.0 still; margin shrinks and the guard flags it.
+  const quote = row.querySelector('[data-quote="p1"]');
+  quote.value = '30';
+  quote.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  assert.match(row.textContent, /Below cost/, 'cost 32.61 against a capped price of 24');
+  quote.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'upsert' && c.table === 'product_pricing'));
+  assert.equal(fake.calls.find((c) => c.table === 'product_pricing').payload.supplier_quote, 30);
+
+  // Publish the tomato row at a typed price of 26.
+  const price = row.querySelector('[data-price="p1"]');
+  price.value = '26';
+  price.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  document.querySelector('#publish').click();
+  const form = await waitFor(() => document.querySelector('#publish-form'));
+  form.querySelector('[name=reason]').value = 'morning board';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'apply_prices'));
+  const call = fake.calls.find((c) => c.name === 'apply_prices').args;
+  assert.deepEqual(call.p_items, [{ product_id: 'p1', price: 26 }]);
+  assert.equal(call.p_reason, 'morning board');
+  assert.equal(call.p_effective_at, null);
+});
+
+test('admin: a picker has no Pricing menu and sees "No access" on #pricing', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-pick', email: 'p@x.com' } }, profile: PICKER, rpc: { ...ADMIN_RPC, admin_dashboard_stats: () => ({}) },
+  });
+  location.hash = '#pricing';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#view .empty'));
+  assert.match(document.querySelector('#view').textContent, /No access/);
+  assert.ok(!document.querySelector('.app-nav a[href="#pricing"]'));
+});
+
+test('admin: rules screen shows the category rule and saving a change inserts a new effective-dated row', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: PRICING_RPC,
+  });
+  location.hash = '#pricing-rules';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.rule-card'));
+  const cards = [...document.querySelectorAll('.rule-card')];
+  assert.equal(cards.length, 2, 'global + one category');
+  assert.match(cards[1].textContent, /15%/);
+  assert.match(cards[1].textContent, /10% above/);
+  cards[1].querySelector('[data-edit]').click();
+  const form = await waitFor(() => document.querySelector('#rule-form'));
+  assert.match(document.querySelector('#test-result').textContent, /1 kg bought at ₹100\.00 → landed ₹108\.70 → sells at ₹125\.00/);
+  form.querySelector('[name=markup_pct]').value = '14';
+  form.querySelector('[name=effective_from]').value = '2026-11-01';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'insert' && c.table === 'pricing_rules'));
+  const closed = fake.calls.find((c) => c.type === 'update' && c.table === 'pricing_rules');
+  assert.equal(closed.payload.effective_to, '2026-10-31', 'the old row ends the day before');
+  const inserted = fake.calls.find((c) => c.type === 'insert' && c.table === 'pricing_rules').payload;
+  assert.equal(inserted.category_id, 'c1');
+  assert.equal(inserted.markup_pct, 14);
+  assert.equal(inserted.effective_from, '2026-11-01');
+  assert.equal(inserted.benchmark_cap_pct, 10);
+});
+
+test('admin: benchmarks grid saves typed rates as an upsert keyed by source, product and day', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: PRICING_RPC,
+    tables: { products: PRODUCTS, benchmark_prices: [{ id: 1, source_id: 'src-rb', product_id: 'p1', price_date: '2026-10-01', price: 30, market: 'MVP' }] },
+  });
+  location.hash = '#benchmarks';
+  await importFresh('web/js/pages/admin/main.js');
+  const row = await waitFor(() => document.querySelector('tr[data-id="p1"]'));
+  assert.match(row.textContent, /₹30\.00 on/, 'last entered rate shown');
+  row.querySelector('[data-rate="p1"]').value = '22';
+  row.querySelector('[data-market="p1"]').value = 'MVP Colony';
+  document.querySelector('#save-grid').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'upsert' && c.table === 'benchmark_prices'));
+  const saved = fake.calls.find((c) => c.table === 'benchmark_prices').payload;
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].product_id, 'p1');
+  assert.equal(saved[0].source_id, 'src-rb');
+  assert.equal(saved[0].price, 22);
+  assert.equal(saved[0].market, 'MVP Colony');
+  assert.match(saved[0].price_date, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('admin: product form has HSN and pack size; a board-priced product keeps its price', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: ADMIN_RPC,
+    tables: { products: [{ ...PRODUCTS[0], price_source: 'rule', hsn_code: '0702', pack_size: 1, pack_unit: 'kg' }] },
+  });
+  location.hash = '#products';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-edit="p1"]')).then((b) => b.click());
+  const form = await waitFor(() => document.querySelector('#product-form'));
+  assert.equal(form.querySelector('[name=price]').readOnly, true, 'published from the board');
+  assert.equal(form.querySelector('[name=hsn_code]').value, '0702');
+  form.querySelector('[name=hsn_code]').value = '0406';
+  form.querySelector('[name=hsn_code]').dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  assert.equal(form.querySelector('[name=gst_rate]').value, '5', 'HSN fills in its GST rate');
+  form.querySelector('[name=pack_size]').value = '500';
+  form.querySelector('[name=pack_unit]').value = 'g';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'products'));
+  const saved = fake.calls.find((c) => c.table === 'products').payload;
+  assert.equal(saved.hsn_code, '0406');
+  assert.equal(saved.pack_size, 500);
+  assert.equal(saved.pack_unit, 'g');
+  assert.equal('price' in saved, false, 'the form does not overwrite a board price');
+});
+
+test('restaurant: catalogue shows the benchmark source next to the market rate and can show prices incl. GST', async () => {
+  const { document } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: [{ ...PRODUCTS[2], market_price: 360, benchmark_label: 'Distributor rate · 15 Oct' }], company_settings: [{ ...COMPANY, show_prices_incl_gst: true }] },
+    rpc: { my_order_terms: () => TERMS },
+  });
+  await importFresh('web/js/pages/restaurant/main.js');
+  const card = await waitFor(() => document.querySelector('.product-card'));
+  assert.match(card.textContent, /₹357\.00/, '340 + 5% GST');
+  assert.match(card.textContent, /incl\. 5% GST/);
+  assert.match(card.textContent, /vs Distributor rate · 15 Oct/);
+});
+
+test('invoice: shows the HSN column and the delivery fee line', async () => {
+  const order = { ...ORDER, delivery_fee: 99, total_amount: 259, order_items: [{ ...ORDER.order_items[0], hsn_code: '0702' }] };
+  const { document, location } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], orders: [order], company_settings: [COMPANY] },
+    body: '<div id="invoice"></div>',
+  });
+  location.search = '?order=o1';
+  await importFresh('web/js/pages/invoice.js');
+  await waitFor(() => document.querySelector('.invoice-head'));
+  assert.match(document.querySelector('#invoice').textContent, /HSN/);
+  assert.match(document.querySelector('#invoice tbody').textContent, /0702/);
+  assert.match(document.querySelector('.totals').textContent, /Delivery fee/);
+});

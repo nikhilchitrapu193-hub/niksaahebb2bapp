@@ -43,9 +43,11 @@ export const ROLE_LOGIN = Object.freeze({
   restaurant: 'restaurant/login.html',
   delivery: 'delivery/login.html',
 });
+// "restaurant" is the app role of every customer (restaurants, hotels, institutions,
+// defence, retail): the label names them all.
 export const ROLE_LABELS = Object.freeze({
   admin: 'Admin',
-  restaurant: 'Restaurant partner',
+  restaurant: 'Customer',
   delivery: 'Delivery staff',
 });
 
@@ -64,7 +66,7 @@ export const PAYMENT_METHODS = Object.freeze({
 
 /**
  * Admin-app modules and the actions a team role can be granted in each.
- * MUST match the check constraints on role_permissions (migration 006).
+ * MUST match the check constraints on role_permissions (migrations 006, 009).
  * `nav` is the admin route that opens the module; modules without one are
  * permission groups only (reports arrive in a later batch).
  */
@@ -79,6 +81,25 @@ export const MODULES = Object.freeze({
   settings:  { label: 'Settings', nav: '#settings' },
   audit:     { label: 'Audit log', nav: '#audit' },
   reports:   { label: 'Reports', nav: null },
+  pricing:   { label: 'Pricing', nav: '#pricing' },
+});
+
+/** Selling-unit contents (products.pack_unit). Per-kg costs apply to kg/g/l/ml, not to pieces. */
+export const PACK_UNITS = Object.freeze({ kg: 'kg', g: 'g', l: 'litre', ml: 'ml', pc: 'pieces' });
+
+/** How a product's price is worked out (product_pricing.pricing_mode). */
+export const PRICING_MODES = Object.freeze({
+  rule:                 { label: 'Cost + markup (category rule)' },
+  fixed_over_benchmark: { label: 'Benchmark + fixed amount' },
+  manual:               { label: 'Manual price' },
+});
+
+/** Which cost the formula starts from (pricing_rules / product_pricing.cost_method). */
+export const COST_METHODS = Object.freeze({
+  weighted_avg_30d: { label: '30-day weighted average (ledger)' },
+  latest:           { label: 'Latest receipt (ledger)' },
+  quote:            { label: "Today's supplier quote" },
+  manual:           { label: 'Typed cost' },
 });
 
 export const ACTIONS = Object.freeze({
