@@ -2,7 +2,7 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 85
+-- psql). It creates throw-away users, impersonates each role, checks 86
 -- rules, then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
@@ -72,6 +72,12 @@ begin
     v_res := v_res || jsonb_build_array('FAIL T2c anon can read restaurants');
   exception when insufficient_privilege then
     v_res := v_res || jsonb_build_array('PASS T2c anonymous visitors blocked from restaurants');
+  end;
+  begin
+    perform 1 from public.suppliers limit 1;
+    v_res := v_res || jsonb_build_array('FAIL T2d anon can read suppliers');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T2d anonymous visitors blocked from suppliers (migration 007)');
   end;
   reset role;
 

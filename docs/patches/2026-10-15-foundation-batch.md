@@ -6,8 +6,15 @@ team roles + permission matrix + city / warehouse scope · audit log · CSV expo
 check on the public site · per-city product listing. Plus code rules and three agent skills adapted from
 ponytail, pstack, thermos and PentAGI.
 
-Tested: `npm test` 49/49 · `security_test.sql` 85/85 PASS (on a local Postgres 16 built from the
+Tested: `npm test` 49/49 · `security_test.sql` 86/86 PASS (on a local Postgres 16 built from the
 migrations) · every page loaded in headless Chromium without errors.
+
+**Status on the live project (bzxygscjhvcwahwqgqin), 15 Oct 2026:** migrations 006 and 007 applied, seed
+blocks run, Edge Function `invite-staff` at version 2. Steps 4–6 below are done; only 7 and 8 remain.
+
+**Follow-up files (second zip, `foundation-batch-followup.zip`):** `supabase/migrations/20261015000002_revoke_anon_on_inventory_tables.sql`
+(**NEW**, already applied live), `tests/static.test.js` (Windows path fix for the vendor folder),
+`supabase/tests/security_test.sql` (T2d added), plus the doc count updates.
 
 ## How to apply (Cursor, Windows, repo at `C:\Projects\fresh-supply`)
 

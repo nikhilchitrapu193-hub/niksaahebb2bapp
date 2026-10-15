@@ -53,7 +53,7 @@ web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
 web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv
 web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit added in 006)
 web/css/                       base.css (tokens), components.css, landing.css
-supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) (apply in order)
+supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) (apply in order)
 supabase/seed.sql              sample catalogue
 supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres

@@ -50,7 +50,7 @@ web/
 supabase/
   migrations/                   the database, in order (schema → security → functions → inventory → foundation)
   seed.sql                      sample categories and products
-  tests/security_test.sql       role/permission regression test (85 checks)
+  tests/security_test.sql       role/permission regression test (86 checks)
   tests/local_postgres_stub.sql run the same test on a plain local Postgres
 scripts/dev-server.js           zero-dependency local server
 tests/                          Node tests (unit + page smoke tests + static checks)
