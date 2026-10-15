@@ -122,3 +122,20 @@ The browser never sends a price. A tampered cart cannot change what is charged.
 6. All HTML is built with the escaping `html` template, preventing XSS.
 
 The 30-check regression test in `supabase/tests/security_test.sql` proves these rules.
+
+## Cities, scope and permissions (migration 006)
+
+```
+city ──< warehouse ──< service_zone (pin code)
+  │          │
+  │          └──< warehouse_stock (per product)      products.stock_qty = sum over warehouses
+  └──< restaurants (customer: sector_code, warehouse_id from pin code)
+            └──< orders (city_id, warehouse_id, sector_code, po_reference, delivery_fee)
+
+profiles.team_role ──> role_permissions (module × action)     has_permission(module, action)
+profiles.city_id / warehouse_id                                in_my_scope(city, warehouse)
+audit_log  <── write_audit_log() trigger on products, orders, restaurants, profiles, permissions, settings
+```
+
+Every admin-app function and policy asks those two questions. The browser asks the same ones
+(`web/js/core/permissions.js`) only to decide what to show.

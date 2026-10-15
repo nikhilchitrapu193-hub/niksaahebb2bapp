@@ -1,48 +1,59 @@
 // =============================================================================
 // products.js — catalogue management: add/edit products, upload photos,
-// toggle stock / visibility, manage categories.
+// toggle stock / visibility, manage categories, and choose the cities where
+// each product is listed (hidden in a city = invisible and unorderable there).
+// Buttons that change data appear only with products:edit; the database
+// refuses the write without it anyway.
 // =============================================================================
 
 import { html, mount, on, $, formatINR, openModal, reportError, toast, withBusy, confirmDialog } from '../../core/ui.js';
 import { listProducts, listCategories, saveProduct, setProductFlags, uploadProductPhoto, photoUrl,
-         saveCategory, deleteCategory } from '../../core/api.js';
+         saveCategory, deleteCategory, listCities, listProductAvailability, setProductAvailability } from '../../core/api.js';
+import { can } from '../../core/permissions.js';
 
-export async function renderProducts(container) {
+export async function renderProducts(container, me) {
   let search = '';
-  let [products, categories] = await Promise.all([listProducts(), listCategories()]);
+  const editable = can(me, 'products', 'edit');
+  let [products, categories, cities, availability] = await Promise.all([listProducts(), listCategories(), listCities(), listProductAvailability()]);
 
   async function reload() {
-    [products, categories] = await Promise.all([listProducts(), listCategories()]);
+    [products, categories, availability] = await Promise.all([listProducts(), listCategories(), listProductAvailability()]);
     draw();
   }
+
+  /** Names of cities where this product is hidden. */
+  const hiddenIn = (productId) => availability
+    .filter((a) => a.product_id === productId && !a.is_available)
+    .map((a) => cities.find((c) => c.id === a.city_id)?.name ?? '?');
 
   function draw() {
     const term = search.trim().toLowerCase();
     const rows = products.filter((p) => !term || p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term));
     mount(container, html`
       <div class="page-head"><div><h1>Products</h1><p>${products.length} products</p></div>
-        <div class="row"><button class="btn" id="categories">Categories</button><button class="btn primary" id="new">Add product</button></div></div>
+        ${editable ? html`<div class="row"><button class="btn" id="categories">Categories</button><button class="btn primary" id="new">Add product</button></div>` : ''}</div>
       <div class="toolbar"><input class="input search" id="search" type="search" placeholder="Search name or SKU…" value="${search}"></div>
       <div class="card"><div class="table-wrap"><table class="table">
         <thead><tr><th></th><th>Product</th><th>Category</th><th class="right">Price</th><th class="right">On hand</th><th>Stock</th><th>Listed</th><th></th></tr></thead>
         <tbody>${rows.length === 0 ? html`<tr><td colspan="8"><div class="empty">No products.</div></td></tr>`
           : rows.map((p) => html`<tr>
             <td>${p.photo_path ? html`<img class="thumb" src="${photoUrl(p.photo_path)}" alt="">` : html`<div class="thumb-empty">—</div>`}</td>
-            <td><strong>${p.name}</strong><div class="muted small">${p.sku} · min ${Number(p.min_order_qty)} ${p.unit}</div></td>
+            <td><strong>${p.name}</strong><div class="muted small">${p.sku} · min ${Number(p.min_order_qty)} ${p.unit}</div>
+              ${hiddenIn(p.id).length ? html`<div class="tiny" style="color:var(--accent)">Hidden in ${hiddenIn(p.id).join(', ')}</div>` : ''}</td>
             <td>${p.categories?.name ?? '—'}</td>
             <td class="right money">${formatINR(p.price)}<div class="muted tiny">per ${p.unit}${p.gst_rate > 0 ? ` · ${Number(p.gst_rate)}% GST` : ''}</div></td>
             <td class="right num">${Number(p.stock_qty)}</td>
-            <td><button class="badge ${p.in_stock ? 'in-stock' : 'out-of-stock'}" style="border:0;cursor:pointer" data-flag="in_stock" data-id="${p.id}" title="Click to toggle">${p.in_stock ? 'In stock' : 'Out of stock'}</button></td>
-            <td><button class="badge ${p.is_active ? 'approved' : 'inactive'}" style="border:0;cursor:pointer" data-flag="is_active" data-id="${p.id}" title="Click to toggle">${p.is_active ? 'Listed' : 'Hidden'}</button></td>
-            <td class="right"><button class="btn small" data-edit="${p.id}">Edit</button></td></tr>`)}
+            <td><button class="badge ${p.in_stock ? 'in-stock' : 'out-of-stock'}" style="border:0;cursor:pointer" data-flag="in_stock" data-id="${p.id}" title="Click to toggle" ${editable ? '' : 'disabled'}>${p.in_stock ? 'In stock' : 'Out of stock'}</button></td>
+            <td><button class="badge ${p.is_active ? 'approved' : 'inactive'}" style="border:0;cursor:pointer" data-flag="is_active" data-id="${p.id}" title="Click to toggle" ${editable ? '' : 'disabled'}>${p.is_active ? 'Listed' : 'Hidden'}</button></td>
+            <td class="right">${editable ? html`<button class="btn small" data-edit="${p.id}">Edit</button>` : ''}</td></tr>`)}
         </tbody></table></div></div>`);
     const input = $('#search', container);
     input.oninput = () => { search = input.value; draw(); $('#search', container).focus(); };
   }
 
-  on(container, 'click', '#new', () => productForm(null, categories, reload));
+  on(container, 'click', '#new', () => productForm(null, categories, cities, availability, reload));
   on(container, 'click', '#categories', () => categoryManager(categories, reload));
-  on(container, 'click', '[data-edit]', (_e, el) => productForm(products.find((p) => p.id === el.dataset.edit), categories, reload));
+  on(container, 'click', '[data-edit]', (_e, el) => productForm(products.find((p) => p.id === el.dataset.edit), categories, cities, availability, reload));
   on(container, 'click', '[data-flag]', async (_e, el) => {
     const product = products.find((p) => p.id === el.dataset.id);
     const flag = el.dataset.flag;
@@ -52,9 +63,10 @@ export async function renderProducts(container) {
   draw();
 }
 
-function productForm(product, categories, onSaved) {
+function productForm(product, categories, cities, availability, onSaved) {
   const p = product ?? { in_stock: true, is_active: true, min_order_qty: 1, unit: 'kg' };
   let photoPath = p.photo_path ?? null;
+  const listedIn = (cityId) => !availability.some((a) => a.product_id === p.id && a.city_id === cityId && !a.is_available);
 
   const { el, close } = openModal(html`
     <form id="product-form" class="stack" novalidate>
@@ -79,6 +91,9 @@ function productForm(product, categories, onSaved) {
           <span class="hint">JPG, PNG or WebP, up to 5 MB.</span></div>
         <label class="check"><input type="checkbox" name="in_stock" ${p.in_stock ? 'checked' : ''}> In stock</label>
         <label class="check"><input type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''}> Listed in catalogue</label>
+        ${cities.length > 1 ? html`<div class="field span-2"><span class="label">Listed in these cities</span>
+          <div class="row-wrap">${cities.map((c) => html`<label class="check"><input type="checkbox" data-city="${c.id}" ${listedIn(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
+          <span class="hint">Untick a city to hide the product there (customers in that city cannot see or order it).</span></div>` : ''}
       </div>
       <p class="form-error" id="form-error" role="alert"></p>
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save product</button></div>
@@ -99,10 +114,16 @@ function productForm(product, categories, onSaved) {
     if (!form.checkValidity()) { $('#form-error', el).textContent = 'Please fill in all required fields.'; return; }
     const v = Object.fromEntries(new FormData(form));
     try {
-      await withBusy($('button[type="submit"]', form), () => saveProduct({
-        ...v, id: product?.id, photo_path: photoPath,
-        in_stock: form.elements.in_stock.checked, is_active: form.elements.is_active.checked,
-      }));
+      await withBusy($('button[type="submit"]', form), async () => {
+        const saved = await saveProduct({
+          ...v, id: product?.id, photo_path: photoPath,
+          in_stock: form.elements.in_stock.checked, is_active: form.elements.is_active.checked,
+        });
+        // Per-city listing: only write rows whose tick changed.
+        for (const box of form.querySelectorAll('[data-city]')) {
+          if (box.checked !== listedIn(box.dataset.city)) await setProductAvailability(saved.id, box.dataset.city, box.checked);
+        }
+      });
       toast('Product saved', 'success');
       close(); onSaved();
     } catch (error) { $('#form-error', el).textContent = error.message; }

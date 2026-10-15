@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { installDom, waitFor, importFresh } from './helpers/dom.js';
 import { createFake, useFake } from './helpers/fake-supabase.js';
 
-const ADMIN = { id: 'u-admin', role: 'admin', full_name: 'Asha Admin', is_active: true };
+const ADMIN = { id: 'u-admin', role: 'admin', team_role: 'super_admin', full_name: 'Asha Admin', is_active: true };
 const RESTAURANT_USER = { id: 'u-r', role: 'restaurant', full_name: 'Ravi', is_active: true };
 const DRIVER = { id: 'u-d', role: 'delivery', full_name: 'Dev Driver', is_active: true };
 
@@ -22,12 +22,36 @@ const ORDER = {
 };
 const COMPANY = { id: true, name: 'Fresh Supply Pvt Ltd', address: 'Hyderabad', phone: '040', email: 'x@y.z', gstin: '36ABC', fssai: '123', invoice_note: 'Thanks' };
 
+// Migration 006 fixtures: one city with a default warehouse, a picker with a small permission set.
+const CITY = { id: 'city-vz', name: 'Visakhapatnam', state_code: '37', is_active: true, sort_order: 10 };
+const WAREHOUSE = { id: 'wh-1', city_id: 'city-vz', name: 'Vizag main warehouse', address: '', is_default: true, is_active: true };
+const ZONE = { id: 'z1', warehouse_id: 'wh-1', pincode: '530001', area_name: 'GPO', is_active: true };
+const SECTORS = [
+  { code: 'restaurant', name: 'Restaurants & cloud kitchens', description: '', min_order_value: 2000, delivery_fee_below_mov: 99, credit_days: 7, needs_po_reference: false, needs_order_approval: false, can_self_register: true, is_active: true, sort_order: 10 },
+  { code: 'defence', name: 'Army cantonments & unit messes', description: '', min_order_value: 0, delivery_fee_below_mov: 0, credit_days: 60, needs_po_reference: true, needs_order_approval: true, can_self_register: false, is_active: true, sort_order: 40 },
+];
+const TEAM_ROLES = [
+  { code: 'super_admin', name: 'Super admin', description: '', sort_order: 10 },
+  { code: 'picker', name: 'Picker / packer', description: 'Picks and packs', sort_order: 100 },
+  { code: 'driver', name: 'Driver', description: '', sort_order: 110 },
+];
+const PICKER = { id: 'u-pick', role: 'admin', team_role: 'picker', full_name: 'Pavan Picker', is_active: true };
+const PICKER_PERMISSIONS = [{ team_role: 'picker', module: 'orders', action: 'view' }, { team_role: 'picker', module: 'orders', action: 'edit' }];
+const RESTAURANT = { id: 'r1', owner_id: 'u-r', name: 'Spice Hut', status: 'approved', sector_code: 'restaurant', city_id: 'city-vz', warehouse_id: 'wh-1', pincode: '530001' };
+const ADMIN_RPC = { admin_dashboard_stats: () => ({ pending_restaurants: 0 }), admin_list_users: () => [ADMIN] };
+const TERMS = { min_order_value: 2000, delivery_fee_below_mov: 99, credit_days: 7, needs_po_reference: false, sector_name: 'Restaurants & cloud kitchens', delivers: true };
+
 /** Install DOM + fake backend for one test. */
 function setup({ session, profile, tables = {}, rpc = {}, body }) {
   const env = installDom(body);
   const fake = createFake({
     session,
-    tables: { profiles: profile ? [profile] : [], categories: [{ id: 'c1', name: 'Vegetables', sort_order: 10 }], ...tables },
+    tables: {
+      profiles: profile ? [profile] : [], categories: [{ id: 'c1', name: 'Vegetables', sort_order: 10 }],
+      cities: [CITY], warehouses: [WAREHOUSE], service_zones: [ZONE], sectors: SECTORS, team_roles: TEAM_ROLES,
+      role_permissions: PICKER_PERMISSIONS, warehouse_stock: [], product_city_availability: [], audit_log: [],
+      ...tables,
+    },
     rpc,
   });
   useFake(fake);
@@ -141,7 +165,7 @@ test('restaurant: approved restaurant can add to cart and place an order', async
     session: { user: { id: 'u-r', email: 'r@x.com' } },
     profile: RESTAURANT_USER,
     tables: { restaurants: [{ id: 'r1', owner_id: 'u-r', name: 'Spice Hut', status: 'approved' }], products: PRODUCTS, orders: [] },
-    rpc: { place_order: () => ({ id: 'o9', order_number: 'ORD-1009', total_amount: 160 }) },
+    rpc: { place_order: () => ({ id: 'o9', order_number: 'ORD-1009', total_amount: 160 }), my_order_terms: () => ({ ...TERMS, min_order_value: 0 }) },
   });
   localStorage.clear();
   const cart = await import('../web/js/pages/restaurant/cart.js');
@@ -232,7 +256,9 @@ test('admin: inventory lists stock levels and receives stock via receive_stock',
   const { document, location, fake } = setup({
     session: { user: { id: 'u-admin', email: 'a@x.com' } },
     profile: ADMIN,
-    tables: { products: PRODUCTS, suppliers: [{ id: 's1', name: 'Farm Co', is_active: true }] },
+    tables: { products: PRODUCTS, suppliers: [{ id: 's1', name: 'Farm Co', is_active: true }],
+      // Per-warehouse figures (migration 006) mirror the product totals above.
+      warehouse_stock: PRODUCTS.map((p) => ({ warehouse_id: 'wh-1', product_id: p.id, qty: p.stock_qty })) },
     rpc: { admin_dashboard_stats: () => ({ pending_restaurants: 0 }), receive_stock: () => null },
   });
   location.hash = '#inventory';
@@ -320,6 +346,297 @@ test('landing: public page lists categories and featured products without a sess
   assert.equal(document.querySelectorAll('.category-tile').length, 1);
   assert.equal(document.querySelectorAll('#featured .product-card').length, 2, 'only in-stock products are featured');
   assert.equal(document.querySelector('img[onerror]'), null);
+});
+
+
+// ============================================================================
+// Migration 006: cities, sectors, roles & permissions, audit log
+// ============================================================================
+
+test('admin: a picker sees only the Orders menu and gets "No access" on other routes', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-pick', email: 'p@x.com' } },
+    profile: PICKER,
+    tables: { orders: [] },
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#team';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.nav-link'));
+  assert.deepEqual([...document.querySelectorAll('.nav-link')].map((a) => a.textContent.trim()), ['Orders']);
+  await waitFor(() => /No access/.test(document.querySelector('#view').textContent));
+});
+
+test('admin: locations screen lists the city, warehouse and pin codes, and adds a pin code', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: ADMIN_RPC,
+  });
+  location.hash = '#locations';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-add-zone]'));
+  const text = document.body.textContent;
+  assert.match(text, /Visakhapatnam/);
+  assert.match(text, /Vizag main warehouse/);
+  assert.match(text, /530001/);
+  document.querySelector('[data-add-zone="wh-1"]').click();
+  const form = await waitFor(() => document.querySelector('#loc-form'));
+  form.querySelector('[name=pincode]').value = '530016';
+  form.querySelector('[name=area_name]').value = 'MVP Colony';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'insert' && c.table === 'service_zones'));
+  assert.deepEqual(fake.calls.find((c) => c.table === 'service_zones').payload, { warehouse_id: 'wh-1', pincode: '530016', area_name: 'MVP Colony', is_active: true });
+});
+
+test('admin: sectors screen saves edited terms', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: ADMIN_RPC,
+  });
+  location.hash = '#sectors';
+  await importFresh('web/js/pages/admin/main.js');
+  const row = await waitFor(() => document.querySelector('tr[data-code="restaurant"]'));
+  row.querySelector('[name=min_order_value]').value = '2500';
+  row.querySelector('[name=needs_po_reference]').checked = true;
+  row.querySelector('[data-save]').click();
+  await waitFor(() => fake.calls.some((c) => c.table === 'sectors'));
+  const call = fake.calls.find((c) => c.table === 'sectors');
+  assert.equal(call.type, 'update');
+  assert.equal(call.payload.min_order_value, 2500);
+  assert.equal(call.payload.needs_po_reference, true);
+  assert.deepEqual(call.filters, [['code', 'restaurant']]);
+});
+
+test('admin: roles screen shows the matrix and a super admin can tick a permission', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: ADMIN_RPC,
+  });
+  location.hash = '#roles';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.matrix'));
+  assert.equal(document.querySelector('#role-select').value, 'picker', 'first editable role selected');
+  const ordersEdit = document.querySelector('[data-module="orders"][data-action="edit"]');
+  assert.equal(ordersEdit.checked, true, 'seeded permission is ticked');
+  const paymentsView = document.querySelector('[data-module="payments"][data-action="view"]');
+  assert.equal(paymentsView.checked, false);
+  paymentsView.checked = true;
+  paymentsView.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => fake.calls.some((c) => c.table === 'role_permissions'));
+  assert.deepEqual(fake.calls.find((c) => c.table === 'role_permissions').payload, { team_role: 'picker', module: 'payments', action: 'view' });
+});
+
+test('admin: roles screen is read-only for a non-super-admin', async () => {
+  const cityManager = { ...PICKER, team_role: 'city_manager' };
+  const { document, location } = setup({
+    session: { user: { id: 'u-pick', email: 'p@x.com' } }, profile: cityManager,
+    tables: { role_permissions: [{ team_role: 'city_manager', module: 'team', action: 'view' }, { team_role: 'city_manager', module: 'settings', action: 'view' }] },
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#roles';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.matrix'));
+  assert.ok(document.querySelectorAll('.matrix input:not([disabled])').length === 0, 'no editable tick boxes');
+  assert.match(document.body.textContent, /Only a super admin can change/);
+});
+
+test('admin: audit log lists changes in plain words', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { audit_log: [
+      { id: 2, table_name: 'products', row_id: 'p1-uuid', action: 'update', changed_by: 'u-admin', changed_at: '2026-10-15T05:00:00Z', changes: { price: { old: 32, new: 33 } } },
+      { id: 1, table_name: 'orders', row_id: 'o1-uuid', action: 'insert', changed_by: null, changed_at: '2026-10-15T04:00:00Z', changes: { order_number: 'ORD-1001' } },
+    ] },
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#audit';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.diff'));
+  const text = document.body.textContent;
+  assert.match(text, /Asha Admin/);
+  assert.match(text, /price/);
+  assert.match(text, /33/);
+  assert.match(text, /created/);
+  assert.match(text, /system/);
+});
+
+test('admin: customers screen approves through set_customer_status and saves terms', async () => {
+  const pendingCustomer = { ...RESTAURANT, status: 'pending' };
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { restaurants: [pendingCustomer] },
+    rpc: { ...ADMIN_RPC, admin_outstanding_balances: () => [], set_customer_status: () => null },
+  });
+  location.hash = '#customers';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-terms]'));
+  assert.match(document.body.textContent, /Restaurants & cloud kitchens/);
+
+  document.querySelector('[data-terms="r1"]').click();
+  const form = await waitFor(() => document.querySelector('#terms-form'));
+  form.querySelector('[name=sector_code]').value = 'defence';
+  form.querySelector('[name=min_order_value]').value = '5000';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.table === 'restaurants' && c.type === 'update'));
+  const saved = fake.calls.find((c) => c.table === 'restaurants').payload;
+  assert.equal(saved.sector_code, 'defence');
+  assert.equal(saved.min_order_value, 5000);
+  assert.equal(saved.credit_days, null, 'blank override stays null');
+  assert.equal(saved.warehouse_id, 'wh-1');
+
+  (await waitFor(() => document.querySelector('[data-set="approved"]'))).click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'set_customer_status'));
+  assert.deepEqual(fake.calls.find((c) => c.name === 'set_customer_status').args, { p_restaurant_id: 'r1', p_status: 'approved' });
+});
+
+test('admin: inventory receives stock into the chosen warehouse (p_warehouse_id)', async () => {
+  const second = { id: 'wh-2', city_id: 'city-vz', name: 'Gajuwaka store', is_default: false, is_active: true };
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { products: PRODUCTS, suppliers: [], warehouses: [WAREHOUSE, second],
+      warehouse_stock: [{ warehouse_id: 'wh-2', product_id: 'p1', qty: 7 }] },
+    rpc: { ...ADMIN_RPC, receive_stock: () => null },
+  });
+  location.hash = '#inventory';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#warehouse'));
+  const select = document.querySelector('#warehouse');
+  select.value = 'wh-2'; select.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => /Gajuwaka store/.test(document.querySelector('.page-head').textContent));
+  assert.match(document.body.textContent.replace(/\s+/g, ' '), /Tomato.*7 kg/, 'per-warehouse quantity shown');
+
+  document.querySelector('#receive').click();
+  const form = await waitFor(() => document.querySelector('#grn'));
+  assert.equal(form.querySelector('[name=warehouse]').value, 'wh-2', 'GRN defaults to the selected warehouse');
+  const product = form.querySelector('[data-field="product_id"]');
+  product.value = 'p1'; product.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  const qty = form.querySelector('[data-field="quantity"]');
+  qty.value = '10'; qty.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'receive_stock'));
+  assert.equal(fake.calls.find((c) => c.name === 'receive_stock').args.p_warehouse_id, 'wh-2');
+});
+
+test('admin: team invite sends the team role; saving a row calls admin_set_team_member', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    rpc: { ...ADMIN_RPC, admin_list_users: () => [ADMIN, { ...PICKER, email: 'p@x.com', created_at: '2026-10-01T00:00:00Z' }], 'invite-staff': () => ({ ok: true }), admin_set_team_member: () => null },
+  });
+  location.hash = '#team';
+  await importFresh('web/js/pages/admin/main.js');
+  const form = await waitFor(() => document.querySelector('#invite-form'));
+  form.querySelector('[name=email]').value = 'new@x.com';
+  form.querySelector('[name=role]').value = 'admin';
+  form.querySelector('[name=teamRole]').value = 'picker';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'function'));
+  assert.equal(fake.calls.find((c) => c.type === 'function').body.team_role, 'picker');
+
+  const row = await waitFor(() => document.querySelector('tr[data-row="u-pick"]'));
+  row.querySelector('[data-city]').value = 'city-vz';
+  row.querySelector('[data-save]').click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'admin_set_team_member'));
+  const args = fake.calls.find((c) => c.name === 'admin_set_team_member').args;
+  assert.equal(args.p_user, 'u-pick');
+  assert.equal(args.p_team_role, 'picker');
+  assert.equal(args.p_city_id, 'city-vz');
+  assert.equal(args.p_warehouse_id, null);
+});
+
+test('admin: orders detail shows the PO reference and delivery fee', async () => {
+  const order = { ...ORDER, po_reference: 'PO/2026/0042', delivery_fee: 99, total_amount: 259, sector_code: 'defence', city_id: 'city-vz' };
+  const { document, location } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { orders: [order], order_status_history: [] }, rpc: ADMIN_RPC,
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/admin/main.js');
+  (await waitFor(() => document.querySelector('[data-order="o1"]'))).click();
+  await waitFor(() => document.querySelector('.kv'));
+  const text = document.body.textContent.replace(/\s+/g, ' ');
+  assert.match(text, /PO\/2026\/0042/);
+  assert.match(text, /Delivery fee/);
+  assert.match(text.replace(/\s/g, ''), /₹99\.00/);
+  assert.match(text, /Army cantonments/);
+});
+
+test('restaurant: cart warns below the minimum order, adds the fee, and sends the PO number', async () => {
+  const { document, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } },
+    profile: RESTAURANT_USER,
+    tables: { restaurants: [{ ...RESTAURANT, sector_code: 'defence' }], products: PRODUCTS, orders: [] },
+    rpc: {
+      place_order: () => ({ id: 'o9', order_number: 'ORD-1009', total_amount: 259, delivery_fee: 99 }),
+      my_order_terms: () => ({ ...TERMS, needs_po_reference: true, sector_name: 'Army cantonments & unit messes' }),
+    },
+  });
+  localStorage.clear();
+  const cart = await import('../web/js/pages/restaurant/cart.js');
+  cart._reset();
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('[data-add="p1"]'));
+  document.querySelector('[data-add="p1"]').click();               // 5 kg x 32 = 160, below the 2000 minimum
+  document.querySelector('#open-cart').click();
+  const place = await waitFor(() => document.querySelector('#place:not([disabled])'));
+  const drawer = document.querySelector('.drawer').textContent.replace(/\s+/g, ' ');
+  assert.match(drawer, /Add ₹1,840\.00 more/);
+  assert.match(drawer, /Delivery fee/);
+  assert.match(drawer.replace(/\s/g, ''), /Total₹259\.00/);
+  assert.match(drawer, /Purchase order/);
+
+  place.click();                                                    // no PO yet: blocked in the browser
+  assert.equal(fake.calls.some((c) => c.name === 'place_order'), false);
+  const po = document.querySelector('#po');
+  po.value = 'IND/77'; po.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  place.click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'place_order'));
+  assert.equal(fake.calls.find((c) => c.name === 'place_order').args.p_po_reference, 'IND/77');
+});
+
+test('restaurant: with no delivery fee an order below the minimum cannot be placed', async () => {
+  const { document } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } },
+    profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, orders: [] },
+    rpc: { my_order_terms: () => ({ ...TERMS, delivery_fee_below_mov: 0 }) },
+  });
+  localStorage.clear();
+  (await import('../web/js/pages/restaurant/cart.js'))._reset();
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('[data-add="p1"]'));
+  document.querySelector('[data-add="p1"]').click();
+  document.querySelector('#open-cart').click();
+  await waitFor(() => document.querySelector('#place'));
+  assert.equal(document.querySelector('#place').disabled, true);
+  assert.match(document.querySelector('.drawer').textContent, /Minimum order is ₹2,000\.00/);
+});
+
+test('login: registration sends city, pin code and sector to sign-up', async () => {
+  const { document, fake } = setup({ body: '<div id="auth-root" data-role="restaurant"></div>' });
+  await importFresh('web/js/pages/login.js');
+  await waitFor(() => document.querySelector('[data-mode="register"]')).then((b) => b.click());
+  const form = await waitFor(() => document.querySelector('[name=pincode]') && document.querySelector('#form'));
+  assert.equal(form.querySelector('[name=cityId]').value, 'city-vz');
+  const set = (name, value) => { form.querySelector(`[name=${name}]`).value = value; };
+  set('restaurantName', 'New Kitchen'); set('fullName', 'Nik'); set('phone', '9000000000'); set('address', '1 Beach Rd');
+  set('pincode', '530001'); set('email', 'n@x.com'); set('password', 'secret123');
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'signUp'));
+  const data = fake.calls.find((c) => c.type === 'signUp').payload.options.data;
+  assert.equal(data.city_id, 'city-vz');
+  assert.equal(data.pincode, '530001');
+  assert.equal(data.sector_code, 'restaurant');
+});
+
+test('landing: pin-code check calls check_pincode and shows the answer', async () => {
+  const { document, fake } = setup({
+    tables: { products: PRODUCTS },
+    body: '<div id="categories"></div><div id="featured"></div><form id="pin-check"><input id="pin-input" value="530001" pattern="[1-9][0-9]{5}"><button type="submit"></button><p id="pin-result"></p></form>',
+    rpc: { check_pincode: ({ p_pincode }) => ({ delivers: p_pincode === '530001', city: 'Visakhapatnam', area: 'GPO' }) },
+  });
+  await importFresh('web/js/pages/landing.js');
+  await waitFor(() => document.querySelector('.category-tile'));
+  document.querySelector('#pin-check').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => document.querySelector('#pin-result').textContent);
+  assert.match(document.querySelector('#pin-result').textContent, /Yes — we deliver to 530001 \(GPO\), Visakhapatnam/);
+  assert.equal(fake.calls.find((c) => c.name === 'check_pincode').args.p_pincode, '530001');
 });
 
 test.after(() => setTimeout(() => process.exit(0), 50)); // delivery page leaves a polling timer running

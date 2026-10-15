@@ -1,14 +1,17 @@
 // =============================================================================
-// inventory.js — the warehouse: stock on hand, receiving goods from suppliers,
-// adjustments and wastage, the movement ledger, and the supplier list.
+// inventory.js — the warehouses: stock on hand per warehouse, receiving goods
+// from suppliers, adjustments and wastage, the movement ledger, suppliers.
 //
 // Stock is never typed straight into a product; every change is a movement
-// (see receive_stock / adjust_stock in migration 004) so the ledger always
-// explains the number on the shelf.
+// (receive_stock / adjust_stock, migration 006) in ONE warehouse, so the
+// ledger always explains the number on the shelf. products.stock_qty is the
+// total across warehouses; warehouse_stock holds the per-warehouse figures.
 // =============================================================================
 
-import { html, mount, on, $, $$, formatINR, formatQty, formatDateTime, openModal, reportError, toast, withBusy } from '../../core/ui.js';
-import { listProducts, listSuppliers, saveSupplier, receiveStock, adjustStock, listStockMovements } from '../../core/api.js';
+import { html, mount, on, $, formatINR, formatQty, formatDateTime, openModal, reportError, toast, withBusy } from '../../core/ui.js';
+import { listProducts, listSuppliers, saveSupplier, receiveStock, adjustStock, listStockMovements, listWarehouses, listWarehouseStock } from '../../core/api.js';
+import { can } from '../../core/permissions.js';
+import { downloadCsv } from '../../core/csv.js';
 
 const REASON_LABELS = {
   received: 'Received', order: 'Order', order_cancelled: 'Order cancelled',
@@ -23,34 +26,57 @@ export function stockLevel(p) {
   return 'ok';
 }
 
-export async function renderInventory(container) {
+/**
+ * Stock figures for the current view: the product total (all warehouses) or
+ * one warehouse's quantity. Returns a copy of the product with stock_qty set.
+ */
+export function stockIn(product, warehouseId, warehouseStock) {
+  if (!warehouseId) return product;
+  const row = warehouseStock.find((w) => w.product_id === product.id && w.warehouse_id === warehouseId);
+  return { ...product, stock_qty: row ? Number(row.qty) : 0 };
+}
+
+export async function renderInventory(container, me) {
   let search = '';
   let onlyLow = false;
-  let [products, suppliers] = await Promise.all([listProducts(), listSuppliers()]);
+  const editable = can(me, 'inventory', 'edit');
+  let [products, suppliers, warehouses, warehouseStock] = await Promise.all([listProducts(), listSuppliers(), listWarehouses(), listWarehouseStock()]);
+  // Start on the team member's own warehouse, else the only one, else totals.
+  let warehouseId = me.profile.warehouse_id || (warehouses.length === 1 ? warehouses[0].id : '');
+  let rows = [];
 
   async function reload() {
-    [products, suppliers] = await Promise.all([listProducts(), listSuppliers()]);
+    [products, suppliers, warehouseStock] = await Promise.all([listProducts(), listSuppliers(), listWarehouseStock()]);
     draw();
   }
 
   function draw() {
     const term = search.trim().toLowerCase();
-    const rows = products.filter((p) =>
+    const shown = products.map((p) => stockIn(p, warehouseId, warehouseStock));
+    rows = shown.filter((p) =>
       (!term || p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term)) &&
       (!onlyLow || stockLevel(p) !== 'ok'));
-    const low = products.filter((p) => stockLevel(p) !== 'ok').length;
-    const stockValue = products.reduce((sum, p) => sum + Number(p.stock_qty) * Number(p.price), 0);
+    const low = shown.filter((p) => stockLevel(p) !== 'ok').length;
+    const stockValue = shown.reduce((sum, p) => sum + Number(p.stock_qty) * Number(p.price), 0);
+    const where = warehouseId ? warehouses.find((w) => w.id === warehouseId)?.name : 'all warehouses';
 
     mount(container, html`
-      <div class="page-head"><div><h1>Inventory</h1><p>${products.length} products · stock at selling price ${formatINR(stockValue)}</p></div>
+      <div class="page-head"><div><h1>Inventory</h1><p>${products.length} products · ${where} · stock at selling price ${formatINR(stockValue)}</p></div>
         <div class="row-wrap">
+          ${can(me, 'inventory', 'export') ? html`<button class="btn" id="export">Export CSV</button>` : ''}
           <button class="btn" id="suppliers">Suppliers (${suppliers.length})</button>
           <button class="btn" id="ledger">Ledger</button>
-          <button class="btn primary" id="receive">Receive stock</button>
+          ${editable ? html`<button class="btn primary" id="receive">Receive stock</button>` : ''}
         </div></div>
-      ${low ? html`<div class="banner warn">${low} product${low === 1 ? '' : 's'} at or below the low-stock level.
+      ${low ? html`<div class="banner warn">${low} product${low === 1 ? '' : 's'} at or below the low-stock level in ${where}.
         <button class="btn small" id="toggle-low" style="margin-left:auto">${onlyLow ? 'Show all' : 'Show only these'}</button></div>` : ''}
-      <div class="toolbar"><input class="input search" id="search" type="search" placeholder="Search name or SKU…" value="${search}"></div>
+      <div class="toolbar">
+        <input class="input search" id="search" type="search" placeholder="Search name or SKU…" value="${search}">
+        ${warehouses.length > 1 ? html`<select class="select" id="warehouse" aria-label="Warehouse">
+          <option value="">All warehouses (totals)</option>
+          ${warehouses.map((w) => html`<option value="${w.id}" ${w.id === warehouseId ? 'selected' : ''}>${w.name}</option>`)}</select>` : ''}
+      </div>
+      ${!warehouseId && editable && warehouses.length > 1 ? html`<p class="muted small" style="margin-bottom:var(--space-3)">Pick a warehouse to adjust stock; totals are read-only.</p>` : ''}
       <div class="card"><div class="table-wrap"><table class="table">
         <thead><tr><th>Product</th><th class="right">On hand</th><th class="right">Low at</th><th>Level</th><th class="right">Value</th><th></th></tr></thead>
         <tbody>${rows.length === 0 ? html`<tr><td colspan="6"><div class="empty">No products match.</div></td></tr>`
@@ -62,24 +88,30 @@ export async function renderInventory(container) {
             <td class="right num">${formatINR(Number(p.stock_qty) * Number(p.price))}</td>
             <td class="right nowrap">
               <button class="btn small" data-history="${p.id}">History</button>
-              <button class="btn small" data-adjust="${p.id}">Adjust</button></td></tr>`)}
+              ${editable && warehouseId ? html`<button class="btn small" data-adjust="${p.id}">Adjust</button>` : ''}</td></tr>`)}
         </tbody></table></div></div>`);
     const input = $('#search', container);
     input.oninput = () => { search = input.value; draw(); $('#search', container).focus(); };
   }
 
+  on(container, 'change', '#warehouse', (_e, el) => { warehouseId = el.value; draw(); });
   on(container, 'click', '#toggle-low', () => { onlyLow = !onlyLow; draw(); });
-  on(container, 'click', '#receive', () => receiveForm(products, suppliers, reload));
+  on(container, 'click', '#receive', () => receiveForm(products, suppliers, warehouses, warehouseId, reload));
   on(container, 'click', '#suppliers', () => supplierManager(suppliers, reload));
-  on(container, 'click', '#ledger', () => ledgerModal(null, products));
-  on(container, 'click', '[data-history]', (_e, el) => ledgerModal(products.find((p) => p.id === el.dataset.history), products));
-  on(container, 'click', '[data-adjust]', (_e, el) => adjustForm(products.find((p) => p.id === el.dataset.adjust), reload));
+  on(container, 'click', '#ledger', () => ledgerModal(null, products, warehouseId));
+  on(container, 'click', '[data-history]', (_e, el) => ledgerModal(products.find((p) => p.id === el.dataset.history), products, warehouseId));
+  on(container, 'click', '[data-adjust]', (_e, el) => adjustForm(stockIn(products.find((p) => p.id === el.dataset.adjust), warehouseId, warehouseStock), warehouseId, reload));
+  on(container, 'click', '#export', () => downloadCsv('inventory.csv', rows, [
+    { key: 'sku', label: 'SKU' }, { key: 'name', label: 'Product' }, { key: 'unit', label: 'Unit' },
+    { key: 'stock_qty', label: 'On hand' }, { key: 'low_stock_threshold', label: 'Low at' },
+    { key: 'price', label: 'Price' }, { label: 'Value', value: (p) => (Number(p.stock_qty) * Number(p.price)).toFixed(2) },
+  ]));
 
   draw();
 }
 
-/** Goods received note: several products from one supplier. */
-function receiveForm(products, suppliers, onSaved) {
+/** Goods received note: several products from one supplier into one warehouse. */
+function receiveForm(products, suppliers, warehouses, warehouseId, onSaved) {
   const lines = [{ product_id: '', quantity: '', unit_cost: '' }];
   const { el, close } = openModal(html`<form id="grn" class="stack" novalidate></form>`, { title: 'Receive stock (GRN)', wide: true });
   const form = $('#grn', el);
@@ -87,10 +119,12 @@ function receiveForm(products, suppliers, onSaved) {
   function draw() {
     mount(form, html`
       <div class="form-grid">
+        <label class="field"><span class="label">Into warehouse</span><select class="select" name="warehouse" required>
+          ${warehouses.map((w) => html`<option value="${w.id}" ${w.id === warehouseId || (!warehouseId && w.is_default) ? 'selected' : ''}>${w.name}</option>`)}</select></label>
         <label class="field"><span class="label">Supplier</span><select class="select" name="supplier">
           <option value="">— Not specified —</option>
           ${suppliers.filter((s) => s.is_active).map((s) => html`<option value="${s.id}">${s.name}</option>`)}</select></label>
-        <label class="field"><span class="label">Reference / note</span><input class="input" name="note" maxlength="300" placeholder="Invoice no., truck, remarks"></label>
+        <label class="field span-2"><span class="label">Reference / note</span><input class="input" name="note" maxlength="300" placeholder="Invoice no., truck, remarks"></label>
       </div>
       <div class="table-wrap"><table class="table"><thead><tr><th>Product</th><th class="right">Quantity</th><th class="right">Unit cost (₹)</th><th></th></tr></thead>
         <tbody>${lines.map((line, i) => html`<tr data-line="${i}">
@@ -117,15 +151,15 @@ function receiveForm(products, suppliers, onSaved) {
       .map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity), unit_cost: l.unit_cost === '' ? null : Number(l.unit_cost) }));
     if (!payload.length) { $('#grn-error', el).textContent = 'Add at least one product with a quantity.'; return; }
     try {
-      await withBusy($('button[type="submit"]', form), () => receiveStock(payload, form.elements.supplier.value, form.elements.note.value));
+      await withBusy($('button[type="submit"]', form), () => receiveStock(payload, form.elements.supplier.value, form.elements.note.value, form.elements.warehouse.value));
       toast('Stock received', 'success'); close(); onSaved();
     } catch (error) { $('#grn-error', el).textContent = error.message; }
   };
   draw();
 }
 
-/** Set an exact count, write off wastage, or accept a return. */
-function adjustForm(product, onSaved) {
+/** Set an exact count in one warehouse, write off wastage, or accept a return. */
+function adjustForm(product, warehouseId, onSaved) {
   const { el, close } = openModal(html`
     <form id="adj" class="stack" novalidate>
       <p>Current stock: <strong class="num">${formatQty(product.stock_qty)} ${product.unit}</strong></p>
@@ -144,18 +178,18 @@ function adjustForm(product, onSaved) {
     event.preventDefault();
     const form = event.target;
     try {
-      await withBusy($('button[type="submit"]', form), () => adjustStock(product.id, Number(form.elements.qty.value), form.elements.reason.value, form.elements.note.value));
+      await withBusy($('button[type="submit"]', form), () => adjustStock(product.id, Number(form.elements.qty.value), form.elements.reason.value, form.elements.note.value, warehouseId));
       toast('Stock updated', 'success'); close(); onSaved();
     } catch (error) { $('#adj-error', el).textContent = error.message; }
   };
 }
 
-/** Movement history, for one product or the whole warehouse. */
-async function ledgerModal(product, products) {
+/** Movement history, for one product or the whole warehouse (or all warehouses). */
+async function ledgerModal(product, products, warehouseId) {
   const { el, close } = openModal(html`<div class="loading"><span class="spinner"></span></div>`,
     { title: product ? `History: ${product.name}` : 'Stock ledger (latest 100)', wide: true });
   try {
-    const rows = await listStockMovements(product?.id, product ? 50 : 100);
+    const rows = await listStockMovements({ productId: product?.id, warehouseId: warehouseId || undefined, limit: product ? 50 : 100 });
     const nameOf = Object.fromEntries(products.map((p) => [p.id, p]));
     mount(el, rows.length === 0 ? html`<div class="empty">No movements yet.</div>` : html`
       <div class="table-wrap"><table class="table">

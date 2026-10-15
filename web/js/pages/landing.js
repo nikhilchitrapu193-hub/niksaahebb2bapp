@@ -4,8 +4,8 @@
 // products_public_select); everything else needs a login.
 // =============================================================================
 
-import { html, mount, $, formatINR } from '../core/ui.js';
-import { listCategories, listProducts, photoUrl } from '../core/api.js';
+import { html, mount, $, on, formatINR } from '../core/ui.js';
+import { listCategories, listProducts, photoUrl, checkPincode } from '../core/api.js';
 
 async function fillCatalogue() {
   const [categories, products] = await Promise.all([listCategories(), listProducts()]);
@@ -39,4 +39,24 @@ async function fillCatalogue() {
 fillCatalogue().catch((error) => {
   console.error(error);
   mount($('#categories'), html`<p class="muted">Catalogue is unavailable right now. Please try again later.</p>`);
+});
+
+// ---------- "Do you deliver here?" ------------------------------------------
+// Logged-out visitors may call check_pincode(); it returns only yes/no + city.
+on(document, 'submit', '#pin-check', async (event, form) => {
+  event.preventDefault();
+  const input = $('#pin-input', form);
+  const result = $('#pin-result', form);
+  result.className = 'small';
+  if (!input.checkValidity() || !input.value) { result.textContent = 'Enter a 6-digit pin code.'; return; }
+  try {
+    const answer = await checkPincode(input.value);
+    result.className = `small ${answer.delivers ? 'ok' : 'no'}`;
+    result.textContent = answer.delivers
+      ? `Yes — we deliver to ${input.value}${answer.area ? ` (${answer.area})` : ''}, ${answer.city}. Register to start ordering.`
+      : `Not yet in ${input.value}. Register anyway and we will tell you when we open there.`;
+  } catch (error) {
+    console.error(error);
+    result.textContent = 'Could not check right now. Please try again.';
+  }
 });
