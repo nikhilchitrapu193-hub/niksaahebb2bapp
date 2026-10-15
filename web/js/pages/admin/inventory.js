@@ -1,17 +1,19 @@
 // =============================================================================
 // inventory.js — the warehouses: stock on hand per warehouse, receiving goods
-// from suppliers, adjustments and wastage, the movement ledger, suppliers.
+// from suppliers (the shared GRN form from grn.js, so every receipt gets a
+// GRN number), adjustments and wastage, the movement ledger, suppliers.
 //
 // Stock is never typed straight into a product; every change is a movement
-// (receive_stock / adjust_stock, migration 006) in ONE warehouse, so the
+// (receive_goods / adjust_stock, migrations 006 and 011) in ONE warehouse, so the
 // ledger always explains the number on the shelf. products.stock_qty is the
 // total across warehouses; warehouse_stock holds the per-warehouse figures.
 // =============================================================================
 
 import { html, mount, on, $, formatINR, formatQty, formatDateTime, openModal, reportError, toast, withBusy } from '../../core/ui.js';
-import { listProducts, listSuppliers, saveSupplier, receiveStock, adjustStock, listStockMovements, listWarehouses, listWarehouseStock } from '../../core/api.js';
+import { listProducts, listSuppliers, saveSupplier, adjustStock, listStockMovements, listWarehouses, listWarehouseStock } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
 import { downloadCsv } from '../../core/csv.js';
+import { receiveForm } from './grn.js';
 
 const REASON_LABELS = {
   received: 'Received', order: 'Order', order_cancelled: 'Order cancelled',
@@ -96,7 +98,7 @@ export async function renderInventory(container, me) {
 
   on(container, 'change', '#warehouse', (_e, el) => { warehouseId = el.value; draw(); });
   on(container, 'click', '#toggle-low', () => { onlyLow = !onlyLow; draw(); });
-  on(container, 'click', '#receive', () => receiveForm(products, suppliers, warehouses, warehouseId, reload));
+  on(container, 'click', '#receive', () => receiveForm({ products, suppliers, warehouses, warehouseId, source: 'direct' }, reload));
   on(container, 'click', '#suppliers', () => supplierManager(suppliers, reload));
   on(container, 'click', '#ledger', () => ledgerModal(null, products, warehouseId));
   on(container, 'click', '[data-history]', (_e, el) => ledgerModal(products.find((p) => p.id === el.dataset.history), products, warehouseId));
@@ -107,54 +109,6 @@ export async function renderInventory(container, me) {
     { key: 'price', label: 'Price' }, { label: 'Value', value: (p) => (Number(p.stock_qty) * Number(p.price)).toFixed(2) },
   ]));
 
-  draw();
-}
-
-/** Goods received note: several products from one supplier into one warehouse. */
-function receiveForm(products, suppliers, warehouses, warehouseId, onSaved) {
-  const lines = [{ product_id: '', quantity: '', unit_cost: '' }];
-  const { el, close } = openModal(html`<form id="grn" class="stack" novalidate></form>`, { title: 'Receive stock (GRN)', wide: true });
-  const form = $('#grn', el);
-
-  function draw() {
-    mount(form, html`
-      <div class="form-grid">
-        <label class="field"><span class="label">Into warehouse</span><select class="select" name="warehouse" required>
-          ${warehouses.map((w) => html`<option value="${w.id}" ${w.id === warehouseId || (!warehouseId && w.is_default) ? 'selected' : ''}>${w.name}</option>`)}</select></label>
-        <label class="field"><span class="label">Supplier</span><select class="select" name="supplier">
-          <option value="">— Not specified —</option>
-          ${suppliers.filter((s) => s.is_active).map((s) => html`<option value="${s.id}">${s.name}</option>`)}</select></label>
-        <label class="field span-2"><span class="label">Reference / note</span><input class="input" name="note" maxlength="300" placeholder="Invoice no., truck, remarks"></label>
-      </div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Product</th><th class="right">Quantity</th><th class="right">Unit cost (₹)</th><th></th></tr></thead>
-        <tbody>${lines.map((line, i) => html`<tr data-line="${i}">
-          <td><select class="select small" data-field="product_id" required>
-            <option value="">Choose product…</option>
-            ${products.map((p) => html`<option value="${p.id}" ${p.id === line.product_id ? 'selected' : ''}>${p.name} (${p.unit})</option>`)}</select></td>
-          <td><input class="input small num right" type="number" min="0.01" step="any" data-field="quantity" value="${line.quantity}" required style="width:110px"></td>
-          <td><input class="input small num right" type="number" min="0" step="0.01" data-field="unit_cost" value="${line.unit_cost}" style="width:120px"></td>
-          <td class="right"><button type="button" class="btn ghost small" data-remove="${i}" ${lines.length === 1 ? 'disabled' : ''}>✕</button></td></tr>`)}
-        </tbody></table></div>
-      <div><button type="button" class="btn small" id="add-line">+ Add line</button></div>
-      <p class="form-error" id="grn-error" role="alert"></p>
-      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Add to stock</button></div>`);
-  }
-
-  on(form, 'change', '[data-field]', (_e, input) => {
-    lines[Number(input.closest('[data-line]').dataset.line)][input.dataset.field] = input.value;
-  });
-  on(form, 'click', '#add-line', () => { lines.push({ product_id: '', quantity: '', unit_cost: '' }); draw(); });
-  on(form, 'click', '[data-remove]', (_e, b) => { lines.splice(Number(b.dataset.remove), 1); draw(); });
-  form.onsubmit = async (event) => {
-    event.preventDefault();
-    const payload = lines.filter((l) => l.product_id && Number(l.quantity) > 0)
-      .map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity), unit_cost: l.unit_cost === '' ? null : Number(l.unit_cost) }));
-    if (!payload.length) { $('#grn-error', el).textContent = 'Add at least one product with a quantity.'; return; }
-    try {
-      await withBusy($('button[type="submit"]', form), () => receiveStock(payload, form.elements.supplier.value, form.elements.note.value, form.elements.warehouse.value));
-      toast('Stock received', 'success'); close(); onSaved();
-    } catch (error) { $('#grn-error', el).textContent = error.message; }
-  };
   draw();
 }
 

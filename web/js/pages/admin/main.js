@@ -3,6 +3,7 @@
 //   #dashboard (default) · #orders · #products · #inventory · #customers · #team
 //   #settings (company) · #locations · #sectors · #roles · #audit
 //   #pricing (price board) · #pricing-rules · #benchmarks · #price-lists
+//   #procurement (buying list) · #purchase-orders · #receipts · #rate-cards
 //
 // The menu shows only the modules the signed-in team member may VIEW
 // (web/js/core/permissions.js). Opening a route by hand without permission
@@ -29,10 +30,15 @@ import { renderPriceBoard } from './price-board.js';
 import { renderPricingRules } from './pricing-rules.js';
 import { renderBenchmarks } from './benchmarks.js';
 import { renderPriceLists } from './price-lists.js';
+import { renderBuyingList } from './buying-list.js';
+import { renderPurchaseOrders } from './purchase-orders.js';
+import { renderReceipts } from './grn.js';
+import { renderRateCards } from './rate-cards.js';
 
 /** Sub-pages keep their parent menu item highlighted. */
 const PARENT_OF = { '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
-                    '#pricing-rules': '#pricing', '#benchmarks': '#pricing', '#price-lists': '#pricing' };
+                    '#pricing-rules': '#pricing', '#benchmarks': '#pricing', '#price-lists': '#pricing',
+                    '#purchase-orders': '#procurement', '#receipts': '#procurement', '#rate-cards': '#procurement' };
 
 const me = await requireRole('admin');
 if (me) {
@@ -72,6 +78,10 @@ if (me) {
       '#pricing-rules': guard('pricing', (c) => renderPricingRules(c, me)),
       '#benchmarks': guard('pricing', (c) => renderBenchmarks(c, me)),
       '#price-lists': guard('pricing', (c) => renderPriceLists(c, me)),
+      '#procurement': guard('procurement', (c) => renderBuyingList(c, me)),
+      '#purchase-orders': guard('procurement', (c) => renderPurchaseOrders(c, me)),
+      '#receipts': guard('procurement', (c) => renderReceipts(c, me)),
+      '#rate-cards': guard('procurement', (c) => renderRateCards(c, me)),
     },
   });
 }

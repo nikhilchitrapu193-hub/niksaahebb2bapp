@@ -2,7 +2,7 @@
 
 A B2B food-supply ordering platform modelled on Hyperpure: a public website with a
 browsable catalogue, restaurants order from a wholesale catalogue with delivery slots
-and credit, your team runs the warehouse (stock, suppliers, GRNs, wastage), confirms,
+and credit, your team buys (rate cards, buying list, purchase orders, GRNs), runs the warehouse (stock, wastage), confirms,
 packs and dispatches orders with GST invoices, and delivery staff see their drops.
 Three apps, each with its own login area. See [docs/hyperpure-feature-map.md](docs/hyperpure-feature-map.md)
 for how Hyperpure works and what is built, simplified or on the roadmap.
@@ -41,16 +41,16 @@ Details: [docs/roles.md](docs/roles.md).
 ```
 web/
   index.html                    public landing page (marketing + catalogue preview)
-  invoice.html, reset.html      printable GST invoice · password reset
+  invoice.html, po.html, reset.html   printable GST invoice · printable purchase order · password reset
   restaurant/ admin/ delivery/  login.html + index.html per area
   css/                          base.css (tokens) + components.css (UI parts)
-  js/core/                      config, supabase client, auth, api, ui helpers, shell/router, permissions, csv, csv-import, pricing (the formula), catalogue (tree, variants, filters)
+  js/core/                      config, supabase client, auth, api, ui helpers, shell/router, permissions, csv, csv-import, pricing (the formula), catalogue (tree, variants, filters), procurement (buying arithmetic, PO helpers)
   js/pages/<app>/               one module per screen
   vendor/supabase.js            vendored supabase-js (see vendor/README.md)
 supabase/
-  migrations/                   the database, in order (schema → security → functions → inventory → foundation → pricing → catalogue)
+  migrations/                   the database, in order (schema → security → functions → inventory → foundation → pricing → catalogue → procurement)
   seed.sql                      sample categories and products
-  tests/security_test.sql       role/permission regression test (145 checks)
+  tests/security_test.sql       role/permission regression test (174 checks)
   tests/local_postgres_stub.sql run the same test on a plain local Postgres
 scripts/dev-server.js           zero-dependency local server
 tests/                          Node tests (unit + page smoke tests + static checks)
@@ -72,7 +72,7 @@ docs/                           architecture, ADRs, API, roles, deployment, runb
 
 ## Roadmap
 
-Batches 1–3 of Phase 1 (cities, warehouses, sectors, roles, audit; the pricing engine; catalogue +) are in. Next:
+Batches 1–4 of Phase 1 (cities, warehouses, sectors, roles, audit; the pricing engine; catalogue +; procurement) are in. Next:
 procurement, fulfilment, payments and credit, notifications, reports — see
 [docs/build-roadmap.md](docs/build-roadmap.md). AI stays out of the product by design
 ([docs/contributing.md](docs/contributing.md#adding-ai-later)).

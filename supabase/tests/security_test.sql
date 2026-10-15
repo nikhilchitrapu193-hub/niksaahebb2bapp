@@ -2,7 +2,7 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 145
+-- psql). It creates throw-away users, impersonates each role, checks 174
 -- rules, then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
@@ -12,7 +12,7 @@
 -- Roles simulated: admin (super admin), restaurant A (approved), restaurant B
 -- (pending), delivery driver, a sign-up attempting to inject role=admin, and
 -- from T20 on: a city manager of another city, a picker, and a defence unit;
--- from T30 on (migration 009): a pricing manager; from T40 on (migration 010): price lists and packing.
+-- from T30 on (migration 009): a pricing manager; from T40 on (migration 010): price lists and packing; from T44 on (migration 011): a buyer, POs and receipts.
 -- =============================================================================
 
 do $$
@@ -33,6 +33,8 @@ declare
   v_pm uuid := gen_random_uuid(); v_sched bigint; v_src uuid;
   -- Migration 010 (catalogue +)
   v_leafy uuid; v_list uuid; v_o4 jsonb; v_item uuid; v_var uuid;
+  -- Migration 011 (procurement)
+  v_buyer uuid := gen_random_uuid(); v_sup uuid; v_sup2 uuid; v_po jsonb; v_grn jsonb; v_row jsonb; v_tomorrow date := (now() at time zone 'Asia/Kolkata')::date + 1;
 begin
   select id into v_city from public.cities where name = 'Visakhapatnam';
   select id into v_wh from public.warehouses where city_id = v_city and is_default;
@@ -883,6 +885,184 @@ begin
     v_res := v_res || jsonb_build_array('FAIL T43k Hyderabad manager packed a Vizag order');
   exception when insufficient_privilege then
     v_res := v_res || jsonb_build_array('PASS T43k a manager of another city cannot pack it (scope)');
+  end;
+  reset role;
+
+
+  -- ===========================================================================
+  -- Migration 011: procurement
+  -- ===========================================================================
+
+  -- T44 customers and pickers see nothing of procurement
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.purchase_orders;
+  select count(*) + v_n into v_n from public.supplier_products;
+  select count(*) + v_n into v_n from public.goods_receipts;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T44a customer sees 0 purchase orders, rate cards and receipts' else 'FAIL T44a sees ' || v_n end);
+  begin
+    perform public.create_purchase_order(null, v_wh, null, null, '[]'::jsonb);
+    v_res := v_res || jsonb_build_array('FAIL T44b customer created a PO');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T44b customer cannot create purchase orders');
+  end;
+  begin
+    perform public.buying_list(v_wh, v_tomorrow);
+    v_res := v_res || jsonb_build_array('FAIL T44c customer read the buying list');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T44c customer cannot read the buying list');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.create_purchase_order(null, v_wh, null, null, '[]'::jsonb);
+    v_res := v_res || jsonb_build_array('FAIL T44d picker created a PO');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T44d picker cannot create purchase orders (procurement:edit)');
+  end;
+  reset role;
+
+  -- T45 rate cards and the buying list (as a procurement buyer)
+  insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data, created_at, updated_at) values
+    (v_buyer, 'authenticated', 'authenticated', 'buyer@test.local', now(), '{}'::jsonb, now(), now());
+  update public.profiles set role = 'admin', team_role = 'procurement_buyer', city_id = v_city where id = v_buyer;
+  select id into v_sup from public.suppliers order by created_at limit 1;
+  insert into public.suppliers (name, phone) values ('Second Farms', '9000000002') returning id into v_sup2;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_buyer, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into public.supplier_products (supplier_id, product_id, price, moq, lead_days, is_preferred) values (v_sup, v_p1, 21, 10, 1, true);
+  insert into public.supplier_products (supplier_id, product_id, price, moq, lead_days) values (v_sup2, v_p1, 19.5, 50, 2);
+  begin
+    insert into public.supplier_products (supplier_id, product_id, price, is_preferred) values (v_sup2, v_p2, 290, true);
+    insert into public.supplier_products (supplier_id, product_id, price, is_preferred) values (v_sup, v_p2, 295, true);
+    v_res := v_res || jsonb_build_array('FAIL T45a two preferred suppliers for one product');
+  exception when unique_violation then
+    v_res := v_res || jsonb_build_array('PASS T45a only one preferred supplier per product');
+  end;
+  select coalesce(sum(i.quantity), 0) into v_num from public.orders o join public.order_items i on i.order_id = o.id
+  where o.warehouse_id = v_wh and o.delivery_date = v_tomorrow and o.status in ('placed', 'confirmed', 'packed') and i.product_id = v_p1;
+  select e into v_row from public.buying_list(v_wh, v_tomorrow, 1) e where (e ->> 'product_id')::uuid = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_row ->> 'supplier_name' = 'Sample Farms Co-op' and (v_row ->> 'rate')::numeric = 21 and (v_row ->> 'demand_qty')::numeric = v_num and v_num >= 10.8
+    then 'PASS T45b buying list: tomato demand ' || v_num || ' for tomorrow (open orders), preferred supplier at 21 (cheaper non-preferred ignored)' else 'FAIL T45b ' || coalesce(v_row::text, 'no row') end);
+  v_res := v_res || jsonb_build_array(case when (v_row ->> 'suggested_qty')::numeric = greatest(0, (v_row ->> 'demand_qty')::numeric * 1 + (v_row ->> 'low_stock_threshold')::numeric - (v_row ->> 'free_stock')::numeric - (v_row ->> 'open_po_qty')::numeric)
+    then 'PASS T45c suggested = max(0, demand × cover + alert level − free stock − open POs)' else 'FAIL T45c ' || v_row::text end);
+  select e into v_row from public.buying_list(v_wh, v_tomorrow, 30) e where (e ->> 'product_id')::uuid = v_p1;
+  v_res := v_res || jsonb_build_array(case when (v_row ->> 'suggested_qty')::numeric = greatest(0, v_num * 30 + (v_row ->> 'low_stock_threshold')::numeric - (v_row ->> 'free_stock')::numeric) and (v_row ->> 'suggested_qty')::numeric > 0
+    then 'PASS T45d 30 days of cover raises the suggestion accordingly' else 'FAIL T45d ' || v_row::text end);
+  begin
+    perform public.buying_list(v_wh2, v_tomorrow);
+    v_res := v_res || jsonb_build_array('FAIL T45e Vizag buyer read the Hyderabad buying list');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T45e buying list is limited to the buyer''s scope');
+  end;
+
+  -- T46 purchase order: draft by the buyer, approved by a manager
+  v_po := public.create_purchase_order(v_sup, v_wh, v_tomorrow, 'morning run',
+            jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 50), jsonb_build_object('product_id', v_p2, 'quantity', 5, 'unit_cost', 290)));
+  select string_agg(qty_ordered || '@' || coalesce(unit_cost::text, 'null'), ',' order by qty_ordered desc) into v_txt
+  from public.purchase_order_items where po_id = (v_po ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_po ->> 'po_number' like 'PO-%' and v_txt = '50.00@21.00,5.00@290.00'
+    then 'PASS T46a ' || (v_po ->> 'po_number') || ' drafted: tomato cost from the rate card (21), paneer as typed (290)' else 'FAIL T46a ' || v_txt end);
+  perform public.update_purchase_order((v_po ->> 'id')::uuid, v_tomorrow, 'morning run, 60 kg',
+            jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 60, 'unit_cost', 21), jsonb_build_object('product_id', v_p2, 'quantity', 5, 'unit_cost', 290)));
+  select qty_ordered into v_num from public.purchase_order_items where po_id = (v_po ->> 'id')::uuid and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = 60 then 'PASS T46b a draft can be edited (tomato now 60)' else 'FAIL T46b ' || v_num end);
+  begin
+    perform public.set_purchase_order_status((v_po ->> 'id')::uuid, 'sent');
+    v_res := v_res || jsonb_build_array('FAIL T46c buyer approved a PO');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T46c a buyer cannot approve (procurement:approve)');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.set_purchase_order_status((v_po ->> 'id')::uuid, 'sent');
+  select status || '/' || coalesce(approved_by::text, 'null') into v_txt from public.purchase_orders where id = (v_po ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'sent/' || v_admin::text then 'PASS T46d approved and sent, approver recorded' else 'FAIL T46d ' || v_txt end);
+  begin
+    perform public.update_purchase_order((v_po ->> 'id')::uuid, v_tomorrow, 'x', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 1)));
+    v_res := v_res || jsonb_build_array('FAIL T46e edited a sent PO');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T46e a sent PO cannot be edited: ' || sqlerrm);
+  end;
+  select e into v_row from public.buying_list(v_wh, v_tomorrow, 1) e where (e ->> 'product_id')::uuid = v_p1;
+  v_res := v_res || jsonb_build_array(case when (v_row ->> 'open_po_qty')::numeric = 60 then 'PASS T46f the buying list counts the 60 on order' else 'FAIL T46f open ' || (v_row ->> 'open_po_qty') end);
+
+  -- T47 receiving against the PO with a quality check
+  begin
+    perform public.receive_goods(v_wh, null, (v_po ->> 'id')::uuid, 'po', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'qty_accepted', 55, 'qty_rejected', 5)));
+    v_res := v_res || jsonb_build_array('FAIL T47a rejected goods without a reason');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T47a rejected quantity needs a reason: ' || sqlerrm);
+  end;
+  begin
+    perform public.receive_goods(v_wh, null, (v_po ->> 'id')::uuid, 'po', jsonb_build_array(jsonb_build_object('product_id', v_p3, 'qty_accepted', 1)));
+    v_res := v_res || jsonb_build_array('FAIL T47b received a product that is not on the PO');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T47b a product not on the PO is refused: ' || sqlerrm);
+  end;
+  select qty into v_stock1 from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  v_grn := public.receive_goods(v_wh, null, (v_po ->> 'id')::uuid, 'po',
+             jsonb_build_array(jsonb_build_object('product_id', v_p1, 'qty_accepted', 55, 'qty_rejected', 5, 'reject_reason', 'bruised', 'grade', 'A')), 'first lot');
+  select qty into v_num from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_grn ->> 'grn_number' like 'GRN-%' and v_num = v_stock1 + 55 and v_grn ->> 'po_status' = 'part_received'
+    then 'PASS T47c ' || (v_grn ->> 'grn_number') || ': 55 accepted into stock, 5 rejected kept out, PO part-received' else 'FAIL T47c ' || v_grn::text || ' stock ' || v_num end);
+  select unit_cost || '/' || note || '/' || coalesce(supplier_id::text, 'null') into v_txt from public.stock_movements
+  where product_id = v_p1 and reason = 'received' order by created_at desc, seq desc limit 1;
+  v_res := v_res || jsonb_build_array(case when v_txt = '21.00/' || (v_grn ->> 'grn_number') || '/' || v_sup::text
+    then 'PASS T47d the ledger row carries the PO cost (21), the GRN number and the supplier' else 'FAIL T47d ' || v_txt end);
+  select qty_received || '/' || qty_rejected into v_txt from public.purchase_order_items where po_id = (v_po ->> 'id')::uuid and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_txt = '55.00/5.00' then 'PASS T47e PO line shows 55 received, 5 rejected' else 'FAIL T47e ' || v_txt end);
+  begin
+    perform public.set_purchase_order_status((v_po ->> 'id')::uuid, 'cancelled');
+    v_res := v_res || jsonb_build_array('FAIL T47f cancelled a PO with receipts');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T47f a PO with receipts cannot be cancelled: ' || sqlerrm);
+  end;
+  v_grn := public.receive_goods(v_wh, null, (v_po ->> 'id')::uuid, 'po', jsonb_build_array(jsonb_build_object('product_id', v_p2, 'qty_accepted', 5, 'unit_cost', 285)), 'paneer');
+  v_res := v_res || jsonb_build_array(case when v_grn ->> 'po_status' = 'closed' then 'PASS T47g every line received: PO closed by itself' else 'FAIL T47g ' || v_grn::text end);
+  select e into v_row from public.buying_list(v_wh, v_tomorrow, 1) e where (e ->> 'product_id')::uuid = v_p1;
+  v_res := v_res || jsonb_build_array(case when (v_row ->> 'open_po_qty')::numeric = 0 then 'PASS T47h nothing left on order for tomato' else 'FAIL T47h open ' || (v_row ->> 'open_po_qty') end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_cm, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.receive_goods(v_wh, v_sup, null, 'direct', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'qty_accepted', 1)));
+    v_res := v_res || jsonb_build_array('FAIL T47i Hyderabad manager received into Vizag');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T47i receiving is limited to the warehouse scope');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.receive_goods(v_wh, v_sup, null, 'direct', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'qty_accepted', 1)));
+    v_res := v_res || jsonb_build_array('FAIL T47j customer received goods');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T47j customers cannot receive goods');
+  end;
+  reset role;
+
+  -- T48 mandi cash purchase (no PO): bill amount required, bill photo and cash flag kept
+  perform set_config('request.jwt.claims', json_build_object('sub', v_buyer, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.receive_goods(v_wh, null, null, 'mandi', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'qty_accepted', 20, 'unit_cost', 18)), 'mandi run');
+    v_res := v_res || jsonb_build_array('FAIL T48a mandi purchase without a bill amount');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T48a mandi purchase needs the bill amount: ' || sqlerrm);
+  end;
+  v_grn := public.receive_goods(v_wh, null, null, 'mandi', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'qty_accepted', 20, 'unit_cost', 18)), 'mandi run', 'bills/test.jpg', 360, true);
+  select source || '/' || bill_amount || '/' || paid_cash || '/' || bill_photo_path || '/' || coalesce(supplier_id::text, 'none') into v_txt from public.goods_receipts where id = (v_grn ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'mandi/360.00/true/bills/test.jpg/none' then 'PASS T48b mandi receipt kept with bill photo, amount and cash flag' else 'FAIL T48b ' || v_txt end);
+  select count(*) into v_n from public.goods_receipts;
+  v_res := v_res || jsonb_build_array(case when v_n = 3 then 'PASS T48c buyer sees the 3 receipts of the city' else 'FAIL T48c sees ' || v_n end);
+  begin
+    insert into public.goods_receipts (warehouse_id, city_id, source) values (v_wh, v_city, 'direct');
+    v_res := v_res || jsonb_build_array('FAIL T48d receipt written by hand');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T48d receipts cannot be written by hand');
   end;
   reset role;
 

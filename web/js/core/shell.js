@@ -33,8 +33,11 @@ export function renderShell({ me, subtitle, links = [], extra = '' }) {
   return {
     setActive(href) {
       host.querySelectorAll('.nav-link').forEach((a) => {
-        if (a.dataset.href === href) a.setAttribute('aria-current', 'page');
-        else a.removeAttribute('aria-current');
+        if (a.dataset.href === href) {
+          a.setAttribute('aria-current', 'page');
+          // The menu scrolls sideways once there are many modules; keep the active one visible.
+          a.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+        } else a.removeAttribute('aria-current');
       });
     },
     setBadge(href, count) {

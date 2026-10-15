@@ -65,7 +65,7 @@ returned) written by the internal `apply_stock_movement()` function.
 
 ```mermaid
 flowchart LR
-  S[Supplier] -- "Receive stock (GRN)" --> W[(stock_qty)]
+  S[Supplier] -- "PO → receive_goods (GRN)" --> W[(stock_qty)]
   W -- "place_order reserves" --> O[Order]
   O -- "cancel restores" --> W
   W -- "adjust / wastage / return" --> W

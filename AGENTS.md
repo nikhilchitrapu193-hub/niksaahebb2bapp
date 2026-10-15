@@ -30,7 +30,7 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
    service-role key in `web/`.
 4. **Never edit an applied migration.** Add a new file `supabase/migrations/2026MMDDNNNNNN_name.sql`
    and apply it. Add a matching check to `supabase/tests/security_test.sql`.
-5. **Stock is a ledger.** Change `products.stock_qty` only via `receive_stock` / `adjust_stock`
+5. **Stock is a ledger.** Change `products.stock_qty` only via `receive_goods` / `adjust_stock`
    (see ADR 0007). Never `update products set stock_qty`.
 6. **Orders snapshot prices.** Never recompute old orders from current product prices.
 7. **No frameworks, no bundlers, no TypeScript, no new npm runtime dependencies.**
@@ -57,16 +57,21 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
     stock column: variants are rows with `parent_product_id`; price lists are a layer resolved by the
     database (`my_price_list()` for the customer app). Billing on packed weight goes through
     `set_packed_quantities()`, never `update order_items`.
+17. **Every receipt is a GRN.** Goods come in only through `receive_goods()` (migration 011) — against a
+    PO, as a mandi cash purchase or a direct delivery — and the browser has one receive form
+    (`grn.js` `receiveForm`) opened from Purchase orders, Receipts and Inventory. A purchase order is a
+    plan: it never writes stock. The buying-list arithmetic is `buying_list()` ↔ `suggestedBuy()`
+    (`web/js/core/procurement.js`), shared test numbers T45 ↔ `tests/unit.test.js`.
 
 ## Where things live
 ```
 web/index.html                 public landing page
 web/<role>/login.html          per-role login (shared module web/js/pages/login.js)
 web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
-web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, csv-import, pricing, catalogue
-web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit in 006; price-board, pricing-rules, benchmarks in 009; price-lists in 010; restaurant: product page in 010)
+web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, csv-import, pricing, catalogue, procurement
+web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit in 006; price-board, pricing-rules, benchmarks in 009; price-lists in 010; buying-list, purchase-orders, grn, rate-cards in 011; restaurant: product page in 010); web/js/pages/po.js + web/po.html print a PO
 web/css/                       base.css (tokens), components.css, landing.css
-supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) → all sectors sign up (008) → pricing engine (009) → catalogue + (010), in order
+supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) → all sectors sign up (008) → pricing engine (009) → catalogue + (010) → procurement (011), in order
 supabase/seed.sql              sample catalogue
 supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres

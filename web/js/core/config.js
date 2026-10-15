@@ -20,6 +20,8 @@ export const config = Object.freeze({
 
   // Storage bucket holding product photos (created in migration 003)
   photoBucket: 'product-photos',
+  // Private bucket for mandi bills and quality photos (migration 011)
+  billBucket: 'purchase-bills',
 
   // How often the delivery screen refreshes its list, in milliseconds
   deliveryPollMs: 30_000,
@@ -66,7 +68,7 @@ export const PAYMENT_METHODS = Object.freeze({
 
 /**
  * Admin-app modules and the actions a team role can be granted in each.
- * MUST match the check constraints on role_permissions (migrations 006, 009).
+ * MUST match the check constraints on role_permissions (migrations 006, 009, 011).
  * `nav` is the admin route that opens the module; modules without one are
  * permission groups only (reports arrive in a later batch).
  */
@@ -82,6 +84,7 @@ export const MODULES = Object.freeze({
   audit:     { label: 'Audit log', nav: '#audit' },
   reports:   { label: 'Reports', nav: null },
   pricing:   { label: 'Pricing', nav: '#pricing' },
+  procurement: { label: 'Procurement', nav: '#procurement' },
 });
 
 /** Selling-unit contents (products.pack_unit). Per-kg costs apply to kg/g/l/ml, not to pieces. */
@@ -110,6 +113,22 @@ export const COST_METHODS = Object.freeze({
   latest:           { label: 'Latest receipt (ledger)' },
   quote:            { label: "Today's supplier quote" },
   manual:           { label: 'Typed cost' },
+});
+
+/** Purchase order statuses (purchase_orders.status). */
+export const PO_STATUSES = Object.freeze({
+  draft:         { label: 'Draft', badge: 'pending' },
+  sent:          { label: 'Sent', badge: 'confirmed' },
+  part_received: { label: 'Part received', badge: 'packed' },
+  closed:        { label: 'Closed', badge: 'delivered' },
+  cancelled:     { label: 'Cancelled', badge: 'cancelled' },
+});
+
+/** Where a goods receipt came from (goods_receipts.source). */
+export const GRN_SOURCES = Object.freeze({
+  po:     { label: 'Against a purchase order' },
+  mandi:  { label: 'Mandi cash purchase' },
+  direct: { label: 'Direct delivery (no PO)' },
 });
 
 export const ACTIONS = Object.freeze({

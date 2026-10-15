@@ -39,7 +39,7 @@ we could identify, then maps each one to our build: **Built**, **Built (simplifi
 
 | Hyperpure | Fresh Supply |
 |---|---|
-| Procurement from suppliers via purchase orders; Goods Received Notes (GRN) | **Built** — suppliers list and "Receive stock" (a GRN) that increases stock and records unit cost |
+| Procurement from suppliers via purchase orders; Goods Received Notes (GRN) | **Built** (batch 4) — supplier rate cards, buying list, purchase orders (approve, print, WhatsApp, part-receive, short-close), GRN with quality check, mandi cash purchases with bill photo |
 | Warehouse inventory with quantity on hand, low-stock alerts | **Built** — stock per product, low-stock threshold, low-stock banner |
 | Stock adjustments: wastage, damage, counts | **Built** — adjustments with reason and note; full movement ledger |
 | Quality checks, cold chain, batch/expiry tracking | Roadmap — batch/expiry columns are the next step in the ledger |

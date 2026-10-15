@@ -31,7 +31,7 @@ Admin → **Settings → Cities & warehouses**:
 3. **Add pin code** for every area that warehouse delivers to. Customers sign up with a pin code; if it
    matches, they are served from that warehouse automatically. The public site's "Do you deliver here?"
    box answers from the same list.
-4. Receive stock into the new warehouse (Inventory → pick the warehouse → Receive stock).
+4. Receive stock into the new warehouse (Inventory → pick the warehouse → Receive stock, or Procurement → Receipts).
 5. Invite a city manager and set their scope to the city.
 
 Products are listed everywhere by default; untick a city on the product form to hide one there.
@@ -106,9 +106,31 @@ guard. *Change* saves a new rule from a chosen date and keeps the old one on rec
 Customers see the benchmark as the struck-through "market rate" with its source and date. Settings →
 *Show catalogue prices including GST* switches the catalogue display; invoices always show the split.
 
+## Buying: rate cards, buying list, purchase orders (Procurement)
+Admin → **Procurement** (needs `procurement:view`; the `procurement_buyer` role has it).
+1. **Rate cards** once per supplier: for each product they supply, price, MOQ, lead days, valid-to date, and tick
+   *Preferred* on the supplier you normally buy from (one per product). Suppliers themselves are added under
+   Inventory → Suppliers (name, phone — the phone is what "Share on WhatsApp" uses).
+2. **Buying list** every afternoon: pick the warehouse and tomorrow's date. Per product you see the demand on
+   open orders, free stock, what is already on order, the alert level and a suggested quantity
+   (demand × days of cover + alert level − free stock − on order, rounded up to the MOQ). Raise *Days of cover*
+   to buy for more than one day. Tick the rows, adjust the quantities, **Create purchase orders** → one draft
+   per supplier (products without a preferred supplier ask you to choose one).
+3. **Purchase orders**: open a draft, check the lines (costs come from the rate card unless you typed one),
+   **Edit** if needed, then **Approve & send** (needs `procurement:approve`). **Print / PDF** gives the supplier
+   a copy; **Share on WhatsApp** opens a message with the lines. A PO can be **Cancelled** until something is
+   received, and **Closed short** when the supplier will not deliver the rest.
+4. **Receive goods** when the truck arrives (needs `inventory:edit`): open the PO → Receive goods. Each line
+   is pre-filled with the outstanding quantity; type what you accepted and what you rejected (a reason is
+   required for rejections), the grade and the actual unit cost if it differs. Accepted stock goes into the
+   warehouse at once; the PO becomes *part received* or *closed* by itself. Every receipt gets a GRN number.
+5. **Mandi cash purchase** (Procurement → Receipts → Mandi cash purchase): the lines you bought, the bill
+   amount, *Paid in cash*, a photo of the bill from the phone camera. No PO needed.
+6. **Receipts** lists every GRN with its quality check; **Export CSV** gives one row per line.
+
 ## Warehouse: receive, count, write off
 Admin → **Inventory**. With several warehouses, pick one in the dropdown (totals are read-only).
-* **Receive stock** when goods arrive: pick the warehouse and supplier, add lines with quantity and unit cost. Stock goes up and the catalogue updates immediately.
+* **Receive stock** when goods arrive without a purchase order: it opens the same goods-receipt form as Procurement (warehouse, supplier, lines with accepted / rejected / unit cost) and writes a GRN. Stock goes up and the catalogue updates immediately. Deliveries against a PO are received from the PO itself (above).
 * **Adjust** a product after a physical count (reason: count correction), to write off spoilage (wastage), or to accept a return. This sets that warehouse's count.
 * **History** shows every movement for a product; **Ledger** shows the warehouse's feed.
 * **Export CSV** downloads the list you are looking at.
@@ -137,5 +159,10 @@ settings, with the person and the old and new values. Filter by table or person;
 | Cannot approve a customer | They have no warehouse yet: set one under Customers → Terms. |
 | Team member sees "No access" | Their team role lacks `view` on that module (Settings → Roles), or the rows are outside their city / warehouse scope. |
 | "Choose a warehouse" when receiving stock | The person has no warehouse scope and the city has no default warehouse; pick one in the GRN form or mark a warehouse default. |
+| Buying list suggests 0 for everything | Stock already covers tomorrow's orders (orders reserve stock when placed) and no alert levels are set. Set a low-stock alert level per product (Products → Edit) or raise *Days of cover*. |
+| "Another supplier is already preferred for that product" | Only one supplier can be preferred per product; untick it on the other supplier's rate card first. |
+| "Purchase order is not a draft" | Only drafts can be edited; cancel it (nothing received) or close it short and raise a new one. |
+| "A rejected quantity needs a reason" | Type why in the *Reject reason* box on that line (bruised, short, wrong grade). |
+| "A mandi purchase needs the bill amount" | Type the total on the bill; the *Paid in cash* tick and the photo are how finance reconciles it later. |
 | Dispatch fails | No driver assigned to the order. |
 | Everything fails after weeks idle | Free project paused — resume it in the dashboard. |

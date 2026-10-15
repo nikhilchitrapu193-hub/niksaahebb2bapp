@@ -75,6 +75,7 @@ export function createFake({ tables = {}, rpc = {}, session = null } = {}) {
       from: (bucket) => ({
         getPublicUrl: (path) => ({ data: { publicUrl: `https://files.test/${bucket}/${path}` } }),
         upload: async () => ({ data: {}, error: null }),
+        createSignedUrl: async (path) => ({ data: { signedUrl: `https://files.test/signed/${bucket}/${path}` }, error: null }),
       }),
     },
   };

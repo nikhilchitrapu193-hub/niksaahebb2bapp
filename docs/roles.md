@@ -31,7 +31,7 @@ Logged-out visitors can browse the public catalogue, read the city and sector li
 | `super_admin` | The owner. Every permission, every city. Only a super admin can grant or remove super admin, or change the matrix. |
 | `city_manager` | Runs one city (scope = city). |
 | `warehouse_manager` | Runs one warehouse (scope = warehouse). |
-| `procurement_buyer` | Buys and records receipts; types the morning mandi rates (pricing: view, edit). |
+| `procurement_buyer` | Plans the buying list, keeps rate cards and raises purchase orders (procurement: view, edit, export); types the morning mandi rates (pricing: view, edit). |
 | `pricing_manager` | Sets and approves prices (pricing: view, edit, approve, export). |
 | `finance` | Payments, credit, invoices. |
 | `sales` | Signs up and approves customers, sets their terms. |
@@ -44,7 +44,7 @@ The list lives in `team_roles`; add a role with a migration, then tick its boxes
 
 ## The permission matrix
 
-Modules: dashboard, orders, products, inventory, customers, payments, team, settings, audit, reports, pricing (migration 009).
+Modules: dashboard, orders, products, inventory, customers, payments, team, settings, audit, reports, pricing (migration 009), procurement (migration 011).
 Actions: **view**, **edit** (create / change), **approve**, **export**. A tick = allowed.
 Super admin needs no ticks. Starting ticks are seeded by migration 006; the owner changes them on
 Settings → Roles & permissions (`role_permissions` table).
@@ -57,7 +57,7 @@ Where each permission is checked:
 | `orders:view` / `orders:edit` | see orders in scope / move status, assign drivers, cancel, record packed quantities |
 | `orders:export` | download the order list as CSV |
 | `products:view` / `products:edit` | see / change products (details, pack sizes, loose weight), the category tree, photos, per-city listing, CSV upload |
-| `inventory:view` / `inventory:edit` / `inventory:export` | see stock & suppliers / receive, adjust, write off / export |
+| `inventory:view` / `inventory:edit` / `inventory:export` | see stock, suppliers and receipts / receive goods (GRN, against a PO or not), adjust, write off / export |
 | `customers:view` / `customers:edit` / `customers:approve` / `customers:export` | see / change sector, area, terms / approve or suspend / export |
 | `payments:edit` | mark orders paid or unpaid |
 | `team:view` / `team:edit` | list the team / invite, change roles and scope |
@@ -65,6 +65,7 @@ Where each permission is checked:
 | `audit:view` / `audit:export` | read / export the audit log |
 | `reports:*` | reserved for the reports batch |
 | `pricing:view` / `pricing:edit` / `pricing:approve` / `pricing:export` | open the price board, rules, benchmarks, history, price lists / enter benchmarks and quotes, change rules, overrides and price lists / publish, schedule and cancel prices / export |
+| `procurement:view` / `procurement:edit` / `procurement:approve` / `procurement:export` | open the buying list, purchase orders, receipts, rate cards / keep rate cards, create and edit draft POs, close short, cancel / approve & send a PO to the supplier / export |
 
 ## Scope
 

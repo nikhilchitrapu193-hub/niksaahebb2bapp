@@ -1,0 +1,737 @@
+// =============================================================================
+// api.js — every call the app makes to the backend, in one place.
+//
+// Pages never talk to Supabase directly; they call these named functions.
+// That keeps the data layer easy to find, test and change (see docs/api.md).
+//
+// Reads use table queries (protected by Row Level Security).
+// Writes to orders / users go through database functions (supabase.rpc),
+// which re-check the caller's role. See supabase/migrations/.
+// =============================================================================
+
+import { supabase } from './supabase.js';
+import { config, webRoot } from './config.js';
+
+/** Unwrap a Supabase response: return data, or throw a readable Error. */
+function unwrap({ data, error }) {
+  if (error) throw new Error(friendlyMessage(error));
+  return data;
+}
+
+/** Map low-level database errors to messages a person can act on. */
+function friendlyMessage(error) {
+  if (error.code === '23505') return 'That value already exists. Please use a different one.';
+  if (error.code === '23503') return 'This item is still in use by other records.';
+  if (error.code === '42501') return 'You do not have permission to do that.';
+  return error.message;
+}
+
+// ---------- Catalogue --------------------------------------------------------
+
+export async function listCategories() {
+  return unwrap(await supabase.from('categories').select('*').order('sort_order').order('name'));
+}
+
+/** Restaurants only see active products (enforced by RLS); admins see all. */
+export async function listProducts() {
+  return unwrap(await supabase.from('products').select('*, categories(name)').order('name'));
+}
+
+export function photoUrl(path) {
+  if (!path) return null;
+  return supabase.storage.from(config.photoBucket).getPublicUrl(path).data.publicUrl;
+}
+
+// ---------- Orders (restaurant + delivery + admin) ---------------------------
+
+const ORDER_SELECT = '*, order_items(*)';
+
+/** Filters are optional: { status, cityId, sectorCode }. RLS limits rows to the caller's scope. */
+export async function listOrders({ status, cityId, sectorCode } = {}) {
+  let query = supabase.from('orders').select(ORDER_SELECT).order('created_at', { ascending: false }).limit(200);
+  if (status) query = query.eq('status', status);
+  if (cityId) query = query.eq('city_id', cityId);
+  if (sectorCode) query = query.eq('sector_code', sectorCode);
+  return unwrap(await query);
+}
+
+export async function getOrderHistory(orderId) {
+  return unwrap(await supabase.from('order_status_history')
+    .select('*').eq('order_id', orderId).order('created_at'));
+}
+
+/**
+ * items: [{ product_id, quantity }]. Returns { id, order_number, total_amount, delivery_fee }.
+ * options: { notes, deliveryDate (YYYY-MM-DD), slot, paymentMethod, poReference }
+ */
+export async function placeOrder(items, { notes, deliveryDate, slot = 'morning', paymentMethod = 'cod', poReference } = {}) {
+  return unwrap(await supabase.rpc('place_order', {
+    p_items: items,
+    p_notes: notes || null,
+    p_delivery_date: deliveryDate || null,
+    p_delivery_slot: slot,
+    p_payment_method: paymentMethod,
+    p_po_reference: poReference || null,
+  }));
+}
+
+/**
+ * The customer's trading terms for the cart:
+ * { min_order_value, delivery_fee_below_mov, credit_days, needs_po_reference, sector_name, delivers }
+ */
+export async function getMyOrderTerms() {
+  return unwrap(await supabase.rpc('my_order_terms'));
+}
+
+/** One order with its items (RLS decides who may see it). */
+export async function getOrder(orderId) {
+  return unwrap(await supabase.from('orders').select(ORDER_SELECT).eq('id', orderId).maybeSingle());
+}
+
+export async function setOrderPayment(orderId, status) {
+  unwrap(await supabase.rpc('set_order_payment', { p_order_id: orderId, p_status: status }));
+}
+
+export async function setOrderStatus(orderId, status, note) {
+  unwrap(await supabase.rpc('set_order_status', { p_order_id: orderId, p_new: status, p_note: note || null }));
+}
+
+export async function assignDelivery(orderId, deliveryUserId) {
+  unwrap(await supabase.rpc('assign_delivery', { p_order_id: orderId, p_delivery_user: deliveryUserId }));
+}
+
+// ---------- Account ----------------------------------------------------------
+
+export async function updateMyProfile({ fullName, phone }) {
+  unwrap(await supabase.rpc('update_my_profile', { p_full_name: fullName, p_phone: phone }));
+}
+
+export async function updateMyRestaurant({ name, address, phone, gstin, fssai }) {
+  unwrap(await supabase.rpc('update_my_restaurant',
+    { p_name: name, p_address: address, p_phone: phone, p_gstin: gstin, p_fssai: fssai }));
+}
+
+/** Customer changes city / pin code. Returns { delivers } — false when no warehouse serves the pin code. */
+export async function updateMyDeliveryArea({ cityId, pincode }) {
+  return unwrap(await supabase.rpc('update_my_delivery_area', { p_city_id: cityId, p_pincode: pincode || null }));
+}
+
+// ---------- Cities, warehouses, zones (public read of cities; admin writes) --
+
+/** Active cities (every visitor may read these, for the sign-up form and pin-code check). */
+export async function listCities() {
+  return unwrap(await supabase.from('cities').select('*').order('sort_order').order('name'));
+}
+
+export async function saveCity(city) {
+  const row = { name: city.name.trim(), state_code: (city.state_code || '37').trim(), is_active: city.is_active ?? true, sort_order: Number(city.sort_order) || 0 };
+  const query = city.id ? supabase.from('cities').update(row).eq('id', city.id) : supabase.from('cities').insert(row);
+  unwrap(await query);
+}
+
+export async function listWarehouses() {
+  return unwrap(await supabase.from('warehouses').select('*, cities(name)').order('name'));
+}
+
+export async function saveWarehouse(warehouse) {
+  const row = {
+    city_id: warehouse.city_id, name: warehouse.name.trim(), address: warehouse.address?.trim() || '',
+    phone: warehouse.phone?.trim() || null, is_default: Boolean(warehouse.is_default), is_active: warehouse.is_active ?? true,
+  };
+  const query = warehouse.id ? supabase.from('warehouses').update(row).eq('id', warehouse.id) : supabase.from('warehouses').insert(row);
+  unwrap(await query);
+}
+
+export async function listServiceZones() {
+  return unwrap(await supabase.from('service_zones').select('*').order('pincode'));
+}
+
+export async function saveServiceZone(zone) {
+  const row = { warehouse_id: zone.warehouse_id, pincode: zone.pincode.trim(), area_name: zone.area_name?.trim() || '', is_active: zone.is_active ?? true };
+  const query = zone.id ? supabase.from('service_zones').update(row).eq('id', zone.id) : supabase.from('service_zones').insert(row);
+  unwrap(await query);
+}
+
+export async function deleteServiceZone(id) {
+  unwrap(await supabase.from('service_zones').delete().eq('id', id));
+}
+
+/** Logged-out pin-code check for the website: { delivers, city, area }. */
+export async function checkPincode(pincode) {
+  return unwrap(await supabase.rpc('check_pincode', { p_pincode: pincode.trim() }));
+}
+
+// ---------- Sectors (customer types and their trading terms) ----------------
+
+export async function listSectors() {
+  return unwrap(await supabase.from('sectors').select('*').order('sort_order'));
+}
+
+/** Only the editable terms; code and name are fixed. */
+export async function saveSectorTerms(code, terms) {
+  unwrap(await supabase.from('sectors').update({
+    min_order_value: Number(terms.min_order_value) || 0,
+    delivery_fee_below_mov: Number(terms.delivery_fee_below_mov) || 0,
+    credit_days: Number(terms.credit_days) || 0,
+    needs_po_reference: Boolean(terms.needs_po_reference),
+    needs_order_approval: Boolean(terms.needs_order_approval),
+    can_self_register: Boolean(terms.can_self_register),
+    is_active: terms.is_active ?? true,
+  }).eq('code', code));
+}
+
+// ---------- Team roles & permission matrix -----------------------------------
+
+export async function listTeamRoles() {
+  return unwrap(await supabase.from('team_roles').select('*').order('sort_order'));
+}
+
+/** Every allowed (team_role, module, action) row. */
+export async function listRolePermissions() {
+  return unwrap(await supabase.from('role_permissions').select('*'));
+}
+
+/** Tick or untick one box in the matrix (super admin only, enforced by RLS). */
+export async function setRolePermission(teamRole, module, action, allowed) {
+  const query = allowed
+    ? supabase.from('role_permissions').insert({ team_role: teamRole, module, action })
+    : supabase.from('role_permissions').delete().eq('team_role', teamRole).eq('module', module).eq('action', action);
+  unwrap(await query);
+}
+
+// ---------- Audit log --------------------------------------------------------
+
+/** Latest changes, newest first. filters: { table, userId, limit } */
+export async function listAuditLog({ table, userId, limit = 200 } = {}) {
+  let query = supabase.from('audit_log').select('*').order('id', { ascending: false }).limit(limit);
+  if (table) query = query.eq('table_name', table);
+  if (userId) query = query.eq('changed_by', userId);
+  return unwrap(await query);
+}
+
+// ---------- Product availability per city ------------------------------------
+
+export async function listProductAvailability() {
+  return unwrap(await supabase.from('product_city_availability').select('*'));
+}
+
+/** Hide (false) or show (true) one product in one city. */
+export async function setProductAvailability(productId, cityId, isAvailable) {
+  unwrap(await supabase.from('product_city_availability')
+    .upsert({ product_id: productId, city_id: cityId, is_available: isAvailable }, { onConflict: 'product_id,city_id' }));
+}
+
+/** Company details used on invoices (readable by every signed-in user). */
+export async function getCompanySettings() {
+  return unwrap(await supabase.from('company_settings').select('*').eq('id', true).single());
+}
+
+export async function saveCompanySettings(settings) {
+  unwrap(await supabase.from('company_settings').update(settings).eq('id', true));
+}
+
+/**
+ * Make the signed-in user the FIRST admin. Returns true on success, false when
+ * an admin already exists (the database refuses; see migration 005).
+ */
+export async function claimFirstAdmin() {
+  return unwrap(await supabase.rpc('claim_first_admin'));
+}
+
+// ---------- Admin: catalogue management --------------------------------------
+
+export async function saveProduct(product) {
+  const row = {
+    sku: product.sku.trim(),
+    name: product.name.trim(),
+    description: product.description?.trim() || null,
+    category_id: product.category_id,
+    price: Number(product.price),
+    unit: product.unit.trim(),
+    min_order_qty: Number(product.min_order_qty) || 1,
+    in_stock: Boolean(product.in_stock),
+    is_active: Boolean(product.is_active),
+    photo_path: product.photo_path || null,
+    brand: product.brand?.trim() || null,
+    market_price: product.market_price === '' || product.market_price == null ? null : Number(product.market_price),
+    gst_rate: Number(product.gst_rate) || 0,
+    low_stock_threshold: Number(product.low_stock_threshold) || 0,
+    hsn_code: product.hsn_code || null,
+    pack_size: Number(product.pack_size) > 0 ? Number(product.pack_size) : 1,
+    pack_unit: product.pack_unit || 'kg',
+    // Catalogue + (migration 010)
+    grade: product.grade?.trim() || null,
+    origin: product.origin?.trim() || null,
+    veg_type: product.veg_type || null,
+    shelf_life_days: product.shelf_life_days === '' || product.shelf_life_days == null ? null : Number(product.shelf_life_days),
+    storage_note: product.storage_note?.trim() || null,
+    parent_product_id: product.parent_product_id || null,
+    variant_label: product.variant_label?.trim() || null,
+    sold_by_weight: Boolean(product.sold_by_weight),
+    weight_tolerance_pct: Number(product.weight_tolerance_pct) >= 0 ? Number(product.weight_tolerance_pct) : 10,
+  };
+  // A price published from the board stays as the board set it; the form only
+  // changes it when the product is priced by hand.
+  if (product.price_source === 'rule' && product.id) { delete row.price; delete row.market_price; }
+  const query = product.id
+    ? supabase.from('products').update(row).eq('id', product.id).select().single()
+    : supabase.from('products').insert(row).select().single();
+  return unwrap(await query);
+}
+
+export async function setProductFlags(id, flags) {
+  unwrap(await supabase.from('products').update(flags).eq('id', id));
+}
+
+/** Upload an image and return its storage path (store it in photo_path). */
+export async function uploadProductPhoto(file) {
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type];
+  if (!extension) throw new Error('Please choose a JPG, PNG or WebP image.');
+  if (file.size > 5 * 1024 * 1024) throw new Error('Image is larger than 5 MB.');
+  const path = `${crypto.randomUUID()}.${extension}`;
+  unwrap(await supabase.storage.from(config.photoBucket).upload(path, file, { contentType: file.type }));
+  return path;
+}
+
+/** Create or rename a category. parent_id null = top level (two levels only; the database checks). */
+export async function saveCategory(category) {
+  const row = { name: category.name.trim(), sort_order: Number(category.sort_order) || 0, parent_id: category.parent_id || null };
+  const query = category.id
+    ? supabase.from('categories').update(row).eq('id', category.id)
+    : supabase.from('categories').insert(row);
+  unwrap(await query);
+}
+
+export async function deleteCategory(id) {
+  unwrap(await supabase.from('categories').delete().eq('id', id));
+}
+
+// ---------- Admin: warehouse & inventory -------------------------------------
+
+export async function listSuppliers() {
+  return unwrap(await supabase.from('suppliers').select('*').order('name'));
+}
+
+export async function saveSupplier(supplier) {
+  const row = {
+    name: supplier.name.trim(),
+    contact: supplier.contact?.trim() || null,
+    phone: supplier.phone?.trim() || null,
+    notes: supplier.notes?.trim() || null,
+    is_active: supplier.is_active ?? true,
+  };
+  const query = supplier.id
+    ? supabase.from('suppliers').update(row).eq('id', supplier.id)
+    : supabase.from('suppliers').insert(row);
+  unwrap(await query);
+}
+
+// Receiving goods lives in the Procurement section below (receiveGoods → receive_goods, migration 011):
+// every receipt is a GRN, whether it is against a PO, a mandi cash purchase or a direct delivery.
+// The older receive_stock() function still exists in the database but the app no longer calls it.
+
+/** Set one warehouse's stock to an exact count. reason: 'adjustment' | 'wastage' | 'returned'. */
+export async function adjustStock(productId, newQty, reason, note, warehouseId) {
+  unwrap(await supabase.rpc('adjust_stock', {
+    p_product_id: productId, p_new_qty: newQty, p_reason: reason, p_note: note || null, p_warehouse_id: warehouseId || null,
+  }));
+}
+
+/** Movement ledger, newest first. Both filters optional. */
+export async function listStockMovements({ productId, warehouseId, limit = 50 } = {}) {
+  let query = supabase.from('stock_movements')
+    .select('*, suppliers(name), orders(order_number)')
+    .order('created_at', { ascending: false }).limit(limit);
+  if (productId) query = query.eq('product_id', productId);
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  return unwrap(await query);
+}
+
+/** Stock on hand per warehouse: [{ warehouse_id, product_id, qty }]. RLS limits to the caller's scope. */
+export async function listWarehouseStock(warehouseId) {
+  let query = supabase.from('warehouse_stock').select('*');
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  return unwrap(await query);
+}
+
+// ---------- Admin: people ----------------------------------------------------
+
+export async function listRestaurants() {
+  return unwrap(await supabase.from('restaurants').select('*').order('created_at', { ascending: false }));
+}
+
+/** Approve / suspend / reinstate. Needs customers:approve (set_customer_status re-checks). */
+export async function setRestaurantStatus(id, status) {
+  unwrap(await supabase.rpc('set_customer_status', { p_restaurant_id: id, p_status: status }));
+}
+
+/**
+ * Sector, city, warehouse, pin code and per-customer overrides of the sector
+ * terms (empty string = use the sector default). Needs customers:edit.
+ */
+export async function saveCustomerTerms(id, terms) {
+  const orNull = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+  unwrap(await supabase.from('restaurants').update({
+    sector_code: terms.sector_code,
+    city_id: terms.city_id,
+    warehouse_id: terms.warehouse_id || null,
+    pincode: terms.pincode?.trim() || null,
+    min_order_value: orNull(terms.min_order_value),
+    delivery_fee_below_mov: orNull(terms.delivery_fee_below_mov),
+    credit_days: orNull(terms.credit_days),
+  }).eq('id', id));
+}
+
+/** Unpaid credit per restaurant: [{ restaurant_id, outstanding, unpaid_orders }]. */
+export async function listOutstandingBalances() {
+  return unwrap(await supabase.rpc('admin_outstanding_balances'));
+}
+
+export async function listUsers() {
+  return unwrap(await supabase.rpc('admin_list_users'));
+}
+
+/**
+ * Invite a new admin or delivery person by email (Edge Function invite-staff).
+ * Supabase emails them a link; they set a password on reset.html and sign in.
+ */
+export async function inviteStaff({ email, role, fullName, teamRole }) {
+  const { data, error } = await supabase.functions.invoke('invite-staff', {
+    body: { email, role, full_name: fullName, team_role: teamRole || null, redirect_to: `${webRoot}reset.html?role=${role}` },
+  });
+  if (error) {
+    // The function returns a readable message in the JSON body; surface it.
+    let message = error.message;
+    try { message = (await error.context?.json())?.error ?? message; } catch { /* keep default */ }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function setUserRole(userId, role, isActive) {
+  unwrap(await supabase.rpc('admin_set_user_role', { p_user: userId, p_role: role, p_active: isActive }));
+}
+
+/** Role, team role, scope and active flag in one call (Team screen). */
+export async function setTeamMember(userId, { role, isActive, teamRole, cityId, warehouseId }) {
+  unwrap(await supabase.rpc('admin_set_team_member', {
+    p_user: userId, p_role: role, p_active: isActive,
+    p_team_role: teamRole || null, p_city_id: cityId || null, p_warehouse_id: warehouseId || null,
+  }));
+}
+
+export async function getDashboardStats() {
+  return unwrap(await supabase.rpc('admin_dashboard_stats'));
+}
+
+// ---------- Pricing engine (migration 009) -----------------------------------
+// Staff-only tables: every read here needs pricing:view, writes pricing:edit,
+// publishing pricing:approve. The database checks; the screens only hide.
+
+/** HSN list for the product form and invoices (any signed-in user). */
+export async function listHsnCodes() {
+  return unwrap(await supabase.from('hsn_codes').select('*').order('code'));
+}
+
+/** The board: one object per active product with inputs, costs, benchmark and the computed price. */
+export async function listPriceBoard(categoryId) {
+  return unwrap(await supabase.rpc('price_board', { p_category_id: categoryId || null }));
+}
+
+/**
+ * Publish prices. items = [{ product_id, price? }] (no price = the suggestion).
+ * options: { reason, effectiveAt (ISO string, future = scheduled), force (publish past a warning) }.
+ * Returns { applied, scheduled }.
+ */
+export async function applyPrices(items, { reason, effectiveAt, force = false } = {}) {
+  return unwrap(await supabase.rpc('apply_prices', {
+    p_items: items, p_reason: reason || null, p_effective_at: effectiveAt || null, p_force: force,
+  }));
+}
+
+/** Apply any scheduled prices whose time has come; returns how many. */
+export async function publishDuePrices() {
+  return unwrap(await supabase.rpc('publish_due_prices'));
+}
+
+export async function listScheduledPrices() {
+  return unwrap(await supabase.from('scheduled_prices').select('*').eq('status', 'pending').order('effective_at'));
+}
+
+export async function cancelScheduledPrice(id) {
+  unwrap(await supabase.rpc('cancel_scheduled_price', { p_id: id }));
+}
+
+/** Every rule row (global + per category, all effective dates), newest first. */
+export async function listPricingRules() {
+  return unwrap(await supabase.from('pricing_rules').select('*, categories(name)').order('effective_from', { ascending: false }));
+}
+
+/** Insert or update one rule row. Pass id to update. Numbers may arrive as strings from a form. */
+export async function savePricingRule(rule) {
+  const n = (v) => (v === '' || v == null ? null : Number(v));
+  const row = {
+    category_id: rule.category_id || null,
+    markup_pct: n(rule.markup_pct) ?? 0,
+    min_markup_pct: n(rule.min_markup_pct) ?? 0,
+    wastage_pct: n(rule.wastage_pct) ?? 0,
+    handling_per_kg: n(rule.handling_per_kg) ?? 0,
+    packing_per_unit: n(rule.packing_per_unit) ?? 0,
+    transport_per_kg: n(rule.transport_per_kg) ?? 0,
+    market_fee_pct: n(rule.market_fee_pct) ?? 0,
+    other_cost_pct: n(rule.other_cost_pct) ?? 0,
+    rounding_step: n(rule.rounding_step) ?? 1,
+    round_mode: rule.round_mode || 'nearest',
+    benchmark_cap_pct: n(rule.benchmark_cap_pct),
+    benchmark_source_id: rule.benchmark_source_id || null,
+    cost_method: rule.cost_method || 'weighted_avg_30d',
+    guard_mode: rule.guard_mode || 'warn',
+    effective_from: rule.effective_from,
+    effective_to: rule.effective_to || null,
+    note: rule.note?.trim() || null,
+  };
+  const query = rule.id
+    ? supabase.from('pricing_rules').update(row).eq('id', rule.id).select().single()
+    : supabase.from('pricing_rules').insert(row).select().single();
+  return unwrap(await query);
+}
+
+export async function listProductPricing() {
+  return unwrap(await supabase.from('product_pricing').select('*'));
+}
+
+/**
+ * Save a product's override (upsert on product_id). Every field is optional;
+ * blank = "use the category rule". Returns the saved row.
+ */
+export async function saveProductPricing(productId, o) {
+  const n = (v) => (v === '' || v == null ? null : Number(v));
+  const row = {
+    product_id: productId,
+    pricing_mode: o.pricing_mode || 'rule',
+    markup_pct: n(o.markup_pct), min_markup_pct: n(o.min_markup_pct), wastage_pct: n(o.wastage_pct),
+    yield_pct: n(o.yield_pct) ?? 100,
+    handling_per_kg: n(o.handling_per_kg), packing_per_unit: n(o.packing_per_unit), transport_per_kg: n(o.transport_per_kg),
+    market_fee_pct: n(o.market_fee_pct), other_cost_pct: n(o.other_cost_pct),
+    rounding_step: n(o.rounding_step), round_mode: o.round_mode || null,
+    benchmark_cap_pct: n(o.benchmark_cap_pct), benchmark_source_id: o.benchmark_source_id || null,
+    fixed_margin_amount: n(o.fixed_margin_amount),
+    manual_price: n(o.manual_price), manual_reason: o.manual_reason?.trim() || null,
+    cost_method: o.cost_method || null, manual_cost: n(o.manual_cost),
+    supplier_quote: n(o.supplier_quote), quote_date: o.quote_date || null,
+  };
+  return unwrap(await supabase.from('product_pricing').upsert(row, { onConflict: 'product_id' }).select().single());
+}
+
+/** Today's buying price for one product, straight from the board. */
+export async function saveSupplierQuote(productId, quote, quoteDate) {
+  return unwrap(await supabase.from('product_pricing')
+    .upsert({ product_id: productId, supplier_quote: quote === '' || quote == null ? null : Number(quote), quote_date: quoteDate }, { onConflict: 'product_id' })
+    .select().single());
+}
+
+export async function listBenchmarkSources() {
+  return unwrap(await supabase.from('benchmark_sources').select('*').order('sort_order').order('name'));
+}
+
+export async function saveBenchmarkSource(source) {
+  const row = { code: source.code.trim().toLowerCase(), name: source.name.trim(), url: source.url?.trim() || null,
+                is_active: source.is_active !== false, sort_order: Number(source.sort_order) || 0 };
+  const query = source.id
+    ? supabase.from('benchmark_sources').update(row).eq('id', source.id).select().single()
+    : supabase.from('benchmark_sources').insert(row).select().single();
+  return unwrap(await query);
+}
+
+/** Benchmark entries, newest first. filters: { productId, sourceId, since (YYYY-MM-DD), limit } */
+export async function listBenchmarkPrices({ productId, sourceId, since, limit = 500 } = {}) {
+  let query = supabase.from('benchmark_prices').select('*').order('price_date', { ascending: false }).limit(limit);
+  if (productId) query = query.eq('product_id', productId);
+  if (sourceId) query = query.eq('source_id', sourceId);
+  if (since) query = query.gte('price_date', since);
+  return unwrap(await query);
+}
+
+/** Enter or correct market rates: rows = [{ source_id, product_id, price_date, price, market? }]. Same day overwrites. */
+export async function saveBenchmarkPrices(rows) {
+  if (!rows.length) return [];
+  return unwrap(await supabase.from('benchmark_prices').upsert(rows, { onConflict: 'source_id,product_id,price_date' }).select());
+}
+
+/** Published price changes for one product, newest first (the chart and the "why" trail). */
+export async function listPriceHistory(productId, limit = 60) {
+  return unwrap(await supabase.from('price_history').select('*').eq('product_id', productId).order('created_at', { ascending: false }).limit(limit));
+}
+
+// ---------- Catalogue + (migration 010) --------------------------------------
+
+/**
+ * Bulk create / update products from csv-import.js rows (products:edit). Rows
+ * carry only the columns the file had, so each one is written on its own
+ * (a single upsert would need every row to have the same columns). A row with
+ * an id updates that product; without one it is inserted.
+ */
+export async function upsertProducts(rows) {
+  let created = 0;
+  let updated = 0;
+  for (const { id, ...row } of rows) {
+    if (id) { unwrap(await supabase.from('products').update(row).eq('id', id)); updated += 1; }
+    else { unwrap(await supabase.from('products').insert(row)); created += 1; }
+  }
+  return { created, updated };
+}
+
+/** Price lists: a % adjustment per city and / or sector, plus fixed prices per product. */
+export async function listPriceLists() {
+  return unwrap(await supabase.from('price_lists').select('*, cities(name), sectors(name)').order('name'));
+}
+
+export async function savePriceList(list) {
+  const row = {
+    name: list.name.trim(), city_id: list.city_id || null, sector_code: list.sector_code || null,
+    adjustment_pct: Number(list.adjustment_pct) || 0, is_active: list.is_active !== false, note: list.note?.trim() || null,
+  };
+  const query = list.id
+    ? supabase.from('price_lists').update(row).eq('id', list.id).select().single()
+    : supabase.from('price_lists').insert(row).select().single();
+  return unwrap(await query);
+}
+
+export async function deletePriceList(id) {
+  unwrap(await supabase.from('price_lists').delete().eq('id', id));
+}
+
+export async function listPriceListItems(priceListId) {
+  return unwrap(await supabase.from('price_list_items').select('*').eq('price_list_id', priceListId));
+}
+
+/** Fixed prices for products on one list: rows = [{ product_id, price, note? }]. Same product overwrites. */
+export async function savePriceListItems(priceListId, rows) {
+  if (!rows.length) return [];
+  return unwrap(await supabase.from('price_list_items')
+    .upsert(rows.map((r) => ({ price_list_id: priceListId, product_id: r.product_id, price: Number(r.price), note: r.note || null })), { onConflict: 'price_list_id,product_id' })
+    .select());
+}
+
+export async function deletePriceListItem(priceListId, productId) {
+  unwrap(await supabase.from('price_list_items').delete().eq('price_list_id', priceListId).eq('product_id', productId));
+}
+
+/** Customer side: [{ product_id, price }] for every product whose price for me differs from the published one. */
+export async function getMyPriceList() {
+  return unwrap(await supabase.rpc('my_price_list'));
+}
+
+/**
+ * After packing: the actual quantity per line (orders:edit, order confirmed or packed).
+ * lines = [{ order_item_id, packed_quantity }]. Returns { lines, subtotal, total_amount }.
+ */
+export async function setPackedQuantities(orderId, lines) {
+  return unwrap(await supabase.rpc('set_packed_quantities', { p_order_id: orderId, p_items: lines }));
+}
+
+// ---------- Procurement (migration 011) --------------------------------------
+// Rate cards, purchase orders, goods receipts and the buying list. Reads need
+// procurement:view (receipts also inventory:view); POs need procurement:edit /
+// approve; receiving needs inventory:edit. Scope applies throughout.
+
+export async function listSupplierProducts({ supplierId, productId } = {}) {
+  let query = supabase.from('supplier_products').select('*, suppliers(name), products(name, sku, unit)').order('price');
+  if (supplierId) query = query.eq('supplier_id', supplierId);
+  if (productId) query = query.eq('product_id', productId);
+  return unwrap(await query);
+}
+
+/** One rate-card line (upsert on supplier + product). Only one preferred supplier per product (the database checks). */
+export async function saveSupplierProduct(rate) {
+  const n = (v) => (v === '' || v == null ? null : Number(v));
+  const row = {
+    supplier_id: rate.supplier_id, product_id: rate.product_id, price: Number(rate.price),
+    moq: n(rate.moq) ?? 1, lead_days: n(rate.lead_days) ?? 1, is_preferred: Boolean(rate.is_preferred),
+    valid_from: rate.valid_from || undefined, valid_to: rate.valid_to || null, note: rate.note?.trim() || null,
+  };
+  if (row.valid_from === undefined) delete row.valid_from;
+  return unwrap(await supabase.from('supplier_products').upsert(row, { onConflict: 'supplier_id,product_id' }).select().single());
+}
+
+export async function deleteSupplierProduct(id) {
+  unwrap(await supabase.from('supplier_products').delete().eq('id', id));
+}
+
+/** The buying list for one warehouse and delivery date; coverDays = how many days like that one to stock for. */
+export async function getBuyingList(warehouseId, deliveryDate, coverDays = 1) {
+  return unwrap(await supabase.rpc('buying_list', { p_warehouse_id: warehouseId, p_delivery_date: deliveryDate, p_cover_days: coverDays }));
+}
+
+const PO_SELECT = '*, suppliers(name, phone, contact), warehouses(name, address), purchase_order_items(*, products(name, sku, unit))';
+
+/** filters: { status, warehouseId, supplierId, limit } */
+export async function listPurchaseOrders({ status, warehouseId, supplierId, limit = 200 } = {}) {
+  let query = supabase.from('purchase_orders').select(PO_SELECT).order('created_at', { ascending: false }).limit(limit);
+  if (status) query = query.eq('status', status);
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  if (supplierId) query = query.eq('supplier_id', supplierId);
+  return unwrap(await query);
+}
+
+export async function getPurchaseOrder(id) {
+  return unwrap(await supabase.from('purchase_orders').select(PO_SELECT).eq('id', id).maybeSingle());
+}
+
+/** items = [{ product_id, quantity, unit_cost? }] — a missing cost takes the supplier's rate card. Returns { id, po_number }. */
+export async function createPurchaseOrder({ supplierId, warehouseId, expectedDate, notes, items }) {
+  return unwrap(await supabase.rpc('create_purchase_order', {
+    p_supplier_id: supplierId, p_warehouse_id: warehouseId, p_expected_date: expectedDate || null, p_notes: notes || null, p_items: items,
+  }));
+}
+
+/** Replace the lines and details of a draft. */
+export async function updatePurchaseOrder(id, { expectedDate, notes, items }) {
+  unwrap(await supabase.rpc('update_purchase_order', { p_po_id: id, p_expected_date: expectedDate || null, p_notes: notes || null, p_items: items }));
+}
+
+/** 'sent' (approve, needs procurement:approve) · 'closed' (short-close) · 'cancelled' (nothing received). */
+export async function setPurchaseOrderStatus(id, status) {
+  unwrap(await supabase.rpc('set_purchase_order_status', { p_po_id: id, p_status: status }));
+}
+
+const GRN_SELECT = '*, suppliers(name), warehouses(name), purchase_orders(po_number), goods_receipt_items(*, products(name, sku, unit))';
+
+/** filters: { warehouseId, poId, limit } */
+export async function listGoodsReceipts({ warehouseId, poId, limit = 100 } = {}) {
+  let query = supabase.from('goods_receipts').select(GRN_SELECT).order('created_at', { ascending: false }).limit(limit);
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  if (poId) query = query.eq('po_id', poId);
+  return unwrap(await query);
+}
+
+/**
+ * Receive goods with a quality check (inventory:edit).
+ * { warehouseId, supplierId, poId, source: 'po' | 'mandi' | 'direct', note, billPhotoPath, billAmount, paidCash,
+ *   items: [{ product_id, qty_accepted, qty_rejected, unit_cost, grade, reject_reason, photo_path }] }
+ * Returns { id, grn_number, po_status }.
+ */
+export async function receiveGoods({ warehouseId, supplierId, poId, source, items, note, billPhotoPath, billAmount, paidCash }) {
+  return unwrap(await supabase.rpc('receive_goods', {
+    p_warehouse_id: warehouseId || null, p_supplier_id: supplierId || null, p_po_id: poId || null, p_source: source,
+    p_items: items, p_note: note || null, p_bill_photo_path: billPhotoPath || null,
+    p_bill_amount: billAmount === '' || billAmount == null ? null : Number(billAmount), p_paid_cash: Boolean(paidCash),
+  }));
+}
+
+/** Upload a bill / quality photo to the private purchase-bills bucket; returns its path. */
+export async function uploadBillPhoto(file) {
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type];
+  if (!extension) throw new Error('Please choose a JPG, PNG or WebP image.');
+  if (file.size > 8 * 1024 * 1024) throw new Error('Image is larger than 8 MB.');
+  const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`;
+  unwrap(await supabase.storage.from(config.billBucket).upload(path, file, { contentType: file.type }));
+  return path;
+}
+
+/** A short-lived link to a bill photo (the bucket is private). */
+export async function billPhotoUrl(path, seconds = 600) {
+  if (!path) return null;
+  return unwrap(await supabase.storage.from(config.billBucket).createSignedUrl(path, seconds)).signedUrl;
+}

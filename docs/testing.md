@@ -6,10 +6,10 @@ npm test
 
 | Suite | File | What it proves |
 |---|---|---|
-| Unit | `tests/unit.test.js` | HTML escaping, INR formatting, cart maths, order preview (MOV / fee), CSV export and parsing, permissions, audit wording, **the pricing formula** (same numbers as SQL T30), rule picker, GST display, category tree, catalogue filters, variant grouping, CSV product import, price-list arithmetic |
-| Page smoke | `tests/pages.test.js` | Each screen renders against a fake backend and calls the right functions (incl. locations, sectors, roles, audit, customer terms, per-warehouse GRN, PO / fee in the cart, pin-code check, all sectors on sign-up, price board, rules, benchmarks, product HSN / pack size, catalogue benchmark label, invoice HSN, catalogue filters / packs / your price, product page, product details, CSV upload, price lists, packed quantities, inherited rules) |
+| Unit | `tests/unit.test.js` | HTML escaping, INR formatting, cart maths, order preview (MOV / fee), CSV export and parsing, permissions, audit wording, **the pricing formula** (same numbers as SQL T30), rule picker, GST display, category tree, catalogue filters, variant grouping, CSV product import, price-list arithmetic, **the buying-list arithmetic** (same numbers as SQL T45), MOQ rounding, PO totals and message |
+| Page smoke | `tests/pages.test.js` | Each screen renders against a fake backend and calls the right functions (incl. locations, sectors, roles, audit, customer terms, per-warehouse GRN, PO / fee in the cart, pin-code check, all sectors on sign-up, price board, rules, benchmarks, product HSN / pack size, catalogue benchmark label, invoice HSN, catalogue filters / packs / your price, product page, product details, CSV upload, price lists, packed quantities, inherited rules, buying list → draft POs, PO approve and receive, mandi purchase, rate cards, inventory receive via GRN) |
 | Static | `tests/static.test.js` | No broken script/CSS/import paths; no secret keys shipped |
-| Database security | `supabase/tests/security_test.sql` | 145 role / RLS / inventory / state-machine / permission / scope / audit / pricing / catalogue checks (run in the SQL editor; it rolls back and leaves no data) |
+| Database security | `supabase/tests/security_test.sql` | 174 role / RLS / inventory / state-machine / permission / scope / audit / pricing / catalogue / procurement checks (run in the SQL editor; it rolls back and leaves no data) |
 
 The fake backend lives in `tests/helpers/fake-supabase.js`. These tests do **not** replace trying the
 real app in a browser.
@@ -23,7 +23,8 @@ the seed and the test, as its header shows. The Supabase SQL editor needs none o
 ### Two copies of one formula
 `compute_price_from()` (SQL) and `computePrice()` (`web/js/core/pricing.js`) must give the same numbers.
 `security_test.sql` T30a–e and the `computePrice` tests in `tests/unit.test.js` use the **same inputs**;
-when you change the formula, change both and both tests (docs/code-rules.md rule 8).
+when you change the formula, change both and both tests (docs/code-rules.md rule 8). The same holds for
+`buying_list()` ↔ `suggestedBuy()` (`web/js/core/procurement.js`): T45c–d and the `suggestedBuy` unit test share their numbers.
 
 ## Adding a test
 * New helper → `tests/unit.test.js`.

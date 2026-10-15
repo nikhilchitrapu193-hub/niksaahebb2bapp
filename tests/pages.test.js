@@ -73,6 +73,7 @@ function setup({ session, profile, tables = {}, rpc = {}, body }) {
       role_permissions: PICKER_PERMISSIONS, warehouse_stock: [], product_city_availability: [], audit_log: [],
       hsn_codes: HSN, pricing_rules: RULES, product_pricing: [], benchmark_sources: SOURCES, benchmark_prices: [], price_history: [], scheduled_prices: [],
       company_settings: [COMPANY], price_lists: [], price_list_items: [],
+      supplier_products: [], purchase_orders: [], goods_receipts: [],
       ...tables,
     },
     rpc,
@@ -275,14 +276,14 @@ test('admin: orders detail can mark a credit order paid', async () => {
   assert.deepEqual(fake.calls.find((c) => c.name === 'set_order_payment').args, { p_order_id: 'o1', p_status: 'paid' });
 });
 
-test('admin: inventory lists stock levels and receives stock via receive_stock', async () => {
+test('admin: inventory lists stock levels and receives stock via receive_goods (shared GRN form)', async () => {
   const { document, location, fake } = setup({
     session: { user: { id: 'u-admin', email: 'a@x.com' } },
     profile: ADMIN,
     tables: { products: PRODUCTS, suppliers: [{ id: 's1', name: 'Farm Co', is_active: true }],
       // Per-warehouse figures (migration 006) mirror the product totals above.
       warehouse_stock: PRODUCTS.map((p) => ({ warehouse_id: 'wh-1', product_id: p.id, qty: p.stock_qty })) },
-    rpc: { admin_dashboard_stats: () => ({ pending_restaurants: 0 }), receive_stock: () => null },
+    rpc: { admin_dashboard_stats: () => ({ pending_restaurants: 0 }), receive_goods: () => ({ grn_number: 'GRN-1000' }) },
   });
   location.hash = '#inventory';
   await importFresh('web/js/pages/admin/main.js');
@@ -294,14 +295,17 @@ test('admin: inventory lists stock levels and receives stock via receive_stock',
   const form = await waitFor(() => document.querySelector('#grn'));
   const select = form.querySelector('[data-field="product_id"]');
   select.value = 'p3'; select.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
-  const qty = form.querySelector('[data-field="quantity"]');
+  const qty = form.querySelector('[data-field="qty_accepted"]');
   qty.value = '25'; qty.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
   form.querySelector('[name=supplier]').value = 's1';
   form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
-  await waitFor(() => fake.calls.some((c) => c.name === 'receive_stock'));
-  const call = fake.calls.find((c) => c.name === 'receive_stock');
-  assert.deepEqual(call.args.p_items, [{ product_id: 'p3', quantity: 25, unit_cost: null }]);
+  await waitFor(() => fake.calls.some((c) => c.name === 'receive_goods'));
+  const call = fake.calls.find((c) => c.name === 'receive_goods');
+  assert.deepEqual(call.args.p_items, [{ product_id: 'p3', qty_accepted: 25, qty_rejected: 0, unit_cost: null, grade: null, reject_reason: null }]);
   assert.equal(call.args.p_supplier_id, 's1');
+  assert.equal(call.args.p_source, 'direct', 'Inventory → Receive stock is a direct receipt (no PO)');
+  assert.equal(call.args.p_po_id, null);
+  assert.equal(fake.calls.some((c) => c.name === 'receive_stock'), false, 'the old receive_stock path is no longer used by the UI');
 });
 
 test('admin: team page sends an invite through the invite-staff function', async () => {
@@ -515,7 +519,7 @@ test('admin: inventory receives stock into the chosen warehouse (p_warehouse_id)
     session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
     tables: { products: PRODUCTS, suppliers: [], warehouses: [WAREHOUSE, second],
       warehouse_stock: [{ warehouse_id: 'wh-2', product_id: 'p1', qty: 7 }] },
-    rpc: { ...ADMIN_RPC, receive_stock: () => null },
+    rpc: { ...ADMIN_RPC, receive_goods: () => ({ grn_number: 'GRN-1001' }) },
   });
   location.hash = '#inventory';
   await importFresh('web/js/pages/admin/main.js');
@@ -530,11 +534,11 @@ test('admin: inventory receives stock into the chosen warehouse (p_warehouse_id)
   assert.equal(form.querySelector('[name=warehouse]').value, 'wh-2', 'GRN defaults to the selected warehouse');
   const product = form.querySelector('[data-field="product_id"]');
   product.value = 'p1'; product.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
-  const qty = form.querySelector('[data-field="quantity"]');
+  const qty = form.querySelector('[data-field="qty_accepted"]');
   qty.value = '10'; qty.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
   form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
-  await waitFor(() => fake.calls.some((c) => c.name === 'receive_stock'));
-  assert.equal(fake.calls.find((c) => c.name === 'receive_stock').args.p_warehouse_id, 'wh-2');
+  await waitFor(() => fake.calls.some((c) => c.name === 'receive_goods'));
+  assert.equal(fake.calls.find((c) => c.name === 'receive_goods').args.p_warehouse_id, 'wh-2');
 });
 
 test('admin: team invite sends the team role; saving a row calls admin_set_team_member', async () => {
@@ -1017,4 +1021,166 @@ test('admin: rules screen shows a sub-category inheriting its parent rule', asyn
   assert.match(sub.querySelector('h3').textContent, /Vegetables › Leafy greens/);
   assert.match(sub.textContent, /Uses the Vegetables rule/);
   assert.match(sub.textContent, /15%/);
+});
+
+// ---------------------------------------------------------------------------
+// Procurement (migration 011): buying list → draft POs, approve, receive against
+// a PO, mandi cash purchases, rate cards. Numbers follow security_test.sql T45–T48.
+// ---------------------------------------------------------------------------
+const SUPPLIERS = [{ id: 's1', name: 'Farm Co', phone: '9848012345', is_active: true }, { id: 's2', name: 'Dairy Best', is_active: true }];
+const BUYING_ROWS = [
+  { product_id: 'p1', sku: 'VEG-001', name: 'Tomato', unit: 'kg', category_name: 'Vegetables', demand_qty: 20.8, demand_orders: 2, free_stock: 180, low_stock_threshold: 20, open_po_qty: 0, suggested_qty: 0, supplier_id: 's1', supplier_name: 'Farm Co', rate: 21, moq: 50, lead_days: 1, latest_cost: 20, avg_cost_30d: 20 },
+  { product_id: 'p3', sku: 'DAI-002', name: 'Paneer', unit: 'kg', category_name: 'Dairy', demand_qty: 12, demand_orders: 1, free_stock: 5, low_stock_threshold: 10, open_po_qty: 0, suggested_qty: 17, supplier_id: null, supplier_name: null, rate: null, moq: 1, lead_days: 1, latest_cost: 280, avg_cost_30d: null },
+];
+const DRAFT_PO = {
+  id: 'po1', po_number: 'PO-1000', status: 'draft', supplier_id: 's1', warehouse_id: 'wh-1', city_id: 'city-vz', expected_date: '2026-10-16', notes: null, created_at: '2026-10-15T05:00:00Z',
+  suppliers: { name: 'Farm Co', phone: '9848012345' }, warehouses: { name: 'Vizag main warehouse', address: '' },
+  purchase_order_items: [{ id: 'poi1', product_id: 'p1', qty_ordered: 60, unit_cost: 21, qty_received: 0, qty_rejected: 0, products: { name: 'Tomato', sku: 'VEG-001', unit: 'kg' } }],
+};
+const PROCUREMENT_RPC = { ...ADMIN_RPC, buying_list: () => BUYING_ROWS, create_purchase_order: () => ({ id: 'po-new', po_number: 'PO-1001' }), set_purchase_order_status: () => null, receive_goods: () => ({ grn_number: 'GRN-1000', po_status: 'part_received' }) };
+
+test('admin: buying list shows the shortfall and creates one draft PO per supplier from ticked rows', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { products: PRODUCTS, suppliers: SUPPLIERS }, rpc: PROCUREMENT_RPC,
+  });
+  location.hash = '#procurement';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#create-po'));
+  assert.match(document.querySelector('.page-head').textContent, /1 products to buy/);
+  const bl = fake.calls.find((c) => c.name === 'buying_list');
+  assert.equal(bl.args.p_warehouse_id, 'wh-1'); assert.equal(bl.args.p_cover_days, 1);
+  const text = document.body.textContent.replace(/\s+/g, ' ');
+  assert.match(text, /PaneerDAI-002 · kg · Dairy 121 order 5 0 10 17 no rate card last ₹280\.00/, 'demand (12, 1 order), free 5, on order 0, alert 10, suggested 17, last cost');
+  assert.match(text, /Tomato.*Farm Co.*MOQ 50/, 'preferred supplier and MOQ');
+  assert.equal(document.querySelector('[data-qty="p3"]').value, '17', 'suggested = 12 × 1 + 10 − 5 − 0');
+  assert.equal(document.querySelector('#create-po').disabled, true, 'nothing ticked yet');
+
+  // Ten days of cover recalculates locally (no round trip): tomato 20.8 × 10 + 20 − 180 = 48 → MOQ 50.
+  const cover = document.querySelector('#cover');
+  cover.value = '10'; cover.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  await waitFor(() => document.querySelector('[data-qty="p1"]'));
+  assert.equal(document.querySelector('[data-qty="p1"]').value, '50');
+  assert.equal(fake.calls.filter((c) => c.name === 'buying_list').length, 1, 'cover days do not re-query');
+
+  for (const id of ['p1', 'p3']) {
+    const tick = document.querySelector(`[data-pick="${id}"]`);
+    tick.checked = true; tick.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  }
+  await waitFor(() => /Create purchase orders \(2\)/.test(document.querySelector('#create-po').textContent));
+  document.querySelector('#create-po').click();
+  const form = await waitFor(() => document.querySelector('#po-create'));
+  assert.equal(form.querySelectorAll('.card').length, 2, 'one group per supplier');
+  form.querySelector('[name="supplier-1"]').value = 's2';   // paneer has no preferred supplier → choose one
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.filter((c) => c.name === 'create_purchase_order').length === 2);
+  const [a, b] = fake.calls.filter((c) => c.name === 'create_purchase_order').map((c) => c.args);
+  assert.equal(a.p_supplier_id, 's1'); assert.equal(a.p_warehouse_id, 'wh-1');
+  assert.deepEqual(a.p_items, [{ product_id: 'p1', quantity: 50, unit_cost: 21 }]);
+  assert.equal(b.p_supplier_id, 's2');
+  assert.deepEqual(b.p_items, [{ product_id: 'p3', quantity: 125, unit_cost: null }], '12 × 10 + 10 − 5 at ten days of cover; no rate card → cost left to the database');
+});
+
+test('admin: purchase order detail approves a draft (set_purchase_order_status → sent) and receives against it', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { products: PRODUCTS, suppliers: SUPPLIERS, purchase_orders: [DRAFT_PO] }, rpc: PROCUREMENT_RPC,
+  });
+  location.hash = '#purchase-orders';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-open="po1"]'));
+  assert.match(document.body.textContent, /PO-1000/);
+  document.querySelector('[data-open="po1"]').click();
+  await waitFor(() => document.querySelector('[data-status="sent"]'));
+  assert.match(document.querySelector('.modal').textContent.replace(/\s+/g, ' '), /Tomato.*60 kg.*₹21/);
+  assert.equal(document.querySelector('[data-receive]'), null, 'a draft cannot be received against');
+  document.querySelector('[data-status="sent"]').click();
+  const yes = await waitFor(() => document.querySelector('[data-yes]'));
+  yes.click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'set_purchase_order_status'));
+  assert.deepEqual(fake.calls.find((c) => c.name === 'set_purchase_order_status').args, { p_po_id: 'po1', p_status: 'sent' });
+
+  // Once sent, "Receive goods" opens the shared GRN form prefilled with the outstanding lines.
+  fake.tables.purchase_orders[0].status = 'sent';
+  await waitFor(() => !document.querySelector('.modal'));
+  document.querySelector('[data-open="po1"]').click();
+  const receive = await waitFor(() => document.querySelector('[data-receive]'));
+  assert.match(document.querySelector('.modal').textContent, /Share on WhatsApp/);
+  receive.click();
+  const grn = await waitFor(() => document.querySelector('#grn'));
+  assert.match(grn.textContent, /Tomato/);
+  const accepted = grn.querySelector('[data-field="qty_accepted"]');
+  assert.equal(accepted.value, '60', 'prefilled with the outstanding quantity');
+  accepted.value = '55'; accepted.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  const rejected = grn.querySelector('[data-field="qty_rejected"]');
+  rejected.value = '5'; rejected.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  grn.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => /reason/i.test(document.querySelector('#grn-error').textContent));
+  const reason = grn.querySelector('[data-field="reject_reason"]');
+  reason.value = 'bruised'; reason.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  grn.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'receive_goods'));
+  const call = fake.calls.find((c) => c.name === 'receive_goods').args;
+  assert.equal(call.p_po_id, 'po1'); assert.equal(call.p_source, 'po'); assert.equal(call.p_warehouse_id, 'wh-1');
+  assert.deepEqual(call.p_items, [{ product_id: 'p1', qty_accepted: 55, qty_rejected: 5, unit_cost: 21, grade: null, reject_reason: 'bruised' }]);
+});
+
+test('admin: a mandi cash purchase needs a bill amount and is recorded as source mandi', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { products: PRODUCTS, suppliers: SUPPLIERS }, rpc: PROCUREMENT_RPC,
+  });
+  location.hash = '#receipts';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#mandi'));
+  assert.match(document.body.textContent, /No receipts yet/);
+  document.querySelector('#mandi').click();
+  const grn = await waitFor(() => document.querySelector('#grn'));
+  assert.ok(grn.querySelector('[name=bill_amount]'), 'bill amount field only on mandi purchases');
+  assert.ok(grn.querySelector('#bill-photo'), 'bill photo upload');
+  const product = grn.querySelector('[data-field="product_id"]');
+  product.value = 'p1'; product.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  const qty = grn.querySelector('[data-field="qty_accepted"]');
+  qty.value = '40'; qty.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  const cost = grn.querySelector('[data-field="unit_cost"]');
+  cost.value = '18.5'; cost.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  grn.querySelector('[name=bill_amount]').value = '740';
+  grn.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'receive_goods'));
+  const call = fake.calls.find((c) => c.name === 'receive_goods').args;
+  assert.equal(call.p_source, 'mandi'); assert.equal(call.p_bill_amount, 740); assert.equal(call.p_paid_cash, true); assert.equal(call.p_supplier_id, null);
+  assert.deepEqual(call.p_items, [{ product_id: 'p1', qty_accepted: 40, qty_rejected: 0, unit_cost: 18.5, grade: null, reject_reason: null }]);
+});
+
+test('admin: rate cards save changed rows only (upsert on supplier_products)', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { products: PRODUCTS, suppliers: SUPPLIERS,
+      supplier_products: [{ id: 'sp1', supplier_id: 's1', product_id: 'p1', price: 21, moq: 50, lead_days: 1, valid_from: '2026-10-01', valid_to: null, is_preferred: true, suppliers: { name: 'Farm Co' } }] },
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#rate-cards';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#save-all'));
+  assert.equal(document.querySelector('[data-price="p1"]').value, '21');
+  assert.equal(document.querySelector('[data-preferred="p1"]').checked, true);
+  document.querySelector('[data-price="p3"]').value = '290';
+  document.querySelector('[data-moq="p3"]').value = '10';
+  document.querySelector('#save-all').click();
+  await waitFor(() => fake.calls.some((c) => c.table === 'supplier_products'));
+  const writes = fake.calls.filter((c) => c.table === 'supplier_products');
+  assert.equal(writes.length, 1, 'the unchanged tomato rate is not re-sent');
+  assert.equal(writes[0].type, 'upsert');
+  assert.equal(writes[0].payload.product_id, 'p3'); assert.equal(writes[0].payload.price, 290); assert.equal(writes[0].payload.moq, 10);
+  assert.equal(writes[0].payload.supplier_id, 's1');
+});
+
+test('admin: a picker has no Procurement menu and sees "No access" on #procurement', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-pick', email: 'p@x.com' } }, profile: PICKER, rpc: PROCUREMENT_RPC,
+  });
+  location.hash = '#procurement';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => /No access/.test(document.querySelector('#view').textContent));
+  assert.equal(document.querySelector('nav a[href="#procurement"]'), null);
 });

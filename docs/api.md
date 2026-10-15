@@ -1,6 +1,6 @@
 # API reference
 
-All write operations are Postgres functions (migrations 003, 004, 005, 006, 009 and 010 in `supabase/migrations/`),
+All write operations are Postgres functions (migrations 003, 004, 005, 006, 009, 010 and 011 in `supabase/migrations/`),
 called via `supabase.rpc(name, args)` and wrapped in `web/js/core/api.js`.
 All require a signed-in user; each re-checks the role and raises `42501` (permission denied) otherwise.
 Since migration 006, admin-app functions check a **permission** (`has_permission(module, action)`, see
@@ -25,7 +25,7 @@ Since migration 006, admin-app functions check a **permission** (`has_permission
 | `update_my_profile` | any | `p_full_name`, `p_phone` | – |
 | `update_my_restaurant` | restaurant | `p_name`, `p_address`, `p_phone`, `p_gstin` | – |
 | `admin_dashboard_stats` | dashboard:view | – | `{orders_today, revenue_today, revenue_7d, pending_restaurants, open_orders_by_status, top_products_30d}` — limited to the caller's scope |
-| `receive_stock` | inventory:edit (warehouse in scope) | `p_items jsonb` `[{product_id, quantity, unit_cost}]`, `p_supplier_id`, `p_note`, `p_warehouse_id` (null = caller's default warehouse) | – (adds stock, writes `received` movements) |
+| `receive_stock` | inventory:edit (warehouse in scope) | `p_items jsonb` `[{product_id, quantity, unit_cost}]`, `p_supplier_id`, `p_note`, `p_warehouse_id` | – (older; kept for compatibility — the app now calls `receive_goods`) |
 | `adjust_stock` | inventory:edit (warehouse in scope) | `p_product_id`, `p_new_qty`, `p_reason` (adjustment/wastage/returned), `p_note`, `p_warehouse_id` | – (sets that warehouse's exact count) |
 | `set_order_payment` | payments:edit (in scope) | `p_order_id`, `p_status` (paid/unpaid) | – |
 | `admin_outstanding_balances` | customers:view | – | rows: restaurant_id, outstanding, unpaid_orders (in scope) |
@@ -38,6 +38,11 @@ Since migration 006, admin-app functions check a **permission** (`has_permission
 | `cancel_scheduled_price` | pricing:approve | `p_id` | – |
 | `my_price_list` | customer | – | `[{product_id, price}]` for every product whose price for this customer differs from the published one (their city / sector price list) |
 | `set_packed_quantities` | orders:edit (in scope), order confirmed or packed | `p_order_id`, `p_items jsonb` `[{order_item_id, packed_quantity}]` | `{lines, subtotal, total_amount}` — weighed lines within tolerance, others only short; stock corrected; order re-totalled |
+| `buying_list` | procurement:view (warehouse in scope) | `p_warehouse_id`, `p_delivery_date date`, `p_cover_days numeric` (default 1) | rows of jsonb per active product: `demand_qty, demand_orders, free_stock, low_stock_threshold, open_po_qty, suggested_qty, supplier_id, supplier_name, rate, moq, lead_days, latest_cost, avg_cost_30d` — mirrored by `suggestedBuy()` in `web/js/core/procurement.js` |
+| `create_purchase_order` | procurement:edit (warehouse in scope) | `p_supplier_id`, `p_warehouse_id`, `p_expected_date`, `p_notes`, `p_items jsonb` `[{product_id, quantity, unit_cost?}]` (no cost = rate card) | `{id, po_number}` — a draft |
+| `update_purchase_order` | procurement:edit | `p_po_id`, `p_expected_date`, `p_notes`, `p_items` | – (draft only; replaces the lines) |
+| `set_purchase_order_status` | `sent`: procurement:approve · `closed` / `cancelled`: procurement:edit | `p_po_id`, `p_status` | – (cancel refused once anything is received) |
+| `receive_goods` | inventory:edit (warehouse in scope) | `p_warehouse_id`, `p_supplier_id`, `p_po_id`, `p_source` (po / mandi / direct), `p_items jsonb` `[{product_id, qty_accepted, qty_rejected, unit_cost?, grade?, reject_reason?, photo_path?}]`, `p_note`, `p_bill_photo_path`, `p_bill_amount`, `p_paid_cash` | `{id, grn_number, po_status}` — writes the GRN, moves accepted stock (`received`, reference = GRN number), updates the PO lines and status; rejected needs a reason; mandi needs a bill amount |
 | `category_path` | any signed-in | `p_id` | "Parent › Child" |
 
 `update_my_restaurant` also takes `p_fssai`. `apply_stock_movement(warehouse, product, delta, ...)` is internal
@@ -73,7 +78,8 @@ See the diagram in [architecture.md](architecture.md#order-lifecycle).
 `cities` and `sectors` (everyone, active rows) · `warehouses`, `service_zones`, `team_roles`, `role_permissions` (admin-app users) ·
 `product_city_availability` (signed-in) · `audit_log` (audit:view) · `hsn_codes` (signed-in) ·
 `pricing_rules`, `product_pricing`, `benchmark_sources`, `benchmark_prices`, `price_history`, `scheduled_prices`,
-`order_line_costs`, views `v_product_cost` / `v_product_benchmark`, `price_lists`, `price_list_items` (pricing:view).
+`order_line_costs`, views `v_product_cost` / `v_product_benchmark`, `price_lists`, `price_list_items` (pricing:view) ·
+`supplier_products` (procurement:view) · `purchase_orders`, `purchase_order_items`, `goods_receipts`, `goods_receipt_items` (procurement:view or inventory:view, within scope).
 `categories` now carry `parent_id` (two levels); `products` carry grade, origin, veg_type, shelf_life_days, storage_note,
 parent_product_id / variant_label (pack sizes), sold_by_weight / weight_tolerance_pct.
 Logged-out visitors (`anon`) may read `categories`, listed `products`, `cities` and `sectors`, and call `check_pincode`.
@@ -82,8 +88,8 @@ Direct writes from the browser, all gated by the permission matrix: `products`, 
 (products:edit) · `suppliers` (inventory:edit) · `restaurants` non-status columns (customers:edit; status goes through
 `set_customer_status`) · `company_settings`, `cities`, `warehouses`, `service_zones`, `sectors` terms (settings:edit) ·
 `role_permissions` (super admin only) · `hsn_codes`, `pricing_rules`, `product_pricing`, `benchmark_sources`, `benchmark_prices`
-(pricing:edit; `benchmark_prices.entered_by` is filled in by the database) · `price_lists`, `price_list_items` (pricing:edit). `audit_log`, `warehouse_stock`, `stock_movements`,
-`orders`, `profiles`, `price_history`, `scheduled_prices`, `order_line_costs` are never written directly.
+(pricing:edit; `benchmark_prices.entered_by` is filled in by the database) · `price_lists`, `price_list_items` (pricing:edit) · `supplier_products` (procurement:edit). `audit_log`, `warehouse_stock`, `stock_movements`,
+`orders`, `profiles`, `price_history`, `scheduled_prices`, `order_line_costs`, `purchase_orders`, `purchase_order_items`, `goods_receipts`, `goods_receipt_items` are never written directly.
 
 ## Pricing engine (migration 009)
 
@@ -93,11 +99,19 @@ The formula, the tables and the starting values are in [modules/pricing.md](modu
 `saveBenchmarkSource`, `listBenchmarkPrices`, `saveBenchmarkPrices` (upsert on source + product + day), `listPriceHistory`,
 `listHsnCodes` — all in `web/js/core/api.js`, section "Pricing engine".
 
+## Procurement (migration 011)
+
+Rate cards, buying list, purchase orders and goods receipts are described in [modules/procurement.md](modules/procurement.md).
+From the browser: `listSupplierProducts`, `saveSupplierProduct`, `deleteSupplierProduct`, `getBuyingList`, `listPurchaseOrders`,
+`getPurchaseOrder`, `createPurchaseOrder`, `updatePurchaseOrder`, `setPurchaseOrderStatus`, `listGoodsReceipts`, `receiveGoods`,
+`uploadBillPhoto`, `billPhotoUrl` — all in `web/js/core/api.js`, section "Procurement".
+
 ## Audit log
 
 `audit_log` gets one row per insert / update / delete on products (price, listing, HSN and pack columns), orders, restaurants,
 profiles, role_permissions, sectors, cities, warehouses, service_zones, company_settings, pricing_rules, product_pricing,
-benchmark_sources, hsn_codes, categories, price_lists and price_list_items, written by the
+benchmark_sources, hsn_codes, categories, price_lists, price_list_items, suppliers, supplier_products, purchase_orders,
+purchase_order_items and goods_receipts, written by the
 `write_audit_log()` trigger with `changed_by = auth.uid()`. For updates `changes` holds only the changed columns:
 `{"price": {"old": 32, "new": 33}}`. Stock has its own ledger (`stock_movements`) and is not duplicated here.
 
@@ -110,6 +124,8 @@ benchmark_sources, hsn_codes, categories, price_lists and price_list_items, writ
 ## Storage
 
 Bucket `product-photos` (public read, 5 MB, JPEG/PNG/WebP). Only admins can upload, replace or delete.
+Bucket `purchase-bills` (private, 8 MB, JPEG/PNG/WebP): photos of mandi bills and rejected goods; read with inventory:view
+(the app uses signed links, `billPhotoUrl`), upload with inventory:edit.
 
 ## Errors
 

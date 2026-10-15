@@ -326,12 +326,9 @@ export async function saveSupplier(supplier) {
   unwrap(await query);
 }
 
-/** Goods received into one warehouse: lines = [{ product_id, quantity, unit_cost }]. */
-export async function receiveStock(lines, supplierId, note, warehouseId) {
-  unwrap(await supabase.rpc('receive_stock', {
-    p_items: lines, p_supplier_id: supplierId || null, p_note: note || null, p_warehouse_id: warehouseId || null,
-  }));
-}
+// Receiving goods lives in the Procurement section below (receiveGoods → receive_goods, migration 011):
+// every receipt is a GRN, whether it is against a PO, a mandi cash purchase or a direct delivery.
+// The older receive_stock() function still exists in the database but the app no longer calls it.
 
 /** Set one warehouse's stock to an exact count. reason: 'adjustment' | 'wastage' | 'returned'. */
 export async function adjustStock(productId, newQty, reason, note, warehouseId) {
@@ -632,4 +629,109 @@ export async function getMyPriceList() {
  */
 export async function setPackedQuantities(orderId, lines) {
   return unwrap(await supabase.rpc('set_packed_quantities', { p_order_id: orderId, p_items: lines }));
+}
+
+// ---------- Procurement (migration 011) --------------------------------------
+// Rate cards, purchase orders, goods receipts and the buying list. Reads need
+// procurement:view (receipts also inventory:view); POs need procurement:edit /
+// approve; receiving needs inventory:edit. Scope applies throughout.
+
+export async function listSupplierProducts({ supplierId, productId } = {}) {
+  let query = supabase.from('supplier_products').select('*, suppliers(name), products(name, sku, unit)').order('price');
+  if (supplierId) query = query.eq('supplier_id', supplierId);
+  if (productId) query = query.eq('product_id', productId);
+  return unwrap(await query);
+}
+
+/** One rate-card line (upsert on supplier + product). Only one preferred supplier per product (the database checks). */
+export async function saveSupplierProduct(rate) {
+  const n = (v) => (v === '' || v == null ? null : Number(v));
+  const row = {
+    supplier_id: rate.supplier_id, product_id: rate.product_id, price: Number(rate.price),
+    moq: n(rate.moq) ?? 1, lead_days: n(rate.lead_days) ?? 1, is_preferred: Boolean(rate.is_preferred),
+    valid_from: rate.valid_from || undefined, valid_to: rate.valid_to || null, note: rate.note?.trim() || null,
+  };
+  if (row.valid_from === undefined) delete row.valid_from;
+  return unwrap(await supabase.from('supplier_products').upsert(row, { onConflict: 'supplier_id,product_id' }).select().single());
+}
+
+export async function deleteSupplierProduct(id) {
+  unwrap(await supabase.from('supplier_products').delete().eq('id', id));
+}
+
+/** The buying list for one warehouse and delivery date; coverDays = how many days like that one to stock for. */
+export async function getBuyingList(warehouseId, deliveryDate, coverDays = 1) {
+  return unwrap(await supabase.rpc('buying_list', { p_warehouse_id: warehouseId, p_delivery_date: deliveryDate, p_cover_days: coverDays }));
+}
+
+const PO_SELECT = '*, suppliers(name, phone, contact), warehouses(name, address), purchase_order_items(*, products(name, sku, unit))';
+
+/** filters: { status, warehouseId, supplierId, limit } */
+export async function listPurchaseOrders({ status, warehouseId, supplierId, limit = 200 } = {}) {
+  let query = supabase.from('purchase_orders').select(PO_SELECT).order('created_at', { ascending: false }).limit(limit);
+  if (status) query = query.eq('status', status);
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  if (supplierId) query = query.eq('supplier_id', supplierId);
+  return unwrap(await query);
+}
+
+export async function getPurchaseOrder(id) {
+  return unwrap(await supabase.from('purchase_orders').select(PO_SELECT).eq('id', id).maybeSingle());
+}
+
+/** items = [{ product_id, quantity, unit_cost? }] — a missing cost takes the supplier's rate card. Returns { id, po_number }. */
+export async function createPurchaseOrder({ supplierId, warehouseId, expectedDate, notes, items }) {
+  return unwrap(await supabase.rpc('create_purchase_order', {
+    p_supplier_id: supplierId, p_warehouse_id: warehouseId, p_expected_date: expectedDate || null, p_notes: notes || null, p_items: items,
+  }));
+}
+
+/** Replace the lines and details of a draft. */
+export async function updatePurchaseOrder(id, { expectedDate, notes, items }) {
+  unwrap(await supabase.rpc('update_purchase_order', { p_po_id: id, p_expected_date: expectedDate || null, p_notes: notes || null, p_items: items }));
+}
+
+/** 'sent' (approve, needs procurement:approve) · 'closed' (short-close) · 'cancelled' (nothing received). */
+export async function setPurchaseOrderStatus(id, status) {
+  unwrap(await supabase.rpc('set_purchase_order_status', { p_po_id: id, p_status: status }));
+}
+
+const GRN_SELECT = '*, suppliers(name), warehouses(name), purchase_orders(po_number), goods_receipt_items(*, products(name, sku, unit))';
+
+/** filters: { warehouseId, poId, limit } */
+export async function listGoodsReceipts({ warehouseId, poId, limit = 100 } = {}) {
+  let query = supabase.from('goods_receipts').select(GRN_SELECT).order('created_at', { ascending: false }).limit(limit);
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  if (poId) query = query.eq('po_id', poId);
+  return unwrap(await query);
+}
+
+/**
+ * Receive goods with a quality check (inventory:edit).
+ * { warehouseId, supplierId, poId, source: 'po' | 'mandi' | 'direct', note, billPhotoPath, billAmount, paidCash,
+ *   items: [{ product_id, qty_accepted, qty_rejected, unit_cost, grade, reject_reason, photo_path }] }
+ * Returns { id, grn_number, po_status }.
+ */
+export async function receiveGoods({ warehouseId, supplierId, poId, source, items, note, billPhotoPath, billAmount, paidCash }) {
+  return unwrap(await supabase.rpc('receive_goods', {
+    p_warehouse_id: warehouseId || null, p_supplier_id: supplierId || null, p_po_id: poId || null, p_source: source,
+    p_items: items, p_note: note || null, p_bill_photo_path: billPhotoPath || null,
+    p_bill_amount: billAmount === '' || billAmount == null ? null : Number(billAmount), p_paid_cash: Boolean(paidCash),
+  }));
+}
+
+/** Upload a bill / quality photo to the private purchase-bills bucket; returns its path. */
+export async function uploadBillPhoto(file) {
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type];
+  if (!extension) throw new Error('Please choose a JPG, PNG or WebP image.');
+  if (file.size > 8 * 1024 * 1024) throw new Error('Image is larger than 8 MB.');
+  const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`;
+  unwrap(await supabase.storage.from(config.billBucket).upload(path, file, { contentType: file.type }));
+  return path;
+}
+
+/** A short-lived link to a bill photo (the bucket is private). */
+export async function billPhotoUrl(path, seconds = 600) {
+  if (!path) return null;
+  return unwrap(await supabase.storage.from(config.billBucket).createSignedUrl(path, seconds)).signedUrl;
 }

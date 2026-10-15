@@ -87,7 +87,7 @@ test('can: super admin may do everything, others only what the matrix allows, cu
   assert.equal(can(customer, 'orders', 'view'), false);
   assert.equal(can(null, 'orders', 'view'), false);
   assert.deepEqual(visibleNav(picker), [{ href: '#orders', label: 'Orders' }]);
-  assert.equal(visibleNav(superAdmin).length, 9, 'every module with a nav entry (pricing added in 009)');
+  assert.equal(visibleNav(superAdmin).length, 10, 'every module with a nav entry (pricing added in 009, procurement in 011)');
 });
 
 test('orderPreview: below the minimum the delivery fee applies; with no fee the order is blocked', () => {
@@ -305,4 +305,69 @@ test('listPrice: a fixed item beats the % adjustment (mirror of customer_price)'
   assert.equal(listPrice({ id: 'a', price: 32 }, list, []), 30.4);
   assert.equal(listPrice({ id: 'a', price: 32 }, list, [{ product_id: 'a', price: 30 }]), 30);
   assert.equal(listPrice({ id: 'a', price: 32 }, { adjustment_pct: 0 }, []), 32);
+});
+
+// ---------------------------------------------------------------------------
+// Procurement helpers (migration 011). suggestedBuy uses the same numbers as
+// security_test.sql T45c: demand 20.8, free stock 180, alert level 20, open PO 0.
+// ---------------------------------------------------------------------------
+import { suggestedBuy, roundToMoq, groupBySupplier, poTotals, outstandingLines, poMessage, whatsappLink } from '../web/js/core/procurement.js';
+
+test('suggestedBuy: demand × cover + alert level − free stock − on order, never negative (mirror of buying_list)', () => {
+  const tomato = { demand_qty: 20.8, free_stock: 180, open_po_qty: 0, low_stock_threshold: 20 };
+  assert.equal(suggestedBuy(tomato, 1), 0, 'stock already covers the day');
+  assert.equal(suggestedBuy(tomato, 10), 48, '20.8 × 10 + 20 − 180 = 48 (T45d)');
+  assert.equal(suggestedBuy({ demand_qty: 30, free_stock: 5, open_po_qty: 10, low_stock_threshold: 10 }), 25);
+  assert.equal(suggestedBuy({ demand_qty: '12.5', free_stock: null, open_po_qty: undefined, low_stock_threshold: '0' }, 2), 25, 'strings and nulls are tolerated');
+  assert.equal(suggestedBuy({ demand_qty: 1, free_stock: 1, open_po_qty: 0, low_stock_threshold: 0.1 }, 1), 0.1, 'rounded to 2 dp');
+});
+
+test('roundToMoq: rounds up to a multiple of the MOQ; zero stays zero', () => {
+  assert.equal(roundToMoq(48, 50), 50);
+  assert.equal(roundToMoq(51, 50), 100);
+  assert.equal(roundToMoq(7.2, 1), 8);
+  assert.equal(roundToMoq(7.2, null), 8, 'no MOQ behaves like 1');
+  assert.equal(roundToMoq(0, 50), 0);
+  assert.equal(roundToMoq(-3, 10), 0);
+});
+
+test('groupBySupplier: one group per supplier with the rate as line cost; no supplier → null group', () => {
+  const groups = groupBySupplier([
+    { product_id: 'p1', name: 'Tomato', unit: 'kg', quantity: 50, supplier_id: 's1', supplier_name: 'Farm Co', rate: '21' },
+    { product_id: 'p3', name: 'Paneer', unit: 'kg', quantity: 10, supplier_id: 's2', supplier_name: 'Dairy', rate: 290 },
+    { product_id: 'p2', name: 'Onion', unit: 'kg', quantity: 20, supplier_id: 's1', supplier_name: 'Farm Co', rate: null },
+    { product_id: 'p4', name: 'Ginger', unit: 'kg', quantity: 5, supplier_id: null, supplier_name: null, rate: null },
+  ]);
+  assert.equal(groups.length, 3);
+  assert.deepEqual(groups[0], { supplier_id: 's1', supplier_name: 'Farm Co', lines: [
+    { product_id: 'p1', name: 'Tomato', unit: 'kg', quantity: 50, unit_cost: 21 }, { product_id: 'p2', name: 'Onion', unit: 'kg', quantity: 20, unit_cost: null }] });
+  assert.equal(groups[1].lines[0].unit_cost, 290);
+  assert.equal(groups[2].supplier_id, null);
+});
+
+test('poTotals / outstandingLines: value counts only costed lines; outstanding = ordered − received − rejected, floored at 0', () => {
+  const items = [
+    { qty_ordered: 60, unit_cost: 21, qty_received: 55, qty_rejected: 5 },
+    { qty_ordered: 10, unit_cost: 290, qty_received: 0, qty_rejected: 0 },
+    { qty_ordered: 4, unit_cost: null, qty_received: 6, qty_rejected: 0 },
+  ];
+  assert.deepEqual(poTotals(items), { ordered: 74, received: 61, rejected: 5, value: 60 * 21 + 10 * 290 });
+  assert.deepEqual(outstandingLines(items).map((i) => i.outstanding), [0, 10, 0]);
+  assert.deepEqual(poTotals([]), { ordered: 0, received: 0, rejected: 0, value: 0 });
+});
+
+test('poMessage / whatsappLink: readable PO text; 10-digit Indian numbers get the 91 prefix', () => {
+  const po = {
+    po_number: 'PO-1000', expected_date: '2026-10-16', notes: 'Gate 2', warehouses: { name: 'Vizag main', address: 'Marripalem' },
+    purchase_order_items: [{ products: { name: 'Tomato', unit: 'kg' }, qty_ordered: 60, unit_cost: 21 }, { product_id: 'x', qty_ordered: 4, unit_cost: null }],
+  };
+  const text = poMessage(po, { name: 'Fresh Supply Pvt Ltd', phone: '040-123' });
+  assert.match(text, /^Purchase order PO-1000 from Fresh Supply Pvt Ltd\n/);
+  assert.match(text, /Deliver by 2026-10-16 to Vizag main, Marripalem/);
+  assert.match(text, /• Tomato: 60 kg @ ₹21\.00\n• x: 4/);
+  assert.match(text, /Note: Gate 2/);
+  assert.match(text, /Call 040-123\.$/);
+  assert.equal(whatsappLink('98480 12345', 'hi there'), 'https://wa.me/919848012345?text=hi%20there');
+  assert.equal(whatsappLink('+91 98480 12345', 'x'), 'https://wa.me/919848012345?text=x');
+  assert.equal(whatsappLink(null, 'x'), 'https://wa.me/?text=x', 'no phone → WhatsApp asks for a contact');
 });
