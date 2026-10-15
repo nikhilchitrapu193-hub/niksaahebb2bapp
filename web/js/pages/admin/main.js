@@ -2,7 +2,7 @@
 // main.js — admin app entry. Routes:
 //   #dashboard (default) · #orders · #products · #inventory · #customers · #team
 //   #settings (company) · #locations · #sectors · #roles · #audit
-//   #pricing (price board) · #pricing-rules · #benchmarks
+//   #pricing (price board) · #pricing-rules · #benchmarks · #price-lists
 //
 // The menu shows only the modules the signed-in team member may VIEW
 // (web/js/core/permissions.js). Opening a route by hand without permission
@@ -28,10 +28,11 @@ import { renderAudit } from './audit.js';
 import { renderPriceBoard } from './price-board.js';
 import { renderPricingRules } from './pricing-rules.js';
 import { renderBenchmarks } from './benchmarks.js';
+import { renderPriceLists } from './price-lists.js';
 
 /** Sub-pages keep their parent menu item highlighted. */
 const PARENT_OF = { '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
-                    '#pricing-rules': '#pricing', '#benchmarks': '#pricing' };
+                    '#pricing-rules': '#pricing', '#benchmarks': '#pricing', '#price-lists': '#pricing' };
 
 const me = await requireRole('admin');
 if (me) {
@@ -70,6 +71,7 @@ if (me) {
       '#pricing':   guard('pricing', (c) => renderPriceBoard(c, me)),
       '#pricing-rules': guard('pricing', (c) => renderPricingRules(c, me)),
       '#benchmarks': guard('pricing', (c) => renderBenchmarks(c, me)),
+      '#price-lists': guard('pricing', (c) => renderPriceLists(c, me)),
     },
   });
 }

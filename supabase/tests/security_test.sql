@@ -2,7 +2,7 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 121
+-- psql). It creates throw-away users, impersonates each role, checks 145
 -- rules, then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
@@ -12,7 +12,7 @@
 -- Roles simulated: admin (super admin), restaurant A (approved), restaurant B
 -- (pending), delivery driver, a sign-up attempting to inject role=admin, and
 -- from T20 on: a city manager of another city, a picker, and a defence unit;
--- from T30 on (migration 009): a pricing manager.
+-- from T30 on (migration 009): a pricing manager; from T40 on (migration 010): price lists and packing.
 -- =============================================================================
 
 do $$
@@ -31,6 +31,8 @@ declare
   v_o3 jsonb; v_json jsonb;
   -- Migration 009 (pricing engine)
   v_pm uuid := gen_random_uuid(); v_sched bigint; v_src uuid;
+  -- Migration 010 (catalogue +)
+  v_leafy uuid; v_list uuid; v_o4 jsonb; v_item uuid; v_var uuid;
 begin
   select id into v_city from public.cities where name = 'Visakhapatnam';
   select id into v_wh from public.warehouses where city_id = v_city and is_default;
@@ -63,7 +65,7 @@ begin
   perform set_config('request.jwt.claims', '{}', true);
   set local role anon;
   select count(*) into v_n from public.products;
-  v_res := v_res || jsonb_build_array(case when v_n = 25 then 'PASS T2a anonymous visitors can browse the public catalogue' else 'FAIL T2a anon sees ' || v_n end);
+  v_res := v_res || jsonb_build_array(case when v_n = 26 then 'PASS T2a anonymous visitors can browse the public catalogue (25 products + the 25 kg rice variant)' else 'FAIL T2a anon sees ' || v_n end);
   begin
     perform 1 from public.orders limit 1;
     v_res := v_res || jsonb_build_array('FAIL T2b anon can read orders');
@@ -94,7 +96,7 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', v_rb, 'role', 'authenticated')::text, true);
   set local role authenticated;
   select count(*) into v_n from public.products;
-  v_res := v_res || jsonb_build_array(case when v_n = 25 then 'PASS T3a pending restaurant can browse 25 products' else 'FAIL T3a sees ' || v_n end);
+  v_res := v_res || jsonb_build_array(case when v_n = 26 then 'PASS T3a pending restaurant can browse 26 products' else 'FAIL T3a sees ' || v_n end);
   begin
     perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)));
     v_res := v_res || jsonb_build_array('FAIL T3b pending restaurant placed an order');
@@ -567,7 +569,8 @@ begin
   v_res := v_res || jsonb_build_array(case when v_json ->> 'suggested_price' is null and v_json -> 'flags' = '["no_cost"]'::jsonb
     then 'PASS T30e no cost on file gives no price and the no_cost flag' else 'FAIL T30e ' || v_json::text end);
 
-  -- T31 customers see nothing of costs, rules or benchmarks
+  -- T31 customers see nothing of costs, rules or benchmarks (restaurant A is re-activated after T17 so the check is real)
+  update public.profiles set is_active = true where id = v_ra;
   perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
   set local role authenticated;
   select count(*) into v_n from public.pricing_rules;
@@ -596,7 +599,7 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
   set local role authenticated;
   select count(*) into v_n from public.price_board();
-  v_res := v_res || jsonb_build_array(case when v_n = 25 then 'PASS T32a price board lists all 25 active products' else 'FAIL T32a rows ' || v_n end);
+  v_res := v_res || jsonb_build_array(case when v_n = 26 then 'PASS T32a price board lists all 26 active products' else 'FAIL T32a rows ' || v_n end);
   v_json := public.compute_price(v_p1);
   v_res := v_res || jsonb_build_array(case when (v_json ->> 'cost_basis')::numeric = 20 and (v_json ->> 'landed_cost')::numeric = 21.74 and (v_json ->> 'suggested_price')::numeric = 25 and v_json ->> 'rule_source' = 'category'
     then 'PASS T32b tomato: ledger cost 20, 8% wastage, 15% markup, step 0.5 → suggested 25.00 from the Vegetables rule' else 'FAIL T32b ' || v_json::text end);
@@ -731,6 +734,156 @@ begin
   v_json := public.compute_price(v_p1);
   v_res := v_res || jsonb_build_array(case when (v_json ->> 'avg_cost_30d')::numeric = 25 and (v_json ->> 'latest_cost')::numeric = 30 and v_json -> 'flags' ? 'cost_moved'
     then 'PASS T39 weighted average 25 (50@20 + 50@30), latest 30, cost_moved flagged' else 'FAIL T39 ' || v_json::text end);
+  reset role;
+
+
+  -- ===========================================================================
+  -- Migration 010: catalogue + (category tree, variants, loose weight, price lists)
+  -- ===========================================================================
+
+  -- T40 category tree: two levels, no cycles; pricing rules inherit from the parent
+  select id into v_leafy from public.categories where name = 'Leafy greens';
+  v_res := v_res || jsonb_build_array(case when v_leafy is not null and (select parent_id from public.categories where id = v_leafy) = (select category_id from public.products where id = v_p1)
+    then 'PASS T40a migration seeded the tree: Leafy greens is under Vegetables' else 'FAIL T40a tree not seeded' end);
+  begin
+    update public.categories set parent_id = v_leafy where name = 'Vegetables';
+    v_res := v_res || jsonb_build_array('FAIL T40b a parent became a child of its own child');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T40b cycle / depth refused: ' || sqlerrm);
+  end;
+  begin
+    insert into public.categories (name, parent_id) values ('Test third level', v_leafy);
+    v_res := v_res || jsonb_build_array('FAIL T40c a third level was allowed');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T40c third level refused: ' || sqlerrm);
+  end;
+  update public.products set category_id = v_leafy where id = v_p3;   -- coriander moves into Leafy greens
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.compute_price(v_p3);
+  v_res := v_res || jsonb_build_array(case when v_json ->> 'rule_source' = 'parent' and (v_json ->> 'markup_pct')::numeric = 15 and v_json ->> 'category_name' = 'Vegetables › Leafy greens'
+    then 'PASS T40d coriander in Leafy greens inherits the Vegetables rule (15 %), path shown' else 'FAIL T40d ' || v_json::text end);
+  select count(*) into v_n from public.price_board((select category_id from public.products where id = v_p1));
+  v_res := v_res || jsonb_build_array(case when v_n = 5 then 'PASS T40e board filtered on Vegetables includes its sub-categories (5 products)' else 'FAIL T40e rows ' || v_n end);
+  reset role;
+
+  -- T41 variants: one level only
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into public.products (sku, name, category_id, price, unit, min_order_qty, parent_product_id, variant_label, pack_size, pack_unit)
+  values ('VEG-001-5', 'Tomato (Hybrid) 5 kg crate', (select category_id from public.products where id = v_p1), 150, 'crate', 1, v_p1, '5 kg crate', 5, 'kg')
+  returning id into v_var;
+  begin
+    insert into public.products (sku, name, category_id, price, unit, parent_product_id)
+    values ('VEG-001-5-X', 'Variant of a variant', (select category_id from public.products where id = v_p1), 1, 'x', v_var);
+    v_res := v_res || jsonb_build_array('FAIL T41a a variant of a variant was allowed');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T41a variant of a variant refused: ' || sqlerrm);
+  end;
+  begin
+    update public.products set parent_product_id = v_var where id = v_p1;
+    v_res := v_res || jsonb_build_array('FAIL T41b a product with variants became a variant');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T41b a product with variants cannot become one: ' || sqlerrm);
+  end;
+  reset role;
+
+  -- T42 price lists: a layer over the published price (paneer was hidden in Vizag by T27: show it again)
+  update public.product_city_availability set is_available = true where product_id = v_p2;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.price_lists;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T42a customer sees no price lists' else 'FAIL T42a sees ' || v_n end);
+  v_res := v_res || jsonb_build_array(case when public.my_price_list() = '[]'::jsonb then 'PASS T42b no list yet: my_price_list is empty' else 'FAIL T42b ' || public.my_price_list()::text end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into public.price_lists (name, sector_code, adjustment_pct) values ('Restaurants −5 %', 'restaurant', -5) returning id into v_list;
+  insert into public.price_lists (name, city_id, adjustment_pct) values ('Vizag +2 %', v_city, 2);
+  insert into public.price_list_items (price_list_id, product_id, price) values (v_list, v_p2, 300);   -- paneer fixed at 300
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.my_price_list();
+  select price into v_num from public.products where id = v_p1;
+  v_res := v_res || jsonb_build_array(case when jsonb_array_length(v_json) >= 26
+      and (select (e ->> 'price')::numeric from jsonb_array_elements(v_json) e where (e ->> 'product_id')::uuid = v_p1) = round(v_num * 0.95, 2)
+    then 'PASS T42c sector list beats the city list: tomato ' || v_num || ' → ' || round(v_num * 0.95, 2) || ' for a restaurant' else 'FAIL T42c ' || v_json::text end);
+  v_res := v_res || jsonb_build_array(case when (select (e ->> 'price')::numeric from jsonb_array_elements(v_json) e where (e ->> 'product_id')::uuid = v_p2) = 300
+    then 'PASS T42d a fixed item price (paneer 300) beats the % adjustment' else 'FAIL T42d' end);
+  v_o4 := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10), jsonb_build_object('product_id', v_p2, 'quantity', 2)), 'price list order');
+  select unit_price into v_num from public.order_items where order_id = (v_o4 ->> 'id')::uuid and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = round((select price from public.products where id = v_p1) * 0.95, 2)
+      and (select unit_price from public.order_items where order_id = (v_o4 ->> 'id')::uuid and product_id = v_p2) = 300
+    then 'PASS T42e place_order charges the price-list prices (tomato ' || v_num || ', paneer 300)' else 'FAIL T42e unit_price ' || v_num end);
+  select ordered_quantity into v_num from public.order_items where order_id = (v_o4 ->> 'id')::uuid and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = 10 then 'PASS T42f order line keeps ordered_quantity 10' else 'FAIL T42f ' || v_num end);
+  reset role;
+
+  -- T43 billing on actual weight after packing
+  update public.products set sold_by_weight = true, weight_tolerance_pct = 10 where id = v_p1;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.set_packed_quantities((v_o4 ->> 'id')::uuid, '[]'::jsonb);
+    v_res := v_res || jsonb_build_array('FAIL T43a customer could pack');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T43a customers cannot record packed quantities');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select id into v_item from public.order_items where order_id = (v_o4 ->> 'id')::uuid and product_id = v_p1;
+  begin
+    perform public.set_packed_quantities((v_o4 ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'packed_quantity', 10.8)));
+    v_res := v_res || jsonb_build_array('FAIL T43b packed a placed order');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T43b only confirmed / packed orders: ' || sqlerrm);
+  end;
+  perform public.set_order_status((v_o4 ->> 'id')::uuid, 'confirmed');
+  begin
+    perform public.set_packed_quantities((v_o4 ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'packed_quantity', 11.5)));
+    v_res := v_res || jsonb_build_array('FAIL T43c 15 % over was accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T43c outside tolerance refused: ' || sqlerrm);
+  end;
+  select qty into v_stock1 from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  v_json := public.set_packed_quantities((v_o4 ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'packed_quantity', 10.8)));
+  select quantity || '/' || ordered_quantity || '/' || line_total into v_txt from public.order_items where id = v_item;
+  v_res := v_res || jsonb_build_array(case when v_txt = '10.80/10.00/' || round(10.8 * round((select price from public.products where id = v_p1) * 0.95, 2), 2)
+    then 'PASS T43d billed 10.8 kg (ordered 10): line re-totalled at the list price' else 'FAIL T43d ' || v_txt end);
+  select subtotal || '/' || total_amount into v_txt from public.orders where id = (v_o4 ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when (select subtotal from public.orders where id = (v_o4 ->> 'id')::uuid) = (select sum(line_total) from public.order_items where order_id = (v_o4 ->> 'id')::uuid)
+    then 'PASS T43e order subtotal / total re-totalled (' || v_txt || ')' else 'FAIL T43e ' || v_txt end);
+  select qty into v_num from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = v_stock1 - 0.8 then 'PASS T43f stock reservation corrected by the extra 0.8 kg' else 'FAIL T43f stock ' || v_stock1 || ' → ' || v_num end);
+  select id into v_item from public.order_items where order_id = (v_o4 ->> 'id')::uuid and product_id = v_p2;
+  begin
+    perform public.set_packed_quantities((v_o4 ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'packed_quantity', 3)));
+    v_res := v_res || jsonb_build_array('FAIL T43g packed more paneer than ordered');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T43g a non-weight line cannot exceed the order: ' || sqlerrm);
+  end;
+  v_json := public.set_packed_quantities((v_o4 ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'packed_quantity', 1)));
+  v_res := v_res || jsonb_build_array(case when (select quantity from public.order_items where id = v_item) = 1 and (v_json ->> 'lines')::int = 1
+    then 'PASS T43h short supply: paneer billed 1 of 2' else 'FAIL T43h ' || v_json::text end);
+  select count(*) into v_n from public.audit_log where table_name = 'orders' and row_id = (v_o4 ->> 'id') and changes ? 'subtotal';
+  v_res := v_res || jsonb_build_array(case when v_n >= 1 then 'PASS T43i the re-total is in the audit log' else 'FAIL T43i rows ' || v_n end);
+  reset role;
+  -- picker (orders:edit) may pack; a warehouse manager of another city may not
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.set_packed_quantities((v_o4 ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'packed_quantity', 2)));
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'lines')::int = 1 then 'PASS T43j a picker (orders:edit) can record packed quantities' else 'FAIL T43j' end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_cm, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.set_packed_quantities((v_o4 ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_item_id', v_item, 'packed_quantity', 2)));
+    v_res := v_res || jsonb_build_array('FAIL T43k Hyderabad manager packed a Vizag order');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T43k a manager of another city cannot pack it (scope)');
+  end;
   reset role;
 
   -- Abort on purpose so no test data is ever saved. The message IS the report.

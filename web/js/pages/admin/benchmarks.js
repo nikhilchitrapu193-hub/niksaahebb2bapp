@@ -11,7 +11,7 @@
 
 import { html, mount, on, $, formatINR, formatDate, openModal, reportError, toast, withBusy } from '../../core/ui.js';
 import { listBenchmarkSources, saveBenchmarkSource, listBenchmarkPrices, saveBenchmarkPrices, listProducts } from '../../core/api.js';
-import { parseCsv } from '../../core/csv.js';
+import { parseCsv, readTextFile } from '../../core/csv.js';
 import { can } from '../../core/permissions.js';
 import { pricingTabs, todayIso } from './price-board.js';
 
@@ -150,7 +150,7 @@ function uploadDialog({ products, sources, sourceId, date, onSaved }) {
   async function prepare() {
     const file = $('#csv-file', el).files[0];
     if (!file) return;
-    const parsed = parseCsv(await file.text());
+    const parsed = parseCsv(await readTextFile(file));
     prepared = csvToBenchmarks(parsed, products, sources, { source_id: $('#csv-source', el).value, price_date: $('#csv-date', el).value });
     mount($('#csv-preview', el), html`
       <p><strong>${prepared.rows.length}</strong> rate${prepared.rows.length === 1 ? '' : 's'} ready${prepared.problems.length ? html`, <strong>${prepared.problems.length}</strong> line${prepared.problems.length === 1 ? '' : 's'} skipped` : ''}.</p>

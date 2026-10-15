@@ -52,11 +52,15 @@ export function renderShell({ me, subtitle, links = [], extra = '' }) {
  */
 export function startRouter({ container, routes, fallback, onRoute }) {
   async function go() {
-    const key = routes[location.hash] ? location.hash : fallback;
+    // Exact match first; a route key ending in "/" matches a prefix and gets the rest
+    // as a parameter ('#product/' → '#product/abc' → 'abc').
+    const key = routes[location.hash] ? location.hash
+      : Object.keys(routes).find((k) => k.endsWith('/') && location.hash.startsWith(k)) ?? fallback;
+    const param = key.endsWith('/') ? decodeURIComponent(location.hash.slice(key.length)) : undefined;
     onRoute?.(key);
     mount(container, html`<div class="loading"><span class="spinner"></span> Loading…</div>`);
     try {
-      await routes[key](container);
+      await routes[key](container, param);
     } catch (error) {
       console.error(error);
       mount(container, html`<div class="banner error">${error.message || 'Failed to load this page.'}</div>`);

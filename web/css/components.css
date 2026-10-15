@@ -328,3 +328,12 @@
 .kv.compact dt { color: var(--ink-muted); }
 .kv.compact dd { margin: 0; }
 .check.small { font-size: var(--text-sm); }
+
+/* ---------- Catalogue + (variants, product page, rule cards) ----------------- */
+.product-card .product-name, .product-card .product-photo { color: inherit; text-decoration: none; }
+.product-card .select.small { padding: 0.3rem 0.5rem; margin: var(--space-1) 0; font-size: var(--text-sm); }
+.product-page { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--space-6); align-items: start; }
+.product-photo.large { border-radius: var(--radius-lg); font-size: 4rem; }
+.product-price.large { font-size: var(--text-2xl); }
+.rule-card.sub { background: #fbfaf6; }
+@media (max-width: 720px) { .product-page { grid-template-columns: 1fr; } }

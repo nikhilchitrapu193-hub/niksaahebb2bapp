@@ -54,9 +54,9 @@ Where each permission is checked:
 | Permission | Lets you |
 |---|---|
 | `dashboard:view` | open the dashboard (`admin_dashboard_stats`) |
-| `orders:view` / `orders:edit` | see orders in scope / move status, assign drivers, cancel |
+| `orders:view` / `orders:edit` | see orders in scope / move status, assign drivers, cancel, record packed quantities |
 | `orders:export` | download the order list as CSV |
-| `products:view` / `products:edit` | see / change products, categories, photos, per-city listing |
+| `products:view` / `products:edit` | see / change products (details, pack sizes, loose weight), the category tree, photos, per-city listing, CSV upload |
 | `inventory:view` / `inventory:edit` / `inventory:export` | see stock & suppliers / receive, adjust, write off / export |
 | `customers:view` / `customers:edit` / `customers:approve` / `customers:export` | see / change sector, area, terms / approve or suspend / export |
 | `payments:edit` | mark orders paid or unpaid |
@@ -64,7 +64,7 @@ Where each permission is checked:
 | `settings:view` / `settings:edit` | see / change company details, cities, warehouses, pin codes, sector terms |
 | `audit:view` / `audit:export` | read / export the audit log |
 | `reports:*` | reserved for the reports batch |
-| `pricing:view` / `pricing:edit` / `pricing:approve` / `pricing:export` | open the price board, rules, benchmarks, history / enter benchmarks and quotes, change rules and overrides / publish, schedule and cancel prices / export |
+| `pricing:view` / `pricing:edit` / `pricing:approve` / `pricing:export` | open the price board, rules, benchmarks, history, price lists / enter benchmarks and quotes, change rules, overrides and price lists / publish, schedule and cancel prices / export |
 
 ## Scope
 

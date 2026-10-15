@@ -124,3 +124,35 @@ from (values ('VEG-001', 24.00), ('VEG-002', 22.00), ('VEG-003', 18.00), ('VEG-0
              ('FRT-001', 36.00), ('DAI-002', 300.00), ('GRN-001', 98.00), ('GRN-002', 135.00)) as v (sku, cost)
 join public.products p on p.sku = v.sku
 on conflict (product_id) do nothing;
+
+-- ---------- Catalogue + (migration 010) --------------------------------------
+-- Sample details: sub-categories, grade / origin, veg or non-veg, loose-weight
+-- items, and one pack-size variant. The category tree itself is seeded by the
+-- migration (reference data).
+update public.products p
+set category_id = c.id
+from (values
+  ('VEG-005', 'Leafy greens'), ('VEG-003', 'Root vegetables'), ('VEG-002', 'Root vegetables'),
+  ('FRT-002', 'Citrus'), ('DAI-001', 'Milk & curd'), ('DAI-003', 'Milk & curd'), ('DAI-002', 'Paneer & cheese'),
+  ('DAI-004', 'Butter & ghee'), ('DAI-005', 'Eggs'), ('PLT-001', 'Chicken'), ('PLT-002', 'Chicken'), ('MTN-001', 'Mutton'),
+  ('GRN-001', 'Rice'), ('GRN-003', 'Atta & flours'), ('GRN-002', 'Dals & pulses'), ('OIL-001', 'Cooking oils'),
+  ('SPC-001', 'Ground spices & masalas'), ('SPC-002', 'Ground spices & masalas')
+) as v (sku, category) join public.categories c on c.name = v.category
+where p.sku = v.sku and p.category_id <> c.id;
+
+update public.products set grade = 'A', origin = 'Madanapalle', veg_type = 'veg', shelf_life_days = 5, storage_note = 'Cool, dry place' where sku = 'VEG-001' and grade is null;
+update public.products set origin = 'Kurnool', veg_type = 'veg', shelf_life_days = 30 where sku = 'VEG-002' and origin is null;
+update public.products set veg_type = 'veg', sold_by_weight = true, weight_tolerance_pct = 10, shelf_life_days = 2, storage_note = 'Keep refrigerated' where sku = 'VEG-005' and not sold_by_weight;
+update public.products set veg_type = 'non_veg', sold_by_weight = true, weight_tolerance_pct = 10, shelf_life_days = 1, storage_note = 'Keep chilled, cook the same day' where sku in ('PLT-001', 'PLT-002', 'MTN-001') and not sold_by_weight;
+update public.products set veg_type = 'veg' where sku like 'DAI-%' and sku <> 'DAI-005' and veg_type is null;
+update public.products set veg_type = 'non_veg' where sku = 'DAI-005' and veg_type is null;
+
+-- Basmati rice also comes as a 25 kg bag: its own SKU, price and stock, grouped under the 1 kg product.
+insert into public.products (sku, name, category_id, price, unit, min_order_qty, stock_qty, low_stock_threshold, gst_rate, hsn_code, pack_size, pack_unit, parent_product_id, variant_label, veg_type)
+select 'GRN-001-25', 'Basmati Rice (25 kg bag)', p.category_id, 2600, 'bag', 1, 40, 5, 5, '1006', 25, 'kg', p.id, '25 kg bag', 'veg'
+from public.products p where p.sku = 'GRN-001'
+on conflict (sku) do nothing;
+insert into public.warehouse_stock (warehouse_id, product_id, qty)
+select w.id, p.id, p.stock_qty from public.products p
+cross join (select id from public.warehouses where is_default order by created_at limit 1) as w
+where p.sku = 'GRN-001-25' and not exists (select 1 from public.warehouse_stock s where s.product_id = p.id);

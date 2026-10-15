@@ -2,7 +2,7 @@
 // pricing-rules.js — Pricing → Rules: the pricing variables per category.
 //
 // One card per category (plus "Global default") shows the rule in force
-// today. Editing creates a NEW row effective from a chosen date and closes
+// today; a sub-category without its own rule uses its parent's, then the global one. Editing creates a NEW row effective from a chosen date and closes
 // the old one the day before, so old values stay on record and a change can
 // be prepared ahead ("from 1 November, vegetables markup 14%"). A "Test"
 // box shows what a sample cost would sell for under the row's numbers, using
@@ -15,6 +15,7 @@ import { computePrice } from '../../core/pricing.js';
 import { COST_METHODS } from '../../core/config.js';
 import { can } from '../../core/permissions.js';
 import { pricingTabs, todayIso } from './price-board.js';
+import { categoryOptions } from '../../core/catalogue.js';
 
 /** The rule in force on `day` for a category (null = global): newest effective_from that has started and not ended. */
 export function ruleInForce(rules, categoryId, day) {
@@ -32,20 +33,22 @@ export async function renderPricingRules(container, me) {
 
   function draw() {
     const global = ruleInForce(rules, null, today);
-    const cards = [{ id: null, name: 'Global default' }, ...categories].map((c) => {
+    const cards = [{ id: null, name: 'Global default', path: 'Global default', depth: 0 }, ...categoryOptions(categories)].map((c) => {
       const own = ruleInForce(rules, c.id, today);
+      const parentRule = c.parent_id ? ruleInForce(rules, c.parent_id, today) : null;
       const upcoming = rules.filter((r) => (r.category_id ?? null) === (c.id ?? null) && r.effective_from > today).sort((a, b) => (a.effective_from > b.effective_from ? 1 : -1))[0];
-      return { category: c, rule: own, inherited: !own && c.id != null, shown: own ?? global, upcoming };
+      const inheritedFrom = own ? null : parentRule ? categories.find((x) => x.id === c.parent_id)?.name : c.id != null ? 'the global default' : null;
+      return { category: c, rule: own, inheritedFrom, shown: own ?? parentRule ?? global, upcoming };
     });
     mount(container, html`
       <div class="page-head"><div><h1>Pricing rules</h1><p>The variables behind every price, per category. Products can override any of them on the price board.</p></div></div>
       ${pricingTabs('#pricing-rules')}
       ${!global ? html`<div class="banner error">There is no global rule in force today. Add one so products without a category rule can be priced.</div>` : ''}
-      <div class="rule-grid">${cards.map(({ category, rule, inherited, shown, upcoming }) => html`
-        <div class="card card-pad rule-card">
-          <div class="spread"><h3>${category.name}</h3>
+      <div class="rule-grid">${cards.map(({ category, rule, inheritedFrom, shown, upcoming }) => html`
+        <div class="card card-pad rule-card ${category.depth ? 'sub' : ''}">
+          <div class="spread"><h3>${category.path ?? category.name}</h3>
             ${editable ? html`<button class="btn small" data-edit="${category.id ?? ''}">${rule ? 'Change' : 'Set own rule'}</button>` : ''}</div>
-          ${inherited ? html`<p class="muted tiny">Uses the global default.</p>` : ''}
+          ${inheritedFrom ? html`<p class="muted tiny">Uses ${inheritedFrom === 'the global default' ? inheritedFrom : `the ${inheritedFrom} rule`}.</p>` : ''}
           ${shown ? html`
             <dl class="kv compact">
               <dt>Markup</dt><dd>${Number(shown.markup_pct)}% <span class="muted">(min ${Number(shown.min_markup_pct)}%)</span></dd>
@@ -66,7 +69,8 @@ export async function renderPricingRules(container, me) {
 
   on(container, 'click', '[data-edit]', (_e, el) => {
     const categoryId = el.dataset.edit || null;
-    const current = ruleInForce(rules, categoryId, today) ?? ruleInForce(rules, null, today) ?? {};
+    const parentId = categories.find((c) => c.id === categoryId)?.parent_id ?? null;
+    const current = ruleInForce(rules, categoryId, today) ?? (parentId && ruleInForce(rules, parentId, today)) ?? ruleInForce(rules, null, today) ?? {};
     ruleForm(categoryId, current, { categories, sources, rules, onSaved: reload });
   });
 
@@ -78,7 +82,7 @@ export async function renderPricingRules(container, me) {
  * covering that date is closed the day before so the dates never overlap.
  */
 function ruleForm(categoryId, base, { categories, sources, rules, onSaved }) {
-  const name = categoryId ? categories.find((c) => c.id === categoryId)?.name : 'Global default';
+  const name = categoryId ? categoryOptions(categories).find((c) => c.id === categoryId)?.path : 'Global default';
   const today = todayIso();
   const { el, close } = openModal(html`
     <form id="rule-form" class="stack" novalidate>

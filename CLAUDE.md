@@ -17,6 +17,7 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 | What to build next, in which order | `docs/build-roadmap.md` |
 | Cities, sectors, roles, audit (migration 006) | `docs/modules/foundation.md` |
 | Prices, benchmarks, HSN, margin guard (migration 009) | `docs/modules/pricing.md` |
+| Category tree, pack sizes, loose weight, price lists (migration 010) | `docs/modules/catalogue.md` |
 | Running, deploying, first admin | `docs/runbook.md`, `docs/deployment.md` |
 | Tests | `docs/testing.md` |
 
@@ -52,16 +53,20 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
     `web/js/core/pricing.js` are the same formula; change both and the shared test numbers (T30 ↔
     `tests/unit.test.js`). Publishing goes through `apply_prices()`; never `update products set price`
     from a screen (the product form only edits hand-priced products).
+16. **A pack size is a product; a customer's price is `customer_price()`.** Never add a second price or
+    stock column: variants are rows with `parent_product_id`; price lists are a layer resolved by the
+    database (`my_price_list()` for the customer app). Billing on packed weight goes through
+    `set_packed_quantities()`, never `update order_items`.
 
 ## Where things live
 ```
 web/index.html                 public landing page
 web/<role>/login.html          per-role login (shared module web/js/pages/login.js)
 web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
-web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, pricing
-web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit in 006; price-board, pricing-rules, benchmarks in 009)
+web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, csv-import, pricing, catalogue
+web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit in 006; price-board, pricing-rules, benchmarks in 009; price-lists in 010; restaurant: product page in 010)
 web/css/                       base.css (tokens), components.css, landing.css
-supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) → all sectors sign up (008) → pricing engine (009), in order
+supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) → all sectors sign up (008) → pricing engine (009) → catalogue + (010), in order
 supabase/seed.sql              sample catalogue
 supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres

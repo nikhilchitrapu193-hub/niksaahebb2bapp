@@ -6,18 +6,23 @@
 
 import { html, mount, $, on, formatINR } from '../core/ui.js';
 import { listCategories, listProducts, photoUrl, checkPincode } from '../core/api.js';
+import { categoryTree } from '../core/catalogue.js';
 
 async function fillCatalogue() {
   const [categories, products] = await Promise.all([listCategories(), listProducts()]);
+  // Tiles are the top-level categories; a product in a sub-category counts under its parent.
   const countBy = {};
   for (const p of products) countBy[p.category_id] = (countBy[p.category_id] ?? 0) + 1;
+  const tops = categoryTree(categories.filter((c) => c.is_active !== false))
+    .map((t) => ({ ...t, count: (countBy[t.id] ?? 0) + t.children.reduce((n, c) => n + (countBy[c.id] ?? 0), 0) }))
+    .filter((t) => t.count > 0);
 
-  mount($('#categories'), html`${categories.map((c) => html`
+  mount($('#categories'), html`${tops.map((c) => html`
     <a class="category-tile" href="restaurant/login.html">
-      <strong>${c.name}</strong><span>${countBy[c.id] ?? 0} products</span>
+      <strong>${c.name}</strong><span>${c.count} products</span>
     </a>`)}`);
 
-  const featured = products.filter((p) => p.in_stock && p.stock_qty > 0).slice(0, 8);
+  const featured = products.filter((p) => p.in_stock && p.stock_qty > 0 && !p.parent_product_id).slice(0, 8);
   mount($('#featured'), html`${featured.map((p) => {
     const url = photoUrl(p.photo_path);
     const saving = p.market_price && p.market_price > p.price;

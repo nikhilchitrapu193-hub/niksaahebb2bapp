@@ -259,6 +259,16 @@ export async function saveProduct(product) {
     hsn_code: product.hsn_code || null,
     pack_size: Number(product.pack_size) > 0 ? Number(product.pack_size) : 1,
     pack_unit: product.pack_unit || 'kg',
+    // Catalogue + (migration 010)
+    grade: product.grade?.trim() || null,
+    origin: product.origin?.trim() || null,
+    veg_type: product.veg_type || null,
+    shelf_life_days: product.shelf_life_days === '' || product.shelf_life_days == null ? null : Number(product.shelf_life_days),
+    storage_note: product.storage_note?.trim() || null,
+    parent_product_id: product.parent_product_id || null,
+    variant_label: product.variant_label?.trim() || null,
+    sold_by_weight: Boolean(product.sold_by_weight),
+    weight_tolerance_pct: Number(product.weight_tolerance_pct) >= 0 ? Number(product.weight_tolerance_pct) : 10,
   };
   // A price published from the board stays as the board set it; the form only
   // changes it when the product is priced by hand.
@@ -283,8 +293,9 @@ export async function uploadProductPhoto(file) {
   return path;
 }
 
+/** Create or rename a category. parent_id null = top level (two levels only; the database checks). */
 export async function saveCategory(category) {
-  const row = { name: category.name.trim(), sort_order: Number(category.sort_order) || 0 };
+  const row = { name: category.name.trim(), sort_order: Number(category.sort_order) || 0, parent_id: category.parent_id || null };
   const query = category.id
     ? supabase.from('categories').update(row).eq('id', category.id)
     : supabase.from('categories').insert(row);
@@ -554,4 +565,71 @@ export async function saveBenchmarkPrices(rows) {
 /** Published price changes for one product, newest first (the chart and the "why" trail). */
 export async function listPriceHistory(productId, limit = 60) {
   return unwrap(await supabase.from('price_history').select('*').eq('product_id', productId).order('created_at', { ascending: false }).limit(limit));
+}
+
+// ---------- Catalogue + (migration 010) --------------------------------------
+
+/**
+ * Bulk create / update products from csv-import.js rows (products:edit). Rows
+ * carry only the columns the file had, so each one is written on its own
+ * (a single upsert would need every row to have the same columns). A row with
+ * an id updates that product; without one it is inserted.
+ */
+export async function upsertProducts(rows) {
+  let created = 0;
+  let updated = 0;
+  for (const { id, ...row } of rows) {
+    if (id) { unwrap(await supabase.from('products').update(row).eq('id', id)); updated += 1; }
+    else { unwrap(await supabase.from('products').insert(row)); created += 1; }
+  }
+  return { created, updated };
+}
+
+/** Price lists: a % adjustment per city and / or sector, plus fixed prices per product. */
+export async function listPriceLists() {
+  return unwrap(await supabase.from('price_lists').select('*, cities(name), sectors(name)').order('name'));
+}
+
+export async function savePriceList(list) {
+  const row = {
+    name: list.name.trim(), city_id: list.city_id || null, sector_code: list.sector_code || null,
+    adjustment_pct: Number(list.adjustment_pct) || 0, is_active: list.is_active !== false, note: list.note?.trim() || null,
+  };
+  const query = list.id
+    ? supabase.from('price_lists').update(row).eq('id', list.id).select().single()
+    : supabase.from('price_lists').insert(row).select().single();
+  return unwrap(await query);
+}
+
+export async function deletePriceList(id) {
+  unwrap(await supabase.from('price_lists').delete().eq('id', id));
+}
+
+export async function listPriceListItems(priceListId) {
+  return unwrap(await supabase.from('price_list_items').select('*').eq('price_list_id', priceListId));
+}
+
+/** Fixed prices for products on one list: rows = [{ product_id, price, note? }]. Same product overwrites. */
+export async function savePriceListItems(priceListId, rows) {
+  if (!rows.length) return [];
+  return unwrap(await supabase.from('price_list_items')
+    .upsert(rows.map((r) => ({ price_list_id: priceListId, product_id: r.product_id, price: Number(r.price), note: r.note || null })), { onConflict: 'price_list_id,product_id' })
+    .select());
+}
+
+export async function deletePriceListItem(priceListId, productId) {
+  unwrap(await supabase.from('price_list_items').delete().eq('price_list_id', priceListId).eq('product_id', productId));
+}
+
+/** Customer side: [{ product_id, price }] for every product whose price for me differs from the published one. */
+export async function getMyPriceList() {
+  return unwrap(await supabase.rpc('my_price_list'));
+}
+
+/**
+ * After packing: the actual quantity per line (orders:edit, order confirmed or packed).
+ * lines = [{ order_item_id, packed_quantity }]. Returns { lines, subtotal, total_amount }.
+ */
+export async function setPackedQuantities(orderId, lines) {
+  return unwrap(await supabase.rpc('set_packed_quantities', { p_order_id: orderId, p_items: lines }));
 }

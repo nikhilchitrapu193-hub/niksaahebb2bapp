@@ -16,7 +16,7 @@ export function installDom(bodyHtml = '<header id="app-header"></header><main id
 
   Object.assign(globalThis, {
     window, document: window.document, localStorage: window.localStorage,
-    FormData: window.FormData, location,
+    FormData: window.FormData, FileReader: window.FileReader, File: window.File, location,
   });
   return { dom, window, document: window.document, location };
 }

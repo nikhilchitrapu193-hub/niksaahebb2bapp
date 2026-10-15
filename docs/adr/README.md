@@ -17,3 +17,4 @@ Short notes on *why* we chose something. Add a new numbered file for each signif
 | [0011](0011-sectors-and-trading-terms.md) | Sectors (customer types) carry the trading terms |
 | [0012](0012-audit-log-by-trigger.md) | Audit log written by a database trigger |
 | [0013](0013-pricing-engine-rules-and-board.md) | Prices come from a formula in the database, mirrored in the browser |
+| [0014](0014-variants-as-products-price-lists-as-a-layer.md) | Pack sizes are products; price lists are a layer over the published price |

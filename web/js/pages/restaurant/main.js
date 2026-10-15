@@ -1,12 +1,14 @@
 // =============================================================================
 // main.js — restaurant app entry: auth guard, header, routes, cart drawer.
-// Routes: #catalogue (default) · #orders · #account
+// Routes: #catalogue (default) · #product/<id> · #orders · #account
 // =============================================================================
 
 import { html, mount, $, on, formatINR, reportError, toast, withBusy } from '../../core/ui.js';
 import { requireRole } from '../../core/auth.js';
 import { renderShell, startRouter } from '../../core/shell.js';
-import { listProducts, listCategories, placeOrder, getMyOrderTerms, getCompanySettings } from '../../core/api.js';
+import { listProducts, listCategories, placeOrder, getMyOrderTerms, getCompanySettings, getMyPriceList } from '../../core/api.js';
+import { applyPriceList } from '../../core/catalogue.js';
+import { renderProduct } from './product.js';
 import { renderCatalogue } from './catalogue.js';
 import { renderOrders } from './orders.js';
 import { renderAccount } from './account.js';
@@ -43,8 +45,13 @@ async function start() {
   const view = $('#view');
 
   async function loadCatalogue() {
-    [state.products, state.categories, state.terms, state.settings] = await Promise.all([
-      listProducts(), listCategories(), getMyOrderTerms().catch(() => null), getCompanySettings().catch(() => null)]);
+    let myPrices;
+    [state.products, state.categories, state.terms, state.settings, myPrices] = await Promise.all([
+      listProducts(), listCategories(), getMyOrderTerms().catch(() => null), getCompanySettings().catch(() => null),
+      getMyPriceList().catch(() => [])]);
+    // The customer's price list (city / sector) replaces the published price; the cart and
+    // place_order then agree, because place_order charges customer_price() too.
+    state.products = applyPriceList(state.products, myPrices);
     state.byId = Object.fromEntries(state.products.map((p) => [p.id, p]));
   }
 
@@ -58,13 +65,13 @@ async function start() {
   }
 
   function withBanner(render) {
-    return async (container) => {
+    return async (container, param) => {
       const holder = document.createElement('div');
       container.replaceChildren(holder);
       mount(holder, statusBanner());
       const body = document.createElement('div');
       container.append(body);
-      await render(body);
+      await render(body, param);
     };
   }
 
@@ -178,9 +185,10 @@ async function start() {
   startRouter({
     container: view,
     fallback: '#catalogue',
-    onRoute: (key) => shell.setActive(key),
+    onRoute: (key) => shell.setActive(key === '#product/' ? '#catalogue' : key),
     routes: {
       '#catalogue': withBanner((c) => renderCatalogue(c, state)),
+      '#product/': withBanner((c, id) => renderProduct(c, state, id)),
       '#orders': withBanner((c) => renderOrders(c, state)),
       '#account': withBanner((c) => renderAccount(c, state)),
     },

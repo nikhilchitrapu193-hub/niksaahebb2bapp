@@ -48,7 +48,7 @@ async function showOrder(order, state, refresh) {
       <div class="table-wrap" style="margin:var(--space-4) 0"><table class="table">
         <thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr></thead>
         <tbody>${order.order_items.map((i) => html`<tr>
-          <td>${i.product_name}</td><td class="right num">${formatQty(i.quantity)} ${i.unit}</td>
+          <td>${i.product_name}</td><td class="right num">${formatQty(i.quantity)} ${i.unit}${i.ordered_quantity != null && Number(i.ordered_quantity) !== Number(i.quantity) ? html`<div class="muted tiny">ordered ${formatQty(i.ordered_quantity)}, billed on packed weight</div>` : ''}</td>
           <td class="right num">${formatINR(i.unit_price)}</td><td class="right money">${formatINR(i.line_total)}</td></tr>`)}</tbody>
         <tfoot>
           <tr><td colspan="3" class="right muted">Subtotal</td><td class="right num">${formatINR(order.subtotal)}</td></tr>

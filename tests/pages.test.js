@@ -68,11 +68,11 @@ function setup({ session, profile, tables = {}, rpc = {}, body }) {
   const fake = createFake({
     session,
     tables: {
-      profiles: profile ? [profile] : [], categories: [{ id: 'c1', name: 'Vegetables', sort_order: 10 }],
+      profiles: profile ? [profile] : [], categories: [{ id: 'c1', name: 'Vegetables', sort_order: 10, parent_id: null }, { id: 'c1a', name: 'Leafy greens', sort_order: 11, parent_id: 'c1' }],
       cities: [CITY], warehouses: [WAREHOUSE], service_zones: [ZONE], sectors: SECTORS, team_roles: TEAM_ROLES,
       role_permissions: PICKER_PERMISSIONS, warehouse_stock: [], product_city_availability: [], audit_log: [],
       hsn_codes: HSN, pricing_rules: RULES, product_pricing: [], benchmark_sources: SOURCES, benchmark_prices: [], price_history: [], scheduled_prices: [],
-      company_settings: [COMPANY],
+      company_settings: [COMPANY], price_lists: [], price_list_items: [],
       ...tables,
     },
     rpc,
@@ -737,7 +737,7 @@ test('admin: rules screen shows the category rule and saving a change inserts a 
   await importFresh('web/js/pages/admin/main.js');
   await waitFor(() => document.querySelector('.rule-card'));
   const cards = [...document.querySelectorAll('.rule-card')];
-  assert.equal(cards.length, 2, 'global + one category');
+  assert.equal(cards.length, 3, 'global + Vegetables + its sub-category');
   assert.match(cards[1].textContent, /15%/);
   assert.match(cards[1].textContent, /10% above/);
   cards[1].querySelector('[data-edit]').click();
@@ -829,4 +829,192 @@ test('invoice: shows the HSN column and the delivery fee line', async () => {
   assert.match(document.querySelector('#invoice').textContent, /HSN/);
   assert.match(document.querySelector('#invoice tbody').textContent, /0702/);
   assert.match(document.querySelector('.totals').textContent, /Delivery fee/);
+});
+
+// -----------------------------------------------------------------------------
+// Migration 010: category tree, variants, loose weight, price lists
+// -----------------------------------------------------------------------------
+
+const RICE = { id: 'p4', sku: 'GRN-001', name: 'Basmati Rice', price: 110, gst_rate: 5, unit: 'kg', min_order_qty: 25, in_stock: true, is_active: true, stock_qty: 500, low_stock_threshold: 50, category_id: 'c1', categories: { name: 'Vegetables' }, veg_type: 'veg' };
+const RICE_BAG = { ...RICE, id: 'p5', sku: 'GRN-001-25', name: 'Basmati Rice (25 kg bag)', price: 2600, unit: 'bag', min_order_qty: 1, parent_product_id: 'p4', variant_label: '25 kg bag', pack_size: 25, pack_unit: 'kg' };
+const CUSTOMER_RPC = { my_order_terms: () => TERMS, my_price_list: () => [{ product_id: 'p1', price: 30.4 }] };
+
+test('restaurant: catalogue applies my price list, filters by sub-category, sorts, and groups pack sizes', async () => {
+  const { document, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: [...PRODUCTS.map((p) => ({ ...p, veg_type: 'veg' })), RICE, RICE_BAG, { ...PRODUCTS[0], id: 'p6', sku: 'VEG-005', name: 'Coriander', price: 60, category_id: 'c1a', brand: 'Farm', sold_by_weight: true }] },
+    rpc: CUSTOMER_RPC,
+  });
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelectorAll('.product-card').length);
+  assert.ok(fake.calls.some((c) => c.name === 'my_price_list'));
+  const tomato = [...document.querySelectorAll('.product-card')].find((c) => c.textContent.includes('Tomato'));
+  assert.match(tomato.textContent, /₹30\.40/, 'price from my list');
+  assert.match(tomato.textContent, /₹32\.00/, 'published price struck through');
+  assert.match(tomato.textContent, /Your price/);
+  assert.equal(document.querySelectorAll('.product-card').length, 5, '6 products, the 25 kg bag grouped under rice');
+  const rice = [...document.querySelectorAll('.product-card')].find((c) => c.textContent.includes('Basmati'));
+  assert.equal(rice.querySelector('[data-pack]').options.length, 2, 'pack picker with two sizes');
+  rice.querySelector('[data-pack]').value = 'p5';
+  rice.querySelector('[data-pack]').dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  const riceNow = [...document.querySelectorAll('.product-card')].find((c) => c.textContent.includes('Basmati'));
+  assert.match(riceNow.textContent, /₹2,600\.00/);
+  assert.equal(riceNow.querySelector('[data-add]').dataset.add, 'p5', 'adding puts the chosen pack in the cart');
+  // Sub-category chips appear once a parent is chosen; "Leafy greens" narrows to coriander.
+  document.querySelector('.chip[data-cat="c1"]').click();
+  assert.ok(document.querySelector('#sub-chips .chip[data-cat="c1a"]'));
+  document.querySelector('#sub-chips .chip[data-cat="c1a"]').click();
+  assert.deepEqual([...document.querySelectorAll('.product-card .product-name')].map((n) => n.textContent), ['Coriander']);
+  assert.match(document.querySelector('.product-card').textContent, /billed on packed weight/);
+  document.querySelector('.chip[data-cat=""]').click();
+  document.querySelector('#sort').value = 'price_desc';
+  document.querySelector('#sort').dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  assert.equal(document.querySelector('.product-card .product-name').textContent, 'Basmati Rice', 'the 25 kg bag (₹2,600) puts the rice card first');
+  document.querySelector('#brand').value = 'Farm';
+  document.querySelector('#brand').dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  assert.equal(document.querySelectorAll('.product-card').length, 1);
+});
+
+test('restaurant: product page shows details and pack sizes and adds the minimum to the cart', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: [{ ...RICE, grade: 'A', origin: 'Punjab', shelf_life_days: 365, storage_note: 'Dry place', hsn_code: '1006', description: 'Long grain.' }, RICE_BAG] },
+    rpc: { ...CUSTOMER_RPC, my_price_list: () => [] },
+  });
+  location.hash = '#product/p5';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('.product-page'));
+  const page = document.querySelector('.product-page');
+  assert.match(page.querySelector('h1').textContent, /Basmati Rice/);
+  assert.match(page.textContent, /₹2,600\.00/);
+  assert.match(page.textContent, /Grade/);
+  assert.match(page.textContent, /Punjab/);
+  assert.match(page.textContent, /365 days/);
+  assert.match(page.textContent, /1006/);
+  assert.equal(page.querySelectorAll('[data-pack]').length, 2);
+  const before = Number(document.querySelector('#cart-count').textContent);   // the cart module keeps lines across tests
+  page.querySelector('#add').click();
+  await waitFor(() => document.querySelector('#qty'));
+  assert.equal(document.querySelector('#qty').value, '1', 'the 25 kg bag minimum is 1');
+  assert.equal(Number(document.querySelector('#cart-count').textContent), before + 1);
+});
+
+test('admin: product form carries grade, origin, veg type, pack-size parent and loose-weight flags', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: ADMIN_RPC,
+    tables: { products: [RICE, { ...PRODUCTS[0], hsn_code: '0702' }] },
+  });
+  location.hash = '#products';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-edit="p1"]')).then((b) => b.click());
+  const form = await waitFor(() => document.querySelector('#product-form'));
+  assert.deepEqual([...form.querySelector('[name=category_id]').options].map((o) => o.textContent), ['Choose…', 'Vegetables', '— Leafy greens'], 'category select shows the tree');
+  form.querySelector('[name=category_id]').value = 'c1a';
+  form.querySelector('[name=grade]').value = 'A';
+  form.querySelector('[name=origin]').value = 'Madanapalle';
+  form.querySelector('[name=veg_type]').value = 'veg';
+  form.querySelector('[name=shelf_life_days]').value = '5';
+  form.querySelector('[name=sold_by_weight]').checked = true;
+  form.querySelector('[name=weight_tolerance_pct]').value = '12';
+  form.querySelector('[name=parent_product_id]').value = 'p4';
+  form.querySelector('[name=variant_label]').value = 'loose';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'products'));
+  const saved = fake.calls.find((c) => c.table === 'products').payload;
+  assert.equal(saved.category_id, 'c1a');
+  assert.equal(saved.grade, 'A');
+  assert.equal(saved.origin, 'Madanapalle');
+  assert.equal(saved.veg_type, 'veg');
+  assert.equal(saved.shelf_life_days, 5);
+  assert.equal(saved.sold_by_weight, true);
+  assert.equal(saved.weight_tolerance_pct, 12);
+  assert.equal(saved.parent_product_id, 'p4');
+  assert.equal(saved.variant_label, 'loose');
+});
+
+test('admin: CSV upload previews problems and writes one update per row', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: ADMIN_RPC,
+    tables: { products: [{ ...PRODUCTS[0], price_source: 'manual' }] },
+  });
+  location.hash = '#products';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#upload')).then((b) => b.click());
+  const input = await waitFor(() => document.querySelector('#csv-file'));
+  const File = document.defaultView.File;
+  const file = new File(['sku,name,category,price,unit\nVEG-001,,,34,\nNEW-1,Okra,Leafy greens,55,kg\nBAD,Nope,Unknown,1,kg\n'], 'p.csv', { type: 'text/csv' });
+  Object.defineProperty(input, 'files', { value: [file] });
+  input.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => document.querySelector('#csv-preview').textContent.includes('updated'));
+  assert.match(document.querySelector('#csv-preview').textContent, /1 new, 1 updated, 1 line with a problem/);
+  assert.match(document.querySelector('#csv-preview').textContent, /unknown category "Unknown"/);
+  document.querySelector('#csv-save').click();
+  await waitFor(() => fake.calls.filter((c) => c.table === 'products').length === 2);
+  const [update, insert] = fake.calls.filter((c) => c.table === 'products');
+  assert.equal(update.type, 'update');
+  assert.deepEqual(update.payload, { sku: 'VEG-001', price: 34 });
+  assert.equal(insert.type, 'insert');
+  assert.equal(insert.payload.category_id, 'c1a');
+  assert.equal(insert.payload.name, 'Okra');
+});
+
+test('admin: price lists screen creates a list and saves fixed prices as an upsert', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: PRICING_RPC && ADMIN, rpc: PRICING_RPC,
+    tables: { products: PRODUCTS, price_lists: [{ id: 'pl1', name: 'Hotels −3 %', city_id: null, sector_code: 'hotel', adjustment_pct: -3, is_active: true, cities: null, sectors: { name: 'Hotels & caterers' } }],
+              price_list_items: [{ price_list_id: 'pl1', product_id: 'p3', price: 330 }] },
+  });
+  location.hash = '#price-lists';
+  await importFresh('web/js/pages/admin/main.js');
+  const row = await waitFor(() => document.querySelector('tr[data-id="p1"]'));
+  assert.match(row.textContent, /₹31\.04/, '32 − 3 %');
+  assert.match(document.querySelector('tr[data-id="p3"]').textContent, /fixed/);
+  row.querySelector('[data-fixed="p1"]').value = '30';
+  document.querySelector('#save-fixed').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'upsert' && c.table === 'price_list_items'));
+  assert.deepEqual(fake.calls.find((c) => c.table === 'price_list_items').payload, [{ price_list_id: 'pl1', product_id: 'p1', price: 30, note: null }]);
+  document.querySelector('#new-list').click();
+  const form = await waitFor(() => document.querySelector('#list-form'));
+  form.querySelector('[name=name]').value = 'Vizag defence';
+  form.querySelector('[name=city_id]').value = 'city-vz';
+  form.querySelector('[name=sector_code]').value = 'defence';
+  form.querySelector('[name=adjustment_pct]').value = '-8';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'insert' && c.table === 'price_lists'));
+  const inserted = fake.calls.find((c) => c.table === 'price_lists').payload;
+  assert.equal(inserted.city_id, 'city-vz');
+  assert.equal(inserted.sector_code, 'defence');
+  assert.equal(inserted.adjustment_pct, -8);
+});
+
+test('admin: a confirmed order shows packed-quantity inputs and sends only the changed lines', async () => {
+  const order = { ...ORDER, status: 'confirmed', order_items: [{ id: 'i1', ...ORDER.order_items[0], ordered_quantity: 5 }, { id: 'i2', product_id: 'p3', product_name: 'Paneer', unit: 'kg', unit_price: 340, quantity: 2, ordered_quantity: 2, line_total: 680, gst_rate: 5, tax_amount: 34 }] };
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { orders: [order], order_status_history: [] },
+    rpc: { ...ADMIN_RPC, set_packed_quantities: () => ({ lines: 1, subtotal: 185.6, total_amount: 185.6 }) },
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('tr.clickable')).then((r) => r.click());
+  const packed = await waitFor(() => document.querySelector('[data-packed="i1"]'));
+  packed.value = '5.8';
+  document.querySelector('[data-save-packed]').click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'set_packed_quantities'));
+  const call = fake.calls.find((c) => c.name === 'set_packed_quantities').args;
+  assert.equal(call.p_order_id, 'o1');
+  assert.deepEqual(call.p_items, [{ order_item_id: 'i1', packed_quantity: 5.8 }], 'the unchanged paneer line is not sent');
+});
+
+test('admin: rules screen shows a sub-category inheriting its parent rule', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, rpc: PRICING_RPC,
+  });
+  location.hash = '#pricing-rules';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.rule-card.sub'));
+  const sub = document.querySelector('.rule-card.sub');
+  assert.match(sub.querySelector('h3').textContent, /Vegetables › Leafy greens/);
+  assert.match(sub.textContent, /Uses the Vegetables rule/);
+  assert.match(sub.textContent, /15%/);
 });

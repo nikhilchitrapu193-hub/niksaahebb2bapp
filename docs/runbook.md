@@ -58,8 +58,28 @@ Admin → Team → untick *Active* → Save. They lose all access immediately.
 
 ## Change prices / photos / GST
 Admin → Products for photos, HSN code, pack size (what one selling unit holds: 1 kg, 15 litre tin, tray of
-30) and GST. Clicking the stock or listed badge toggles it instantly. Past orders keep their original prices.
-A price published from the price board is read-only here — change it on the board.
+30), GST, grade, origin, veg / non-veg, shelf life and storage note. Clicking the stock or listed badge
+toggles it instantly. Past orders keep their original prices. A price published from the price board is
+read-only here — change it on the board.
+
+**Categories** (Products → Categories): two levels. Add "Leafy greens" under Vegetables; products can sit
+at either level. A sub-category without its own pricing rule uses its parent's.
+
+**Pack sizes**: add the 25 kg bag as its own product (own SKU, price, stock) and set *Pack size of* to the
+main product with a label ("25 kg bag"). Customers see one card with a pack picker.
+
+**Sold by weight**: tick it on leafy greens, meat, fish. Customers order in kg; after packing, open the order
+(Orders → row → *Packed* column) and type the actual weight — within the tolerance you set — and *Save packed
+quantities*. The order is re-totalled and the invoice shows "ordered 5, billed 5.2". Other items may only be
+marked short the same way.
+
+**Upload CSV** (Products): a file with `sku, name, category, price, unit` for new products and any other
+column to update existing ones (see the dialog for the list). Prices published from the board are left alone.
+
+## Price lists (Pricing → Price lists)
+A % over or under the published price per city and / or sector (hotels −3 %), plus fixed prices for chosen
+products. The most specific active list wins: city + sector, then sector, then city. Customers see "Your
+price" with the published one struck through, and are charged the same at checkout.
 
 ## Prices: the morning routine (Pricing)
 1. **Benchmarks** — pick the source (Rythu Bazaar board, NECC, DoCA, METRO…) and today's date, type the
@@ -108,6 +128,8 @@ settings, with the person and the old and new values. Filter by table or person;
 | Price board shows "No cost on file" for everything | No receipts with a unit cost yet: type supplier quotes on the board, or receive stock with costs under Inventory. |
 | Scheduled price did not go live | pg_cron is not enabled on the project (Database → Extensions); opening the price board applies anything due. |
 | "You do not have permission to publish prices" | The team role lacks `pricing:approve`; tick it under Settings → Roles & permissions. |
+| "Packed … is more than 10 % away from the ordered …" | The weighed quantity is outside the product's tolerance: raise it under Products → Edit, or split the difference with the customer. |
+| Customer says the cart price differs from the catalogue | Both come from `my_price_list()`; reload the page — a price list changed while they were browsing. |
 | "Invalid login credentials" | Wrong password, or email not confirmed. |
 | Reset link goes to the wrong place | Fix *Site URL / Redirect URLs* in Supabase. |
 | User signs in but is bounced to login | Account deactivated (`is_active = false`). |

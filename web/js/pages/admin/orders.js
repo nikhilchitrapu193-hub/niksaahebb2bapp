@@ -6,9 +6,9 @@
 // checks only hide buttons the database would refuse anyway.
 // =============================================================================
 
-import { html, mount, on, $, formatINR, formatQty, formatDateTime, formatDate, statusBadge, openModal,
+import { html, mount, on, $, formatINR, formatQty, withBusy, formatDateTime, formatDate, statusBadge, openModal,
          confirmDialog, reportError, toast, STATUS_LABELS } from '../../core/ui.js';
-import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers, setOrderPayment, listCities, listSectors } from '../../core/api.js';
+import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers, setOrderPayment, listCities, listSectors, setPackedQuantities } from '../../core/api.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, webRoot } from '../../core/config.js';
 import { can } from '../../core/permissions.js';
 import { downloadCsv } from '../../core/csv.js';
@@ -102,6 +102,8 @@ async function showOrder(order, drivers, me, refresh) {
     const final = order.status === 'delivered' || order.status === 'cancelled';
     const canEdit = can(me, 'orders', 'edit');
     const canPay = can(me, 'payments', 'edit');
+    // Packed quantities (actual weight / short supply) are entered while the order is confirmed or packed.
+    const packable = canEdit && (order.status === 'confirmed' || order.status === 'packed');
 
     mount(el, html`
       <div class="spread">${statusBadge(order.status)}<span class="muted small">${formatDateTime(order.created_at)}</span></div>
@@ -117,17 +119,19 @@ async function showOrder(order, drivers, me, refresh) {
         ${order.notes ? html`<dt>Notes</dt><dd>${order.notes}</dd>` : ''}
       </dl>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr></thead>
-        <tbody>${order.order_items.map((i) => html`<tr><td>${i.product_name}</td>
-          <td class="right num">${formatQty(i.quantity)} ${i.unit}</td>
+        <thead><tr><th>Item</th><th class="right">Qty</th>${packable ? html`<th class="right">Packed</th>` : ''}<th class="right">Price</th><th class="right">Total</th></tr></thead>
+        <tbody>${order.order_items.map((i) => html`<tr><td>${i.product_name}${i.hsn_code ? html` <span class="muted tiny">HSN ${i.hsn_code}</span>` : ''}</td>
+          <td class="right num">${formatQty(i.quantity)} ${i.unit}${i.ordered_quantity != null && Number(i.ordered_quantity) !== Number(i.quantity) ? html`<div class="muted tiny">ordered ${formatQty(i.ordered_quantity)}</div>` : ''}</td>
+          ${packable ? html`<td class="right"><input class="input small num right" type="number" min="0.01" step="any" data-packed="${i.id}" value="${i.quantity}" style="width:96px" aria-label="Packed ${i.product_name}"></td>` : ''}
           <td class="right num">${formatINR(i.unit_price)}</td><td class="right money">${formatINR(i.line_total)}</td></tr>`)}</tbody>
         <tfoot>
-          <tr><td colspan="3" class="right muted">Subtotal</td><td class="right num">${formatINR(order.subtotal)}</td></tr>
-          <tr><td colspan="3" class="right muted">GST</td><td class="right num">${formatINR(order.tax_amount)}</td></tr>
-          ${Number(order.delivery_fee) > 0 ? html`<tr><td colspan="3" class="right muted">Delivery fee (below minimum order)</td><td class="right num">${formatINR(order.delivery_fee)}</td></tr>` : ''}
-          <tr><td colspan="3" class="right"><strong>Total</strong></td><td class="right money">${formatINR(order.total_amount)}</td></tr></tfoot>
+          <tr><td colspan="${packable ? 4 : 3}" class="right muted">Subtotal</td><td class="right num">${formatINR(order.subtotal)}</td></tr>
+          <tr><td colspan="${packable ? 4 : 3}" class="right muted">GST</td><td class="right num">${formatINR(order.tax_amount)}</td></tr>
+          ${Number(order.delivery_fee) > 0 ? html`<tr><td colspan="${packable ? 4 : 3}" class="right muted">Delivery fee (below minimum order)</td><td class="right num">${formatINR(order.delivery_fee)}</td></tr>` : ''}
+          <tr><td colspan="${packable ? 4 : 3}" class="right"><strong>Total</strong></td><td class="right money">${formatINR(order.total_amount)}</td></tr></tfoot>
       </table></div>
 
+      ${packable ? html`<div class="row" style="justify-content:flex-end;margin-top:var(--space-2)"><span class="muted small">Weighed items may differ within their tolerance; other items may only be short.</span><button class="btn" data-save-packed>Save packed quantities</button></div>` : ''}
       ${final || !canEdit ? '' : html`<label class="field" style="margin-top:var(--space-4)"><span class="label">Delivery driver</span>
         <select class="select" id="driver">
           <option value="">— Unassigned —</option>
@@ -153,6 +157,13 @@ async function showOrder(order, drivers, me, refresh) {
       assignDelivery(order.id, driverSelect.value).then(() => { order.assigned_to = driverSelect.value; toast('Driver assigned', 'success'); }).catch(reportError);
     };
     on(el, 'click', '[data-pay]', (_e, b) => run(() => setOrderPayment(order.id, b.dataset.pay), b.dataset.pay === 'paid' ? 'Marked as paid' : 'Marked as unpaid'));
+    on(el, 'click', '[data-save-packed]', (_e, b) => {
+      const lines = [...el.querySelectorAll('[data-packed]')]
+        .filter((input) => input.value !== '' && Number(input.value) !== Number(order.order_items.find((i) => i.id === input.dataset.packed)?.quantity))
+        .map((input) => ({ order_item_id: input.dataset.packed, packed_quantity: Number(input.value) }));
+      if (!lines.length) { toast('No quantity changed', 'info'); return; }
+      run(() => withBusy(b, () => setPackedQuantities(order.id, lines)), 'Packed quantities saved; order re-totalled');
+    });
     on(el, 'click', '[data-next]', () => run(() => setOrderStatus(order.id, next.to), `Order ${STATUS_LABELS[next.to].toLowerCase()}`));
     on(el, 'click', '[data-cancel]', async () => {
       if (await confirmDialog('Cancel this order? The restaurant will see it as cancelled.', { confirmText: 'Cancel order', danger: true }))

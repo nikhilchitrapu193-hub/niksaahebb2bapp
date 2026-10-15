@@ -217,3 +217,92 @@ test('ruleInForce picks the newest started, unexpired row for the category; disp
   assert.deepEqual(displayPrice({ price: 100, gst_rate: 5 }, { show_prices_incl_gst: true }), { amount: 105, inclGst: true });
   assert.deepEqual(displayPrice({ price: 100, gst_rate: 5 }, null), { amount: 100, inclGst: false });
 });
+
+// ---------- Catalogue + (migration 010) -------------------------------------
+const cat = await import('../web/js/core/catalogue.js');
+const { csvToProducts, categoryByName } = await import('../web/js/core/csv-import.js');
+const { listPrice } = await import('../web/js/pages/admin/price-lists.js');
+
+const CATS = [
+  { id: 'veg', name: 'Vegetables', parent_id: null, sort_order: 10 },
+  { id: 'leafy', name: 'Leafy greens', parent_id: 'veg', sort_order: 11 },
+  { id: 'root', name: 'Root vegetables', parent_id: 'veg', sort_order: 12 },
+  { id: 'dairy', name: 'Dairy & Eggs', parent_id: null, sort_order: 30 },
+];
+const PRODS = [
+  { id: 'a', sku: 'VEG-001', name: 'Tomato', price: 32, category_id: 'veg', brand: null, veg_type: 'veg', in_stock: true, stock_qty: 10 },
+  { id: 'b', sku: 'VEG-005', name: 'Coriander', price: 60, category_id: 'leafy', brand: 'Farm', veg_type: 'veg', in_stock: true, stock_qty: 0 },
+  { id: 'c', sku: 'DAI-005', name: 'Eggs', price: 195, category_id: 'dairy', brand: 'Suguna', veg_type: 'non_veg', in_stock: true, stock_qty: 5 },
+  { id: 'r1', sku: 'GRN-001', name: 'Basmati Rice', price: 110, category_id: 'dairy', brand: null, in_stock: true, stock_qty: 5 },
+  { id: 'r25', sku: 'GRN-001-25', name: 'Basmati Rice (25 kg bag)', price: 2600, category_id: 'dairy', parent_product_id: 'r1', variant_label: '25 kg bag', in_stock: true, stock_qty: 5 },
+];
+
+test('categoryTree / categoryOptions / categoryFamily: two levels in order with paths', () => {
+  const tree = cat.categoryTree(CATS);
+  assert.deepEqual(tree.map((t) => [t.name, t.children.map((c) => c.name)]), [['Vegetables', ['Leafy greens', 'Root vegetables']], ['Dairy & Eggs', []]]);
+  assert.deepEqual(cat.categoryOptions(CATS).map((c) => `${c.depth}:${c.path}`), ['0:Vegetables', '1:Vegetables › Leafy greens', '1:Vegetables › Root vegetables', '0:Dairy & Eggs']);
+  assert.deepEqual(cat.categoryFamily(CATS, 'veg'), ['veg', 'leafy', 'root']);
+  assert.deepEqual(cat.categoryFamily(CATS, 'leafy'), ['leafy']);
+  assert.equal(cat.categoryFamily(CATS, ''), null);
+});
+
+test('filterProducts: category family, search, brand, veg type, in-stock and sort', () => {
+  const names = (opts) => cat.filterProducts(PRODS, { categories: CATS, ...opts }).map((p) => p.name);
+  assert.deepEqual(names({ categoryId: 'veg' }), ['Coriander', 'Tomato'], 'a parent includes its sub-categories, sorted by name');
+  assert.deepEqual(names({ categoryId: 'leafy' }), ['Coriander']);
+  assert.deepEqual(names({ search: 'farm' }), ['Coriander'], 'search also matches the brand');
+  assert.deepEqual(names({ brand: 'Suguna' }), ['Eggs']);
+  assert.deepEqual(names({ vegType: 'non_veg' }), ['Eggs']);
+  assert.deepEqual(names({ categoryId: 'veg', inStockOnly: true }), ['Tomato']);
+  assert.deepEqual(names({ sort: 'price_desc' }).slice(0, 2), ['Basmati Rice (25 kg bag)', 'Eggs']);
+  assert.deepEqual(names({ sort: 'price_asc' })[0], 'Tomato');
+  assert.deepEqual(cat.brandsOf(PRODS), ['Farm', 'Suguna']);
+});
+
+test('groupVariants: one card per main product with its packs; applyPriceList keeps the published price', () => {
+  const groups = cat.groupVariants(PRODS);
+  assert.equal(groups.length, 4);
+  const rice = groups.find((g) => g.main.id === 'r1');
+  assert.deepEqual(rice.variants.map((v) => v.id), ['r1', 'r25']);
+  assert.deepEqual(cat.groupVariants([PRODS[4]]).map((g) => g.main.id), ['r25'], 'a pack whose main product is filtered out stands alone');
+  const priced = cat.applyPriceList(PRODS, [{ product_id: 'a', price: 30.4 }]);
+  assert.equal(priced[0].price, 30.4);
+  assert.equal(priced[0].list_price, 32);
+  assert.equal(priced[1].list_price, undefined);
+});
+
+test('csvToProducts: new rows need the basics, existing rows take just the columns given, bad lines are reported', () => {
+  const parsed = parseCsv([
+    'sku,name,category,price,unit,gst_rate,hsn_code,veg_type,sold_by_weight,parent_sku,variant_label',
+    'VEG-009,Spinach,Vegetables › Leafy greens,40,kg,0,0709,veg,yes,,',
+    'VEG-001,,,35,,,,,,,',
+    'RULE-1,,,99,,,,,,,',
+    'NEW-2,No category,,10,kg,,,,,,',
+    'NEW-3,Bad gst,Vegetables,10,kg,7,,,,,',
+    'GRN-001-5,Rice 5 kg,Dairy & Eggs,560,bag,5,,,no,GRN-001,5 kg bag',
+    'BAD-4,Veg?,Vegetables,10,kg,,,maybe,,,',
+  ].join('\n'));
+  const existing = [{ id: 'a', sku: 'VEG-001', price_source: 'manual' }, { id: 'x', sku: 'RULE-1', price_source: 'rule' }, { id: 'r1', sku: 'GRN-001' }];
+  const { rows, problems, created, updated } = csvToProducts(parsed, { categories: CATS, hsnCodes: [{ code: '0709' }], existing });
+  assert.equal(created, 2);
+  assert.equal(updated, 2);
+  assert.deepEqual(rows[0], { sku: 'VEG-009', name: 'Spinach', category_id: 'leafy', price: 40, unit: 'kg', gst_rate: 0, hsn_code: '0709', veg_type: 'veg', sold_by_weight: true });
+  assert.deepEqual(rows[1], { sku: 'VEG-001', price: 35, id: 'a' }, 'only the columns present');
+  assert.deepEqual(rows[2], { sku: 'RULE-1', id: 'x' }, 'board-priced product keeps its price');
+  assert.deepEqual(rows[3], { sku: 'GRN-001-5', name: 'Rice 5 kg', category_id: 'dairy', price: 560, unit: 'bag', gst_rate: 5, sold_by_weight: false, parent_product_id: 'r1', variant_label: '5 kg bag' });
+  assert.deepEqual(problems, [
+    'line 4 (RULE-1): price skipped — published from the price board',
+    'line 5 (NEW-2): new product needs category',
+    'line 6 (NEW-3): gst_rate must be 0, 5, 12, 18 or 28',
+    'line 8 (BAD-4): veg_type must be veg or non_veg',
+  ]);
+  assert.equal(categoryByName(CATS, 'vegetables > leafy greens').id, 'leafy');
+  assert.equal(categoryByName(CATS, 'Nope'), null);
+});
+
+test('listPrice: a fixed item beats the % adjustment (mirror of customer_price)', () => {
+  const list = { adjustment_pct: -5 };
+  assert.equal(listPrice({ id: 'a', price: 32 }, list, []), 30.4);
+  assert.equal(listPrice({ id: 'a', price: 32 }, list, [{ product_id: 'a', price: 30 }]), 30);
+  assert.equal(listPrice({ id: 'a', price: 32 }, { adjustment_pct: 0 }, []), 32);
+});

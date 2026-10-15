@@ -22,6 +22,7 @@ import { computePrice, marginOf, FLAG_LABELS, sparklinePath } from '../../core/p
 import { PRICING_MODES, COST_METHODS, PACK_UNITS } from '../../core/config.js';
 import { can } from '../../core/permissions.js';
 import { downloadCsv } from '../../core/csv.js';
+import { categoryOptions } from '../../core/catalogue.js';
 
 /** Shared tab strip for the three pricing screens. */
 export function pricingTabs(active) {
@@ -29,6 +30,7 @@ export function pricingTabs(active) {
     { href: '#pricing', label: 'Price board' },
     { href: '#pricing-rules', label: 'Rules' },
     { href: '#benchmarks', label: 'Benchmarks' },
+    { href: '#price-lists', label: 'Price lists' },
   ];
   return html`<div class="tabs" role="tablist">
     ${tabs.map((t) => html`<a role="tab" href="${t.href}" aria-selected="${String(t.href === active)}">${t.label}</a>`)}
@@ -121,7 +123,7 @@ export async function renderPriceBoard(container, me) {
       <div class="toolbar">
         <input class="input search" id="search" type="search" placeholder="Search name or SKU…" value="${search}">
         <select class="select" id="category"><option value="">All categories</option>
-          ${categories.map((c) => html`<option value="${c.id}" ${c.id === categoryId ? 'selected' : ''}>${c.name}</option>`)}</select>
+          ${categoryOptions(categories).map((c) => html`<option value="${c.id}" ${c.id === categoryId ? 'selected' : ''}>${c.depth ? '— ' : ''}${c.name}</option>`)}</select>
         <select class="select" id="flag"><option value="">All rows</option>
           <option value="changed" ${flagFilter === 'changed' ? 'selected' : ''}>Would change</option>
           ${Object.entries(FLAG_LABELS).map(([k, v]) => html`<option value="${k}" ${flagFilter === k ? 'selected' : ''}>${v.label}</option>`)}</select>

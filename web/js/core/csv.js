@@ -68,3 +68,13 @@ export function parseCsv(text) {
     rows: nonEmpty.slice(1).map((r) => Object.fromEntries(headers.map((h, i) => [h, (r[i] ?? '').trim()]))),
   };
 }
+
+/** Read a chosen <input type="file"> file as text (works in every browser; File.text() does not). */
+export function readTextFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the file'));
+    reader.readAsText(file);
+  });
+}

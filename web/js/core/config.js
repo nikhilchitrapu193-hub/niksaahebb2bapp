@@ -87,6 +87,16 @@ export const MODULES = Object.freeze({
 /** Selling-unit contents (products.pack_unit). Per-kg costs apply to kg/g/l/ml, not to pieces. */
 export const PACK_UNITS = Object.freeze({ kg: 'kg', g: 'g', l: 'litre', ml: 'ml', pc: 'pieces' });
 
+/** products.veg_type; null = not applicable (packaging, cleaning…). */
+export const VEG_TYPES = Object.freeze({ veg: 'Veg', non_veg: 'Non-veg' });
+
+/** Catalogue sort orders (customer app). */
+export const CATALOGUE_SORTS = Object.freeze({
+  name:       { label: 'Name A–Z' },
+  price_asc:  { label: 'Price: low to high' },
+  price_desc: { label: 'Price: high to low' },
+});
+
 /** How a product's price is worked out (product_pricing.pricing_mode). */
 export const PRICING_MODES = Object.freeze({
   rule:                 { label: 'Cost + markup (category rule)' },
