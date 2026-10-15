@@ -7,7 +7,8 @@
 -- is the report: every line should start with PASS.
 --
 -- Run this after ANY change to RLS policies or the functions in migrations.
--- Requires the seed catalogue (seed.sql) to be loaded.
+-- Requires the seed catalogue (seed.sql: categories and products). The sample quotes,
+-- benchmarks and stock in seed.sql are NOT needed; the test creates what it checks.
 --
 -- Roles simulated: admin (super admin), restaurant A (approved), restaurant B
 -- (pending), delivery driver, a sign-up attempting to inject role=admin, and
@@ -670,6 +671,11 @@ begin
   reset role;
 
   -- T36 a pricing manager (matrix row) can publish but cannot approve customers
+  -- The test gives paneer its own supplier quote (300) rather than relying on the sample
+  -- quotes in seed.sql, which a live project need not have loaded. Rolled back with the rest.
+  insert into public.product_pricing (product_id, supplier_quote, quote_date)
+  values (v_p2, 300, (now() at time zone 'Asia/Kolkata')::date)
+  on conflict (product_id) do update set supplier_quote = 300, quote_date = excluded.quote_date;
   insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data, created_at, updated_at) values
     (v_pm, 'authenticated', 'authenticated', 'pm@test.local', now(), '{}'::jsonb, now(), now());
   update public.profiles set role = 'admin', team_role = 'pricing_manager' where id = v_pm;
