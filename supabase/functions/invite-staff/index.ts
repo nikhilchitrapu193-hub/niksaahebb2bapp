@@ -54,7 +54,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // ---- 2. Validate input ----------------------------------------------------
-  let body: { email?: string; role?: string; full_name?: string; redirect_to?: string };
+  let body: { email?: string; role?: string; full_name?: string; team_role?: string | null; redirect_to?: string };
   try { body = await req.json(); } catch { return json(400, { error: "Invalid JSON" }); }
 
   const email = (body.email ?? "").trim().toLowerCase();
@@ -62,6 +62,18 @@ Deno.serve(async (req: Request) => {
   const fullName = (body.full_name ?? "").trim().slice(0, 120);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(400, { error: "Enter a valid email" });
   if (role !== "admin" && role !== "delivery") return json(400, { error: "Role must be admin or delivery" });
+
+  // The team role (city manager, picker, ...) decides what an admin-app user
+  // may do. Drivers are always 'driver'. Missing = the database default
+  // (super_admin for admins), so the Team screen should always send one.
+  // Only a super admin may invite another super admin.
+  const teamRole = role === "delivery" ? "driver" : (body.team_role ?? "super_admin");
+  const { data: roleRow } = await admin.from("team_roles").select("code").eq("code", teamRole).maybeSingle();
+  if (!roleRow) return json(400, { error: `Unknown team role: ${teamRole}` });
+  if (teamRole === "super_admin") {
+    const { data: me } = await admin.from("profiles").select("team_role").eq("id", caller.user.id).maybeSingle();
+    if (me?.team_role !== "super_admin") return json(403, { error: "Only a super admin can invite a super admin" });
+  }
 
   // ---- 3. Send the invite -------------------------------------------------
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
@@ -77,8 +89,8 @@ Deno.serve(async (req: Request) => {
 
   // ---- 4. Promote the fresh profile (created by the sign-up trigger) ------
   const { error: roleError } = await admin
-    .from("profiles").update({ role, full_name: fullName || null }).eq("id", invited.user.id);
+    .from("profiles").update({ role, team_role: teamRole, full_name: fullName || null }).eq("id", invited.user.id);
   if (roleError) return json(500, { error: `Invited, but could not set role: ${roleError.message}` });
 
-  return json(200, { ok: true, user_id: invited.user.id, email, role });
+  return json(200, { ok: true, user_id: invited.user.id, email, role, team_role: teamRole });
 });

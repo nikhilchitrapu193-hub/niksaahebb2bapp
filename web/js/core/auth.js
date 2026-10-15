@@ -9,6 +9,7 @@
 
 import { supabase } from './supabase.js';
 import { ROLE_HOME, ROLE_LOGIN, webRoot } from './config.js';
+import { toPermissionSet } from './permissions.js';
 
 /** Throw a readable Error if a Supabase call returned one. */
 function check({ data, error }) {
@@ -30,12 +31,15 @@ export async function signIn(email, password) {
  * Returns { needsEmailConfirmation } — true when Supabase has "Confirm email"
  * switched on and no session was issued yet.
  */
-export async function signUpRestaurant({ email, password, fullName, phone, restaurantName, address, gstin, fssai }) {
+export async function signUpRestaurant({ email, password, fullName, phone, restaurantName, address, gstin, fssai, cityId, pincode, sectorCode }) {
   const data = check(await supabase.auth.signUp({
     email: email.trim(),
     password,
     options: {
-      data: { full_name: fullName, phone, restaurant_name: restaurantName, address, gstin, fssai },
+      data: {
+        full_name: fullName, phone, restaurant_name: restaurantName, address, gstin, fssai,
+        city_id: cityId || null, pincode: pincode || null, sector_code: sectorCode || 'restaurant',
+      },
       emailRedirectTo: `${webRoot}restaurant/login.html`,
     },
   }));
@@ -79,8 +83,9 @@ export async function getSession() {
 }
 
 /**
- * Load { user, profile, restaurant } for the logged-in user.
- * `restaurant` is null for admin and delivery staff.
+ * Load { user, profile, restaurant, permissions } for the logged-in user.
+ * `restaurant` is null for staff. `permissions` is a Set of 'module:action'
+ * for admin-app users (empty for everyone else; super admins need none).
  */
 export async function loadCurrentUser() {
   const session = await getSession();
@@ -90,14 +95,18 @@ export async function loadCurrentUser() {
     .from('profiles').select('*').eq('id', session.user.id).maybeSingle();
   if (error) throw new Error(error.message);
   // No readable profile = account deactivated (RLS hides the row).
-  if (!profile || !profile.is_active) return { user: session.user, profile: null, restaurant: null };
+  if (!profile || !profile.is_active) return { user: session.user, profile: null, restaurant: null, permissions: new Set() };
 
   let restaurant = null;
+  let permissions = new Set();
   if (profile.role === 'restaurant') {
     const res = await supabase.from('restaurants').select('*').eq('owner_id', profile.id).maybeSingle();
     restaurant = check(res);
+  } else if (profile.role === 'admin' && profile.team_role && profile.team_role !== 'super_admin') {
+    const rows = check(await supabase.from('role_permissions').select('module, action').eq('team_role', profile.team_role));
+    permissions = toPermissionSet(rows);
   }
-  return { user: session.user, profile, restaurant };
+  return { user: session.user, profile, restaurant, permissions };
 }
 
 /** Where a role should land after login. */

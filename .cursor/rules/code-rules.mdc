@@ -1,0 +1,12 @@
+---
+description: Fresh Supply code rules — smallest complete change, logic in the database, plain comments. Adapted from ponytail, pstack, thermos and PentAGI.
+alwaysApply: true
+---
+Follow docs/code-rules.md. The short version:
+
+1. Smallest complete change. List every place the change must reach (callers, tests, fixtures, config, docs); that is the scope. Reuse ui.js, api.js, config.js and existing CSS. No new dependency, no abstraction or option nobody asked for. Deletion beats addition. A known shortcut gets `shortcut: <limit>, <when to upgrade>`.
+2. The database is the boundary. Every write is a SQL function or RLS policy that checks `has_permission(module, action)` and `in_my_scope(city, warehouse)`. UI checks only hide buttons. Business rules are named functions with a one-line "what rule, why" comment. Fixed lists live in config.js and a table / check constraint, never in a screen.
+3. Comments say only what the code cannot: why, which constraint, which rule. Never restate the line below. No history. Every file starts with a header.
+4. Plain words in docs, UI text and errors. Errors say what to do next.
+5. Finish with the review order correct → safe → load → tested → fast → lean (use /fs-review), then `npm test` and the SQL security test (use /fs-security-check).
+6. Never: call Supabase from a page, concatenate strings into innerHTML, edit an applied migration, update stock_qty directly, add a framework or build step.

@@ -10,10 +10,12 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 ## Read before changing anything
 | Task | Read |
 |---|---|
-| Any change | `README.md`, `docs/architecture.md`, `docs/contributing.md` |
+| Any change | `README.md`, `docs/architecture.md`, `docs/contributing.md`, `docs/code-rules.md` |
 | Database, permissions, business rules | `docs/api.md`, `docs/roles.md`, `supabase/migrations/*.sql` (in order) |
 | Why things are the way they are | `docs/adr/README.md` and the ADR it links |
 | Product scope / what Hyperpure does | `docs/hyperpure-feature-map.md` |
+| What to build next, in which order | `docs/build-roadmap.md` |
+| Cities, sectors, roles, audit (migration 006) | `docs/modules/foundation.md` |
 | Running, deploying, first admin | `docs/runbook.md`, `docs/deployment.md` |
 | Tests | `docs/testing.md` |
 
@@ -35,18 +37,27 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 9. **Run `npm test` before finishing.** Add a test for every new screen or helper.
 10. **Update the docs** (`docs/api.md`, `docs/roles.md`, an ADR for significant decisions)
     in the same change.
+11. **Permission and scope, not "is admin".** Admin-app functions and policies check
+    `has_permission(module, action)` and `in_my_scope(city_id, warehouse_id)` (migration 006). The
+    browser hides buttons with `can(me, module, action)` from `web/js/core/permissions.js`; new modules
+    or actions go into `config.js` MODULES / ACTIONS *and* the `role_permissions` check constraints.
+12. **Every operational record carries `city_id` / `warehouse_id`.** Stock changes name a warehouse.
+13. **Smallest complete change, plain comments, plain words** — `docs/code-rules.md`. Use the project
+    skills: `/fs-feature` to build, `/fs-review` to review, `/fs-security-check` before finishing.
 
 ## Where things live
 ```
 web/index.html                 public landing page
 web/<role>/login.html          per-role login (shared module web/js/pages/login.js)
 web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
-web/js/core/                   config, supabase client, auth, api, ui, shell/router
-web/js/pages/<role>/*.js       one module per screen
+web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv
+web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit added in 006)
 web/css/                       base.css (tokens), components.css, landing.css
-supabase/migrations/           schema → RLS → functions → inventory (apply in order)
+supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) (apply in order)
 supabase/seed.sql              sample catalogue
 supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
+supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres
+.cursor/rules, .cursor/skills  code rules and the fs-feature / fs-review / fs-security-check skills
 tests/                         node --test; fake Supabase client in tests/helpers/
 ```
 

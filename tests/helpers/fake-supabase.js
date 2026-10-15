@@ -1,8 +1,8 @@
 // =============================================================================
 // fake-supabase.js — a tiny in-memory stand-in for the supabase-js client, so
 // page tests run offline. It supports exactly the calls the app makes:
-//   from(table).select/eq/order/limit/maybeSingle/single/insert/update/delete
-//   rpc(name, args), auth.*, storage.from().getPublicUrl/upload
+//   from(table).select/eq/neq/in/order/limit/maybeSingle/single/insert/update/upsert/delete
+//   rpc(name, args), auth.*, functions.invoke, storage.from().getPublicUrl/upload
 //
 // Usage:
 //   const fake = createFake({ tables: { products: [...] }, rpc: { place_order: () => ({...}) } });
@@ -19,18 +19,22 @@ export function createFake({ tables = {}, rpc = {}, session = null } = {}) {
     const builder = {
       select() { return builder; },
       eq(column, value) { q.filters.push([column, value]); return builder; },
+      neq(column, value) { q.filters.push([column, value, 'neq']); return builder; },
+      in(column, values) { q.filters.push([column, values, 'in']); return builder; },
       order() { return builder; },
       limit() { return builder; },
       maybeSingle() { q.one = 'maybe'; return builder; },
       single() { q.one = 'single'; return builder; },
       insert(payload) { q.op = 'insert'; q.payload = payload; return builder; },
       update(payload) { q.op = 'update'; q.payload = payload; return builder; },
+      upsert(payload) { q.op = 'upsert'; q.payload = payload; return builder; },
       delete() { q.op = 'delete'; return builder; },
       then(resolve, reject) { return Promise.resolve(run()).then(resolve, reject); },
     };
     function run() {
       if (q.op !== 'select') calls.push({ type: q.op, table, payload: q.payload, filters: q.filters });
-      const rows = (tables[table] ?? []).filter((row) => q.filters.every(([c, v]) => row[c] === v));
+      const rows = (tables[table] ?? []).filter((row) => q.filters.every(([c, v, op]) =>
+        op === 'in' ? v.includes(row[c]) : op === 'neq' ? row[c] !== v : row[c] === v));
       if (q.op !== 'select') return { data: q.one ? q.payload : null, error: null };
       if (q.one) return { data: rows[0] ?? null, error: null };
       return { data: rows, error: null };
@@ -52,7 +56,7 @@ export function createFake({ tables = {}, rpc = {}, session = null } = {}) {
         state.session = { user: { id: 'u-' + email, email } };
         return { data: { session: state.session }, error: null };
       },
-      signUp: async () => ({ data: { session: null }, error: null }),
+      signUp: async (payload) => { calls.push({ type: 'signUp', payload }); return { data: { session: null }, error: null }; },
       signOut: async () => { state.session = null; return { error: null }; },
       resetPasswordForEmail: async () => ({ data: {}, error: null }),
       updateUser: async () => ({ data: {}, error: null }),

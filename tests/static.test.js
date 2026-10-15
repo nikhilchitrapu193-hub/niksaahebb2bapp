@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WEB = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
@@ -14,7 +14,8 @@ function walk(dir) {
     return statSync(full).isDirectory() ? walk(full) : [full];
   });
 }
-const files = walk(WEB).filter((f) => !f.includes('/vendor/'));
+// path.sep: on Windows the folder is web\vendor, not web/vendor.
+const files = walk(WEB).filter((f) => !f.includes(`${sep}vendor${sep}`));
 
 test('HTML pages reference existing scripts and stylesheets', () => {
   for (const page of files.filter((f) => f.endsWith('.html'))) {

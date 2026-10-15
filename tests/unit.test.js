@@ -56,3 +56,65 @@ test('cart: ignores unknown products in the total and persists to storage', () =
   assert.equal(cart.cartTotal({}), 0);
   assert.ok(localStorage.getItem('fresh-supply-cart-v1').includes('ghost'));
 });
+
+// ---------- Migration 006 helpers: CSV, permissions, order preview, audit ----
+
+// audit.js imports api.js, which needs a Supabase client to exist; a blank fake will do.
+const { createFake, useFake } = await import('./helpers/fake-supabase.js');
+useFake(createFake());
+const { toCsv } = await import('../web/js/core/csv.js');
+const { can, visibleNav, toPermissionSet } = await import('../web/js/core/permissions.js');
+const { describeChanges } = await import('../web/js/pages/admin/audit.js');
+
+test('toCsv: header row, quoting of commas, quotes and newlines, value functions', () => {
+  const csv = toCsv([{ name: 'Spice, Hut', note: 'He said "hi"\nbye', total: 10 }], [
+    { key: 'name', label: 'Customer' }, { key: 'note', label: 'Note' }, { label: 'Total', value: (r) => r.total * 2 },
+  ]);
+  assert.equal(csv, 'Customer,Note,Total\r\n"Spice, Hut","He said ""hi""\nbye",20');
+});
+
+test('toCsv: null and undefined become empty cells', () => {
+  assert.equal(toCsv([{ a: null }], [{ key: 'a', label: 'A' }, { key: 'b', label: 'B' }]), 'A,B\r\n,');
+});
+
+test('can: super admin may do everything, others only what the matrix allows, customers nothing', () => {
+  const superAdmin = { profile: { role: 'admin', team_role: 'super_admin' }, permissions: new Set() };
+  const picker = { profile: { role: 'admin', team_role: 'picker' }, permissions: toPermissionSet([{ module: 'orders', action: 'view' }, { module: 'orders', action: 'edit' }]) };
+  const customer = { profile: { role: 'restaurant' }, permissions: new Set() };
+  assert.equal(can(superAdmin, 'team', 'edit'), true);
+  assert.equal(can(picker, 'orders', 'edit'), true);
+  assert.equal(can(picker, 'payments', 'edit'), false);
+  assert.equal(can(customer, 'orders', 'view'), false);
+  assert.equal(can(null, 'orders', 'view'), false);
+  assert.deepEqual(visibleNav(picker), [{ href: '#orders', label: 'Orders' }]);
+  assert.equal(visibleNav(superAdmin).length, 8, 'every module with a nav entry');
+});
+
+test('orderPreview: below the minimum the delivery fee applies; with no fee the order is blocked', () => {
+  cart.clearCart();
+  cart.setQty('a', 10);                                   // 10 x 32 = 320
+  const products = { a: { price: 32, gst_rate: 5 } };
+  const withFee = cart.orderPreview(products, { min_order_value: 2000, delivery_fee_below_mov: 99 });
+  assert.equal(withFee.subtotal, 320);
+  assert.equal(withFee.tax, 16);
+  assert.equal(withFee.shortfall, 1680);
+  assert.equal(withFee.deliveryFee, 99);
+  assert.equal(withFee.total, 435);
+  assert.equal(withFee.canPlace, true);
+
+  const noFee = cart.orderPreview(products, { min_order_value: 2000, delivery_fee_below_mov: 0 });
+  assert.equal(noFee.canPlace, false);
+  assert.equal(noFee.deliveryFee, 0);
+
+  const above = cart.orderPreview(products, { min_order_value: 300, delivery_fee_below_mov: 99 });
+  assert.equal(above.deliveryFee, 0);
+  assert.equal(above.total, 336);
+  assert.equal(cart.orderPreview(products, null).total, 336, 'no terms = no rules');
+  cart.clearCart();
+});
+
+test('describeChanges: updates list each changed column with old and new', () => {
+  const lines = describeChanges({ action: 'update', changes: { price: { old: 32, new: 33 }, brand: { old: null, new: 'Farm' } } });
+  assert.deepEqual(lines, [{ key: 'price', old: '32', new: '33' }, { key: 'brand', old: '—', new: 'Farm' }]);
+  assert.deepEqual(describeChanges({ action: 'insert', changes: {} }), [{ key: 'created', old: null, new: null }]);
+});

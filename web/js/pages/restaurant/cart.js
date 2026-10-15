@@ -54,5 +54,32 @@ export function toOrderItems() {
   return cartEntries().map(({ productId, quantity }) => ({ product_id: productId, quantity }));
 }
 
+/**
+ * What the order will cost, using the same rule as place_order() in the
+ * database (migration 006): below the minimum order value the delivery fee is
+ * charged, and if that fee is zero the order cannot be placed.
+ *   terms: { min_order_value, delivery_fee_below_mov } (null = no rules)
+ * Returns { subtotal, tax, deliveryFee, shortfall, total, canPlace }.
+ */
+export function orderPreview(productsById, terms) {
+  let subtotal = 0;
+  let tax = 0;
+  for (const { productId, quantity } of cartEntries()) {
+    const product = productsById[productId];
+    if (!product) continue;
+    subtotal += product.price * quantity;
+    tax += Math.round(product.price * quantity * (product.gst_rate || 0)) / 100;
+  }
+  const mov = Number(terms?.min_order_value) || 0;
+  const feeBelow = Number(terms?.delivery_fee_below_mov) || 0;
+  const shortfall = subtotal < mov ? mov - subtotal : 0;
+  const deliveryFee = shortfall > 0 ? feeBelow : 0;
+  return {
+    subtotal, tax, deliveryFee, shortfall,
+    total: subtotal + tax + deliveryFee,
+    canPlace: shortfall === 0 || feeBelow > 0,
+  };
+}
+
 /** Test helper: reload state from storage. */
 export function _reset() { lines = load(); }

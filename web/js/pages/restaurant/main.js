@@ -6,11 +6,11 @@
 import { html, mount, $, on, formatINR, reportError, toast, withBusy } from '../../core/ui.js';
 import { requireRole } from '../../core/auth.js';
 import { renderShell, startRouter } from '../../core/shell.js';
-import { listProducts, listCategories, placeOrder } from '../../core/api.js';
+import { listProducts, listCategories, placeOrder, getMyOrderTerms } from '../../core/api.js';
 import { renderCatalogue } from './catalogue.js';
 import { renderOrders } from './orders.js';
 import { renderAccount } from './account.js';
-import { cartEntries, cartCount, cartTotal, setQty, clearCart, toOrderItems, onCartChange } from './cart.js';
+import { cartEntries, cartCount, cartTotal, setQty, clearCart, toOrderItems, onCartChange, orderPreview } from './cart.js';
 import { isUnavailable } from './catalogue.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, config } from '../../core/config.js';
 
@@ -24,8 +24,9 @@ const me = await requireRole('restaurant');
 if (me) start();
 
 async function start() {
-  const state = { me, products: [], categories: [], byId: {} };
-  const canOrder = () => state.me.restaurant?.status === 'approved';
+  // terms: MOV, delivery fee, PO rule and whether we deliver (my_order_terms).
+  const state = { me, products: [], categories: [], byId: {}, terms: null };
+  const canOrder = () => state.me.restaurant?.status === 'approved' && state.terms?.delivers !== false;
 
   const shell = renderShell({
     me,
@@ -41,18 +42,17 @@ async function start() {
   const view = $('#view');
 
   async function loadCatalogue() {
-    [state.products, state.categories] = await Promise.all([listProducts(), listCategories()]);
+    [state.products, state.categories, state.terms] = await Promise.all([listProducts(), listCategories(), getMyOrderTerms().catch(() => null)]);
     state.byId = Object.fromEntries(state.products.map((p) => [p.id, p]));
   }
 
-  /** Status banner shown above every page until the restaurant is approved. */
+  /** Status banner shown above every page until the restaurant is approved and served. */
   function statusBanner() {
     const status = state.me.restaurant?.status;
-    if (status === 'approved') return '';
-    const text = status === 'suspended'
-      ? 'Your account is suspended. Please contact us to place orders.'
-      : 'Your account is awaiting approval. You can browse the catalogue now and order as soon as we approve you.';
-    return html`<div class="banner warn">${text}</div>`;
+    if (status === 'suspended') return html`<div class="banner warn">Your account is suspended. Please contact us to place orders.</div>`;
+    if (status !== 'approved') return html`<div class="banner warn">Your account is awaiting approval. You can browse the catalogue now and order as soon as we approve you.</div>`;
+    if (state.terms && !state.terms.delivers) return html`<div class="banner warn">We do not deliver to your pin code yet. Update it under <a href="#account">Account</a> or contact us.</div>`;
+    return '';
   }
 
   function withBanner(render) {
@@ -82,15 +82,13 @@ async function start() {
     overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target.closest('[data-close]')) close(); });
 
     // Checkout choices survive re-renders of the drawer.
-    const checkout = { slot: 'morning', date: isoDate(1), payment: 'cod', notes: '' };
+    const checkout = { slot: 'morning', date: isoDate(1), payment: 'cod', notes: '', poReference: '' };
+    const needsPo = Boolean(state.terms?.needs_po_reference);
 
     function draw() {
       const entries = cartEntries().filter((e) => state.byId[e.productId]);
-      const total = cartTotal(state.byId);
-      const tax = entries.reduce((sum, { productId, quantity }) => {
-        const p = state.byId[productId];
-        return sum + Math.round(p.price * quantity * (p.gst_rate || 0)) / 100;
-      }, 0);
+      const preview = orderPreview(state.byId, state.terms);
+      const { subtotal: total, tax, deliveryFee, shortfall } = preview;
       mount(overlay, html`
         <aside class="drawer" role="dialog" aria-label="Your cart">
           <div class="drawer-head"><h2>Your cart</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
@@ -123,14 +121,22 @@ async function start() {
                 <label class="check" style="margin-bottom:var(--space-2);align-items:flex-start">
                   <input type="radio" name="pay" value="${k}" ${k === checkout.payment ? 'checked' : ''}>
                   <span><strong>${v.label}</strong><br><span class="muted small">${v.hint}</span></span></label>`)}
+              ${needsPo ? html`<label class="field" style="margin-top:var(--space-4)"><span class="label">Purchase order / indent number</span>
+                <input class="input" id="po" maxlength="60" value="${checkout.poReference}" placeholder="PO/2026/0042" required>
+                <span class="hint">Required for ${state.terms.sector_name}; printed on the invoice.</span></label>` : ''}
               <label class="field" style="margin-top:var(--space-4)"><span class="label">Order notes (optional)</span>
               <textarea class="textarea" id="notes" rows="2" maxlength="500" placeholder="Gate code, packing instructions…">${checkout.notes}</textarea></label>` : ''}
           </div>
           <div class="drawer-foot">
+            ${shortfall > 0 ? html`<div class="banner ${deliveryFee > 0 ? 'info' : 'warn'}" style="margin-bottom:var(--space-3)">
+              ${deliveryFee > 0
+                ? html`Add ${formatINR(shortfall)} more to reach the ${formatINR(state.terms.min_order_value)} minimum and skip the ${formatINR(deliveryFee)} delivery fee.`
+                : html`Minimum order is ${formatINR(state.terms.min_order_value)}. Add ${formatINR(shortfall)} more to place this order.`}</div>` : ''}
             <div class="spread small muted"><span>Subtotal</span><span class="num">${formatINR(total)}</span></div>
-            <div class="spread small muted" style="margin-bottom:var(--space-2)"><span>GST</span><span class="num">${formatINR(tax)}</span></div>
-            <div class="spread" style="margin-bottom:var(--space-3)"><strong>Total</strong><span class="money" style="font-size:var(--text-lg)">${formatINR(total + tax)}</span></div>
-            <button class="btn primary block large" id="place" ${entries.length && canOrder() ? '' : 'disabled'}>Place order</button>
+            <div class="spread small muted"><span>GST</span><span class="num">${formatINR(tax)}</span></div>
+            ${deliveryFee > 0 ? html`<div class="spread small muted"><span>Delivery fee</span><span class="num">${formatINR(deliveryFee)}</span></div>` : ''}
+            <div class="spread" style="margin:var(--space-2) 0 var(--space-3)"><strong>Total</strong><span class="money" style="font-size:var(--text-lg)">${formatINR(preview.total)}</span></div>
+            <button class="btn primary block large" id="place" ${entries.length && canOrder() && preview.canPlace ? '' : 'disabled'}>Place order</button>
             ${canOrder() ? '' : html`<p class="muted small center" style="margin-top:var(--space-2)">Ordering unlocks after approval.</p>`}
           </div>
         </aside>`);
@@ -146,10 +152,13 @@ async function start() {
     on(overlay, 'change', '#date', (_e, el) => { checkout.date = el.value; });
     on(overlay, 'change', '[name="pay"]', (_e, el) => { checkout.payment = el.value; });
     on(overlay, 'input', '#notes', (_e, el) => { checkout.notes = el.value; });
+    on(overlay, 'input', '#po', (_e, el) => { checkout.poReference = el.value; });
     on(overlay, 'click', '#place', async (_e, button) => {
+      if (needsPo && !checkout.poReference.trim()) { toast('Enter your purchase order / indent number first.', 'error'); return; }
       try {
         const order = await withBusy(button, () => placeOrder(toOrderItems(), {
           notes: checkout.notes, deliveryDate: checkout.date, slot: checkout.slot, paymentMethod: checkout.payment,
+          poReference: checkout.poReference,
         }));
         clearCart();
         close();

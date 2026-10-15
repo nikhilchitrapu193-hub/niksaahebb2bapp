@@ -289,3 +289,20 @@
 .badge.low   { background: var(--accent-soft); color: #8a5208; }
 .badge.ok    { background: var(--ok-soft); color: var(--ok); }
 .badge.empty-stock { background: var(--danger-soft); color: var(--danger); }
+
+/* ---------- Tab strip of links (settings sub-pages) ------------------------ */
+.tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--line); margin-bottom: var(--space-5); overflow-x: auto; }
+.tabs a { padding: 0.55rem 0.9rem; font-weight: 600; color: var(--ink-muted); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; margin-bottom: -1px; }
+.tabs a:hover { color: var(--ink); }
+.tabs a[aria-selected="true"] { color: var(--brand-strong); border-bottom-color: var(--brand); }
+
+/* ---------- Permission matrix (roles.js) ----------------------------------- */
+.matrix th, .matrix td { text-align: center; }
+.matrix th:first-child, .matrix td:first-child { text-align: left; white-space: nowrap; }
+.matrix input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--brand); }
+
+/* ---------- Audit log changes ---------------------------------------------- */
+.diff { margin: 0; padding: 0; list-style: none; font-size: var(--text-xs); }
+.diff li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; }
+.diff .old { color: var(--danger); text-decoration: line-through; }
+.diff .new { color: var(--ok); }

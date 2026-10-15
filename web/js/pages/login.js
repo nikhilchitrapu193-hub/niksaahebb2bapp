@@ -13,7 +13,7 @@
 
 import { html, mount, $, on, withBusy } from '../core/ui.js';
 import { signIn, signUpRestaurant, signUpStaff, requestPasswordReset, loadCurrentUser, homeFor, loginFor } from '../core/auth.js';
-import { claimFirstAdmin } from '../core/api.js';
+import { claimFirstAdmin, listCities, listSectors } from '../core/api.js';
 import { supabase } from '../core/supabase.js';
 import { ROLE_LABELS, webRoot } from '../core/config.js';
 
@@ -22,6 +22,10 @@ const ROLE = root.dataset.role;             // 'restaurant' | 'admin' | 'deliver
 const canRegister = ROLE === 'restaurant';
 const canSetup = ROLE === 'admin';          // first-admin setup, works only while no admin exists
 let mode = (canRegister && location.hash === '#register') ? 'register' : 'signin'; // 'signin' | 'register' | 'setup' | 'forgot'
+
+// Cities and self-registering sectors for the register form (public lists).
+let cities = [];
+let sectors = [];
 
 const brand = html`<div class="brand"><span class="brand-mark">F</span><span>Fresh Supply</span><span class="brand-sub">${ROLE_LABELS[ROLE]}</span></div>`;
 
@@ -78,7 +82,15 @@ function view() {
           <label class="field"><span class="label">Your name</span><input class="input" name="fullName" autocomplete="name" required maxlength="120"></label>
           <label class="field"><span class="label">Phone</span><input class="input" name="phone" type="tel" autocomplete="tel" required maxlength="20"></label>
         </div>
+        ${sectors.length > 1 ? html`<label class="field"><span class="label">Type of business</span><select class="select" name="sectorCode">
+          ${sectors.map((s) => html`<option value="${s.code}">${s.name}</option>`)}</select></label>` : ''}
         <label class="field"><span class="label">Delivery address</span><textarea class="textarea" name="address" rows="2" required maxlength="300"></textarea></label>
+        <div class="form-grid">
+          <label class="field"><span class="label">City</span>${cities.length
+            ? html`<select class="select" name="cityId">${cities.map((c) => html`<option value="${c.id}">${c.name}</option>`)}</select>`
+            : html`<input class="input" value="Visakhapatnam" disabled><input type="hidden" name="cityId" value="">`}</label>
+          <label class="field"><span class="label">Pin code</span><input class="input" name="pincode" required pattern="[1-9][0-9]{5}" maxlength="6" inputmode="numeric" placeholder="530001"><span class="hint">Tells us which warehouse serves you</span></label>
+        </div>
         <div class="form-grid">
           <label class="field"><span class="label">FSSAI licence no.</span><input class="input" name="fssai" maxlength="20" placeholder="14 digits"><span class="hint">Needed before approval</span></label>
           <label class="field"><span class="label">GSTIN (optional)</span><input class="input" name="gstin" maxlength="15"></label>
@@ -176,5 +188,9 @@ async function redirectHome() {
     const me = await loadCurrentUser();
     if (me?.profile?.role === ROLE) { location.replace(homeFor(ROLE)); return; }
   } catch (error) { console.error(error); }
+  if (canRegister) {
+    // Lists are public; if they fail the form still works (the database falls back to the first city).
+    try { [cities, sectors] = await Promise.all([listCities(), listSectors().then((all) => all.filter((x) => x.can_self_register))]); } catch (error) { console.error(error); }
+  }
   render();
 })();

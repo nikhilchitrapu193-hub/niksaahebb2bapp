@@ -2,15 +2,16 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 40+
+-- psql). It creates throw-away users, impersonates each role, checks 86
 -- rules, then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
 -- Run this after ANY change to RLS policies or the functions in migrations.
 -- Requires the seed catalogue (seed.sql) to be loaded.
 --
--- Roles simulated: admin, restaurant A (approved), restaurant B (pending),
--- delivery driver, and a sign-up attempting to inject role=admin.
+-- Roles simulated: admin (super admin), restaurant A (approved), restaurant B
+-- (pending), delivery driver, a sign-up attempting to inject role=admin, and
+-- from T20 on: a city manager of another city, a picker, and a defence unit.
 -- =============================================================================
 
 do $$
@@ -24,15 +25,24 @@ declare
   v_p1 uuid; v_p2 uuid; v_p3 uuid;
   v_o1 jsonb; v_o2 jsonb;
   v_n int; v_num numeric; v_txt text; v_stats jsonb; v_stock1 numeric;
+  -- Migration 006 (cities, sectors, roles, audit)
+  v_city uuid; v_wh uuid; v_city2 uuid; v_wh2 uuid; v_cm uuid := gen_random_uuid(); v_pick uuid := gen_random_uuid();
+  v_o3 jsonb; v_json jsonb;
 begin
+  select id into v_city from public.cities where name = 'Visakhapatnam';
+  select id into v_wh from public.warehouses where city_id = v_city and is_default;
+  -- Pin code 530001 is served by the Vizag warehouse (seed.sql adds it too); sign-ups below use it.
+  insert into public.service_zones (warehouse_id, pincode, area_name) values (v_wh, '530001', 'Test area')
+  on conflict (pincode) do nothing;
+
   select id into v_p1 from public.products where sku = 'VEG-001';  -- Tomato, 32, min 5
   select id into v_p2 from public.products where sku = 'DAI-002';  -- Paneer, 340, min 2
   select id into v_p3 from public.products where sku = 'VEG-005';  -- Coriander (made out of stock)
 
   insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data, created_at, updated_at) values
     (v_admin, 'authenticated', 'authenticated', 'admin@test.local', now(), '{}'::jsonb, now(), now()),
-    (v_ra,    'authenticated', 'authenticated', 'ra@test.local',    now(), '{"restaurant_name":"Test Kitchen A","address":"12 Road, Hyderabad","phone":"9000000001","full_name":"Owner A"}'::jsonb, now(), now()),
-    (v_rb,    'authenticated', 'authenticated', 'rb@test.local',    now(), '{"restaurant_name":"Test Kitchen B","address":"34 Lane, Hyderabad"}'::jsonb, now(), now()),
+    (v_ra,    'authenticated', 'authenticated', 'ra@test.local',    now(), '{"restaurant_name":"Test Kitchen A","address":"12 Road, Hyderabad","phone":"9000000001","full_name":"Owner A","pincode":"530001"}'::jsonb, now(), now()),
+    (v_rb,    'authenticated', 'authenticated', 'rb@test.local',    now(), '{"restaurant_name":"Test Kitchen B","address":"34 Lane, Hyderabad","pincode":"530001"}'::jsonb, now(), now()),
     (v_del,   'authenticated', 'authenticated', 'del@test.local',   now(), '{}'::jsonb, now(), now()),
     (v_inj,   'authenticated', 'authenticated', 'inj@test.local',   now(), '{"role":"admin","restaurant_name":"Evil"}'::jsonb, now(), now());
 
@@ -63,6 +73,12 @@ begin
   exception when insufficient_privilege then
     v_res := v_res || jsonb_build_array('PASS T2c anonymous visitors blocked from restaurants');
   end;
+  begin
+    perform 1 from public.suppliers limit 1;
+    v_res := v_res || jsonb_build_array('FAIL T2d anon can read suppliers');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T2d anonymous visitors blocked from suppliers (migration 007)');
+  end;
   reset role;
 
   -- T3 pending restaurant B: can browse, cannot order
@@ -85,7 +101,7 @@ begin
             jsonb_build_object('product_id', v_p1, 'quantity', 10, 'price', 1),
             jsonb_build_object('product_id', v_p2, 'quantity', 2),
             jsonb_build_object('product_id', v_p1, 'quantity', 5)), 'test note');
-  v_res := v_res || jsonb_build_array(case when (v_o1 ->> 'total_amount')::numeric = 1194 then 'PASS T4a total 1194 = 15x32 + 2x340 + 5% GST on paneer (client price ignored, duplicates merged)' else 'FAIL T4a total ' || (v_o1 ->> 'total_amount') end);
+  v_res := v_res || jsonb_build_array(case when (v_o1 ->> 'total_amount')::numeric = 1293 then 'PASS T4a total 1293 = 15x32 + 2x340 + 5% GST on paneer + 99 delivery fee below MOV (client price ignored, duplicates merged)' else 'FAIL T4a total ' || (v_o1 ->> 'total_amount') end);
   select stock_qty into v_num from public.products where id = v_p1;
   v_res := v_res || jsonb_build_array(case when v_num = v_stock1 - 15 then 'PASS T4c stock reserved: tomato ' || v_stock1 || ' -> ' || v_num else 'FAIL T4c tomato stock ' || v_num end);
   select count(*) into v_n from public.order_items where order_id = (v_o1 ->> 'id')::uuid;
@@ -220,9 +236,9 @@ begin
   exception when others then
     v_res := v_res || jsonb_build_array('PASS T12f admin cannot demote themselves');
   end;
-  update public.restaurants set status = 'approved' where owner_id = v_rb;
-  get diagnostics v_n = row_count;
-  v_res := v_res || jsonb_build_array(case when v_n = 1 then 'PASS T12g admin can approve restaurants' else 'FAIL T12g rows ' || v_n end);
+  perform public.set_customer_status((select id from public.restaurants where owner_id = v_rb), 'approved');
+  select status::text into v_txt from public.restaurants where owner_id = v_rb;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'approved' then 'PASS T12g admin can approve restaurants' else 'FAIL T12g status ' || v_txt end);
   perform public.receive_stock(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 50, 'unit_cost', 20)), null, 'GRN test');
   select stock_qty into v_num from public.products where id = v_p1;
   v_res := v_res || jsonb_build_array(case when v_num = v_stock1 + 35 then 'PASS T12h receive_stock added 50 (now ' || v_num || ')' else 'FAIL T12h stock ' || v_num end);
@@ -230,7 +246,7 @@ begin
   select stock_qty into v_num from public.products where id = v_p1;
   v_res := v_res || jsonb_build_array(case when v_num = v_stock1 then 'PASS T12i adjust_stock set exact count' else 'FAIL T12i stock ' || v_num end);
   select count(*) into v_n from public.stock_movements where product_id = v_p1;
-  v_res := v_res || jsonb_build_array(case when v_n = 4 then 'PASS T12j ledger has 4 movements (order, cancel, receive, wastage)' else 'FAIL T12j ledger rows ' || v_n end);
+  v_res := v_res || jsonb_build_array(case when v_n = 5 then 'PASS T12j ledger has 5 movements (order, order, cancel, receive, wastage)' else 'FAIL T12j ledger rows ' || v_n end);
   begin
     perform public.adjust_stock(v_p1, -1);
     v_res := v_res || jsonb_build_array('FAIL T12k negative stock accepted');
@@ -283,8 +299,8 @@ begin
   select count(*) into v_n from public.order_status_history where order_id = (v_o1 ->> 'id')::uuid;
   v_res := v_res || jsonb_build_array(case when v_n = 5 then 'PASS T15 audit trail has 5 entries' else 'FAIL T15 history rows ' || v_n end);
   v_stats := public.admin_dashboard_stats();
-  v_res := v_res || jsonb_build_array(case when (v_stats ->> 'revenue_today')::numeric = 1194 and (v_stats ->> 'orders_today')::int = 2
-                                           then 'PASS T16 dashboard: 2 orders today, revenue 1194 (cancelled excluded)'
+  v_res := v_res || jsonb_build_array(case when (v_stats ->> 'revenue_today')::numeric = 1293 and (v_stats ->> 'orders_today')::int = 2
+                                           then 'PASS T16 dashboard: 2 orders today, revenue 1293 (cancelled excluded)'
                                            else 'FAIL T16 stats ' || v_stats::text end);
   reset role;
 
@@ -305,6 +321,219 @@ begin
   -- T18 price integrity
   select price into v_num from public.products where id = v_p1;
   v_res := v_res || jsonb_build_array(case when v_num = 32 then 'PASS T18 product price unchanged at 32' else 'FAIL T18 price ' || v_num end);
+
+
+  -- ===========================================================================
+  -- Migration 006: cities, warehouses, sectors, permission matrix, scope, audit
+  -- ===========================================================================
+
+  -- T20 customers and drivers cannot see internal tables
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rb, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.audit_log;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T20a customer sees no audit log' else 'FAIL T20a sees ' || v_n end);
+  select count(*) into v_n from public.role_permissions;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T20b customer sees no permission matrix' else 'FAIL T20b sees ' || v_n end);
+  select count(*) into v_n from public.warehouse_stock;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T20c customer sees no warehouse stock' else 'FAIL T20c sees ' || v_n end);
+  select count(*) into v_n from public.service_zones;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T20d customer sees no service zones' else 'FAIL T20d sees ' || v_n end);
+  v_json := public.my_order_terms();
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'min_order_value')::numeric = 2000 and (v_json ->> 'delivers')::boolean then 'PASS T20e my_order_terms gives sector MOV 2000 and delivers=true' else 'FAIL T20e ' || v_json::text end);
+  reset role;
+
+  -- T21 logged-out website: cities, sectors and the pin-code check only
+  perform set_config('request.jwt.claims', '{}', true);
+  set local role anon;
+  select count(*) into v_n from public.cities;
+  v_res := v_res || jsonb_build_array(case when v_n >= 1 then 'PASS T21a anonymous can read cities' else 'FAIL T21a cities ' || v_n end);
+  select count(*) into v_n from public.sectors where can_self_register;
+  v_res := v_res || jsonb_build_array(case when v_n = 2 then 'PASS T21b anonymous sees the 2 self-registering sectors' else 'FAIL T21b ' || v_n end);
+  v_json := public.check_pincode('530001');
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'delivers')::boolean and v_json ->> 'city' = 'Visakhapatnam' then 'PASS T21c check_pincode(530001) = Visakhapatnam' else 'FAIL T21c ' || v_json::text end);
+  v_json := public.check_pincode('999999');
+  v_res := v_res || jsonb_build_array(case when not (v_json ->> 'delivers')::boolean then 'PASS T21d check_pincode(999999) = not served' else 'FAIL T21d ' || v_json::text end);
+  begin
+    perform 1 from public.audit_log limit 1;
+    v_res := v_res || jsonb_build_array('FAIL T21e anon can read audit log');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T21e anonymous blocked from audit log');
+  end;
+  begin
+    perform 1 from public.warehouses limit 1;
+    v_res := v_res || jsonb_build_array('FAIL T21f anon can read warehouses');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T21f anonymous blocked from warehouses');
+  end;
+  reset role;
+
+  -- T22 defence sector: purchase-order number required
+  update public.restaurants set sector_code = 'defence' where owner_id = v_rb;   -- B is approved (T12g)
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rb, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)));
+    v_res := v_res || jsonb_build_array('FAIL T22a defence order accepted without PO');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T22a defence order needs a PO: ' || sqlerrm);
+  end;
+  v_o3 := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'credit', 'PO/2026/0042');
+  select po_reference || ' / ' || sector_code into v_txt from public.orders where id = (v_o3 ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'PO/2026/0042 / defence' then 'PASS T22b PO number and sector snapshotted on the order' else 'FAIL T22b ' || coalesce(v_txt, 'null') end);
+  v_res := v_res || jsonb_build_array(case when (v_o3 ->> 'delivery_fee')::numeric = 0 then 'PASS T22c defence sector has no MOV, so no delivery fee' else 'FAIL T22c fee ' || (v_o3 ->> 'delivery_fee') end);
+  reset role;
+
+  -- T23 minimum order value with no fee = order refused (per-customer override)
+  update public.restaurants set min_order_value = 100000, delivery_fee_below_mov = 0 where owner_id = v_rb;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rb, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod', 'PO/1');
+    v_res := v_res || jsonb_build_array('FAIL T23 order below MOV accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T23 below MOV with no fee refused: ' || sqlerrm);
+  end;
+  reset role;
+  update public.restaurants set min_order_value = null, delivery_fee_below_mov = null where owner_id = v_rb;
+
+  -- T24 a city manager of ANOTHER city sees nothing of Vizag
+  insert into public.cities (name) values ('Hyderabad') returning id into v_city2;
+  insert into public.warehouses (city_id, name, is_default) values (v_city2, 'Hyd warehouse', true) returning id into v_wh2;
+  insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data, created_at, updated_at) values
+    (v_cm,   'authenticated', 'authenticated', 'cm@test.local',   now(), '{}'::jsonb, now(), now()),
+    (v_pick, 'authenticated', 'authenticated', 'pick@test.local', now(), '{}'::jsonb, now(), now());
+  update public.profiles set role = 'admin', team_role = 'city_manager', city_id = v_city2 where id = v_cm;
+  update public.profiles set role = 'admin', team_role = 'picker' where id = v_pick;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_cm, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.orders;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T24a Hyderabad city manager sees 0 Vizag orders' else 'FAIL T24a sees ' || v_n end);
+  select count(*) into v_n from public.restaurants;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T24b Hyderabad city manager sees 0 Vizag customers' else 'FAIL T24b sees ' || v_n end);
+  begin
+    perform public.receive_stock(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, v_wh);
+    v_res := v_res || jsonb_build_array('FAIL T24c received stock into a warehouse outside scope');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T24c cannot receive stock outside own city: ' || sqlerrm);
+  end;
+  perform public.receive_stock(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, 'Hyd GRN');
+  select qty into v_num from public.warehouse_stock where warehouse_id = v_wh2 and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = 10 then 'PASS T24d city manager received 10 into own default warehouse' else 'FAIL T24d qty ' || coalesce(v_num::text, 'null') end);
+  begin
+    perform public.set_order_status((v_o3 ->> 'id')::uuid, 'confirmed');
+    v_res := v_res || jsonb_build_array('FAIL T24e confirmed an order in another city');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T24e cannot move orders of another city');
+  end;
+  begin
+    perform public.admin_set_team_member(v_pick, 'admin', true, 'super_admin');
+    v_res := v_res || jsonb_build_array('FAIL T24f city manager granted super admin');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T24f only a super admin can grant super admin');
+  end;
+  begin
+    insert into public.role_permissions values ('city_manager', 'team', 'edit');
+    v_res := v_res || jsonb_build_array('FAIL T24g city manager edited the permission matrix');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T24g only a super admin can change the permission matrix');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.admin_set_team_member(v_pick, 'admin', true, null);
+    v_res := v_res || jsonb_build_array('FAIL T24i staff saved without a team role');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T24i staff must have a team role: ' || sqlerrm);
+  end;
+  perform public.admin_set_team_member(v_pick, 'admin', true, 'picker', v_city, v_wh);
+  v_res := v_res || jsonb_build_array(case when (select city_id from public.profiles where id = v_pick) = v_city then 'PASS T24j super admin set picker scope to Vizag' else 'FAIL T24j scope not saved' end);
+  reset role;
+  select stock_qty into v_num from public.products where id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = v_stock1 - 10 + 10 then 'PASS T24h product total = Vizag stock + Hyderabad stock' else 'FAIL T24h total ' || v_num end);
+
+  -- T25 a picker (orders view/edit only)
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.set_order_status((v_o3 ->> 'id')::uuid, 'confirmed');
+  select status::text into v_txt from public.orders where id = (v_o3 ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'confirmed' then 'PASS T25a picker can move an order (orders:edit)' else 'FAIL T25a status ' || v_txt end);
+  begin
+    perform public.set_order_payment((v_o3 ->> 'id')::uuid, 'paid');
+    v_res := v_res || jsonb_build_array('FAIL T25b picker recorded a payment');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T25b picker cannot record payments (payments:edit)');
+  end;
+  begin
+    perform public.admin_list_users();
+    v_res := v_res || jsonb_build_array('FAIL T25c picker listed the team');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T25c picker cannot list the team (team:view)');
+  end;
+  select count(*) into v_n from public.audit_log;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T25d picker sees no audit log (audit:view)' else 'FAIL T25d sees ' || v_n end);
+  update public.products set price = 1 where id = v_p1;
+  get diagnostics v_n = row_count;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T25e picker cannot edit prices (products:edit)' else 'FAIL T25e updated ' || v_n end);
+  begin
+    perform public.set_customer_status((select id from public.restaurants where owner_id = v_rb), 'suspended');
+    v_res := v_res || jsonb_build_array('FAIL T25f picker suspended a customer');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T25f picker cannot approve/suspend customers (customers:approve)');
+  end;
+  reset role;
+
+  -- T26 audit log: the super admin's price change is recorded with old and new
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.products set price = 33 where id = v_p1;
+  select changes into v_json from public.audit_log
+  where table_name = 'products' and row_id = v_p1::text and action = 'update' order by id desc limit 1;
+  v_res := v_res || jsonb_build_array(case when (v_json -> 'price' ->> 'old')::numeric = 32 and (v_json -> 'price' ->> 'new')::numeric = 33
+    then 'PASS T26a audit log shows price 32 -> 33 by admin' else 'FAIL T26a ' || coalesce(v_json::text, 'no row') end);
+  update public.products set price = 32 where id = v_p1;
+  select count(*) into v_n from public.audit_log where table_name = 'orders' and row_id = (v_o1 ->> 'id') and changes ? 'status';
+  v_res := v_res || jsonb_build_array(case when v_n >= 4 then 'PASS T26b audit log recorded ' || v_n || ' status changes of order 1' else 'FAIL T26b rows ' || v_n end);
+  select count(*) into v_n from public.audit_log where changed_by is null;
+  v_res := v_res || jsonb_build_array(case when v_n < (select count(*) from public.audit_log) then 'PASS T26c audit rows carry the user who made the change' else 'FAIL T26c all rows anonymous' end);
+  begin
+    insert into public.audit_log (table_name, row_id, action, changes) values ('x', '1', 'insert', '{}');
+    v_res := v_res || jsonb_build_array('FAIL T26d admin wrote to the audit log by hand');
+  exception when insufficient_privilege then
+    v_res := v_res || jsonb_build_array('PASS T26d nobody can write audit rows by hand');
+  end;
+
+  -- T27 a product hidden in a city is invisible and unorderable there
+  insert into public.product_city_availability (product_id, city_id, is_available) values (v_p2, v_city, false);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rb, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.products where id = v_p2;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T27a product hidden in Vizag is not in the customer catalogue' else 'FAIL T27a visible' end);
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p2, 'quantity', 2)), null, null, 'morning', 'cod', 'PO/2');
+    v_res := v_res || jsonb_build_array('FAIL T27b ordered a product hidden in this city');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T27b cannot order a product hidden in this city');
+  end;
+  reset role;
+
+  -- T28 customers without a served pin code cannot be approved
+  update public.restaurants set warehouse_id = null, pincode = null where owner_id = v_rb;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.set_customer_status((select id from public.restaurants where owner_id = v_rb), 'approved');
+    v_res := v_res || jsonb_build_array('FAIL T28 approved a customer with no warehouse');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T28 cannot approve a customer with no warehouse: ' || sqlerrm);
+  end;
+  reset role;
+
+  -- T29 new admin logins get a team role automatically (invite-staff path)
+  update public.profiles set role = 'admin' where id = v_inj;
+  select team_role into v_txt from public.profiles where id = v_inj;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'super_admin' then 'PASS T29 promoted login defaults to super_admin team role' else 'FAIL T29 team_role ' || coalesce(v_txt, 'null') end);
 
   -- Abort on purpose so no test data is ever saved. The message IS the report.
   raise exception E'SECURITY TEST REPORT (rolled back, no data kept)\n%', jsonb_pretty(v_res);

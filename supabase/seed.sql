@@ -54,3 +54,18 @@ on conflict (sku) do nothing;
 insert into public.suppliers (name, contact, phone)
 select 'Sample Farms Co-op', 'Ramesh', '9000000000'
 where not exists (select 1 from public.suppliers);
+
+-- Stock is held per warehouse (migration 006). Seeded products carry their
+-- 200 units in the default warehouse of the first city; products that already
+-- have warehouse rows are left alone.
+insert into public.warehouse_stock (warehouse_id, product_id, qty)
+select w.id, p.id, p.stock_qty
+from public.products p
+cross join (select id from public.warehouses where is_default order by created_at limit 1) as w
+where not exists (select 1 from public.warehouse_stock s where s.product_id = p.id);
+
+-- A sample service zone so sign-ups with pin code 530001 land in the default warehouse.
+insert into public.service_zones (warehouse_id, pincode, area_name)
+select w.id, '530001', 'Visakhapatnam GPO'
+from (select id from public.warehouses where is_default order by created_at limit 1) as w
+on conflict (pincode) do nothing;

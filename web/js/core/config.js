@@ -61,3 +61,29 @@ export const PAYMENT_METHODS = Object.freeze({
   cod:    { label: 'Cash on delivery', hint: 'Pay the driver when the order arrives' },
   credit: { label: 'Credit (pay later)', hint: 'Added to your account balance; settle with us' },
 });
+
+/**
+ * Admin-app modules and the actions a team role can be granted in each.
+ * MUST match the check constraints on role_permissions (migration 006).
+ * `nav` is the admin route that opens the module; modules without one are
+ * permission groups only (reports arrive in a later batch).
+ */
+export const MODULES = Object.freeze({
+  dashboard: { label: 'Dashboard', nav: '#dashboard' },
+  orders:    { label: 'Orders', nav: '#orders' },
+  products:  { label: 'Products', nav: '#products' },
+  inventory: { label: 'Inventory', nav: '#inventory' },
+  customers: { label: 'Customers', nav: '#customers' },
+  payments:  { label: 'Payments', nav: null },
+  team:      { label: 'Team', nav: '#team' },
+  settings:  { label: 'Settings', nav: '#settings' },
+  audit:     { label: 'Audit log', nav: '#audit' },
+  reports:   { label: 'Reports', nav: null },
+});
+
+export const ACTIONS = Object.freeze({
+  view:    'View',
+  edit:    'Create / edit',
+  approve: 'Approve',
+  export:  'Export',
+});
