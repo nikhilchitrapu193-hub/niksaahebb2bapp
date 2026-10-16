@@ -8,7 +8,8 @@
 
 import { html, mount, on, $, formatINR, formatQty, withBusy, formatDateTime, formatDate, statusBadge, openModal,
          confirmDialog, reportError, toast, STATUS_LABELS } from '../../core/ui.js';
-import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers, setOrderPayment, listCities, listSectors, setPackedQuantities } from '../../core/api.js';
+import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers, setOrderPayment, listCities, listSectors, setPackedQuantities,
+         placeOrderFor, listRestaurants, listProducts } from '../../core/api.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, webRoot } from '../../core/config.js';
 import { can } from '../../core/permissions.js';
 import { downloadCsv } from '../../core/csv.js';
@@ -35,7 +36,11 @@ export async function renderOrders(container, me) {
     orders = await listOrders({ status: filter.status || undefined, cityId: filter.cityId || undefined, sectorCode: filter.sectorCode || undefined });
     mount(container, html`
       <div class="page-head"><div><h1>Orders</h1><p>${orders.length} shown</p></div>
-        ${can(me, 'orders', 'export') ? html`<button class="btn" id="export">Export CSV</button>` : ''}</div>
+        <div class="row">
+          <a class="btn" href="#issues">Issues &amp; credits</a>
+          ${can(me, 'orders', 'edit') ? html`<button class="btn" id="new-order">New order for a customer</button>` : ''}
+          ${can(me, 'orders', 'export') ? html`<button class="btn" id="export">Export CSV</button>` : ''}
+        </div></div>
       <div class="toolbar">
         <select class="select" data-filter="status" aria-label="Filter by status">
           <option value="">All statuses</option>
@@ -90,7 +95,57 @@ export async function renderOrders(container, me) {
     { key: 'total_amount', label: 'Total' },
   ]));
 
+  on(container, 'click', '#new-order', () => newOrderDialog(() => draw().catch(reportError)));
+
   await draw();
+}
+
+/** Staff place an order on behalf of a customer (place_order_for; bypasses the slot cut-off). */
+async function newOrderDialog(onPlaced) {
+  const { el, close } = openModal(html`<div class="loading"><span class="spinner"></span> Loading…</div>`, { title: 'New order for a customer', wide: true });
+  try {
+    const [restaurants, products] = await Promise.all([listRestaurants(), listProducts()]);
+    const approved = restaurants.filter((r) => r.status === 'approved');
+    const active = products.filter((p) => p.is_active && !p.parent_product_id);
+    const lines = [{ product_id: '', quantity: '' }];
+    const draw = () => {
+      mount(el, html`
+        <form id="po-for" class="stack" novalidate>
+          <div class="form-grid">
+            <label class="field"><span class="label">Customer</span><select class="select" name="restaurant" required><option value="">Choose a customer…</option>${approved.map((r) => html`<option value="${r.id}">${r.name}</option>`)}</select></label>
+            <label class="field"><span class="label">Payment</span><select class="select" name="payment">${Object.entries(PAYMENT_METHODS).map(([k, v]) => html`<option value="${k}">${v.label}</option>`)}</select></label>
+            <label class="field"><span class="label">Deliver on</span><input class="input" name="date" type="date"></label>
+            <label class="field"><span class="label">Slot</span><select class="select" name="slot">${Object.entries(DELIVERY_SLOTS).map(([k, v]) => html`<option value="${k}" ${k === 'morning' ? 'selected' : ''}>${v.label}</option>`)}</select></label>
+            <label class="field span-2"><span class="label">PO / indent reference (if the sector needs one)</span><input class="input" name="po" maxlength="60"></label>
+          </div>
+          <table class="table small-table"><thead><tr><th>Product</th><th class="right">Quantity</th><th></th></tr></thead>
+            <tbody>${lines.map((l, i) => html`<tr data-line="${i}">
+              <td><select class="select small" data-field="product_id"><option value="">Choose…</option>${active.map((p) => html`<option value="${p.id}" ${p.id === l.product_id ? 'selected' : ''}>${p.name} (${p.unit})</option>`)}</select></td>
+              <td class="right"><input class="input small num right" type="number" min="0" step="any" data-field="quantity" value="${l.quantity}" style="width:100px"></td>
+              <td class="right"><button type="button" class="btn ghost small" data-remove="${i}" ${lines.length === 1 ? 'disabled' : ''}>✕</button></td></tr>`)}</tbody></table>
+          <div><button type="button" class="btn small" id="add-line">+ Add line</button></div>
+          <p class="form-error" id="po-for-error" role="alert"></p>
+          <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Place order</button></div>
+        </form>`);
+    };
+    on(el, 'change', '[data-field]', (_e, input) => { lines[Number(input.closest('[data-line]').dataset.line)][input.dataset.field] = input.value; });
+    on(el, 'click', '#add-line', () => { lines.push({ product_id: '', quantity: '' }); draw(); });
+    on(el, 'click', '[data-remove]', (_e, b) => { lines.splice(Number(b.dataset.remove), 1); draw(); });
+    draw();
+    el.querySelector('#po-for').onsubmit = async (event) => {
+      event.preventDefault();
+      const form = event.target;
+      if (!form.elements.restaurant.value) { $('#po-for-error', el).textContent = 'Choose a customer.'; return; }
+      const items = lines.filter((l) => l.product_id && Number(l.quantity) > 0).map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity) }));
+      if (!items.length) { $('#po-for-error', el).textContent = 'Add at least one line.'; return; }
+      try {
+        const r = await withBusy($('button[type="submit"]', form), () => placeOrderFor(form.elements.restaurant.value, items, {
+          deliveryDate: form.elements.date.value || null, slot: form.elements.slot.value, paymentMethod: form.elements.payment.value, poReference: form.elements.po.value,
+        }));
+        toast(`${r.order_number} placed (${formatINR(r.total_amount)})`, 'success'); close(); onPlaced();
+      } catch (error) { $('#po-for-error', el).textContent = error.message; }
+    };
+  } catch (error) { close(); reportError(error); }
 }
 
 async function showOrder(order, drivers, me, refresh) {

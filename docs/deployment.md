@@ -14,9 +14,9 @@ Each migration is one file, applied once, never edited afterwards (AGENTS.md rul
   function with a WHERE, so answer *Run* when it asks.
 * **Supabase MCP tool** (`apply_migration`, used by the coding agent) — also records the migration in the
   project's history, but it refuses any migration whose text contains a `DROP` or a row-removal
-  statement, even inside a function body. Migrations 001–010 were applied this way; **011
-  (`procurement`) contains such a statement inside `update_purchase_order()` and must be applied from the
-  SQL editor.** Do not rewrite a migration to disguise the statement from the tool.
+  statement, even inside a function body. Migrations 001–010 were applied this way; **011 (`procurement`), 012 (`fulfilment`) and 013 (`orders_plus`)
+  contain such a statement inside a function and must be applied from the SQL editor** (013's `edit_order`
+  rebuilds an order's lines with a DELETE). Do not rewrite a migration to disguise the statement from the tool.
 
 ## 2. Supabase settings
 * **Authentication → URL configuration:** set *Site URL* to your live address and add it plus

@@ -34,11 +34,19 @@ import { renderBuyingList } from './buying-list.js';
 import { renderPurchaseOrders } from './purchase-orders.js';
 import { renderReceipts } from './grn.js';
 import { renderRateCards } from './rate-cards.js';
+import { renderPickList } from './fulfilment.js';
+import { renderTrips } from './trips.js';
+import { renderDriverCash } from './driver-cash.js';
+import { renderDeliveryCharges } from './delivery-charges.js';
+import { renderSlots } from './slots.js';
+import { renderIssues } from './issues.js';
 
 /** Sub-pages keep their parent menu item highlighted. */
 const PARENT_OF = { '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
                     '#pricing-rules': '#pricing', '#benchmarks': '#pricing', '#price-lists': '#pricing',
-                    '#purchase-orders': '#procurement', '#receipts': '#procurement', '#rate-cards': '#procurement' };
+                    '#purchase-orders': '#procurement', '#receipts': '#procurement', '#rate-cards': '#procurement',
+                    '#trips': '#fulfilment', '#driver-cash': '#fulfilment', '#delivery-charges': '#fulfilment',
+                    '#slots': '#settings', '#issues': '#orders' };
 
 const me = await requireRole('admin');
 if (me) {
@@ -82,6 +90,12 @@ if (me) {
       '#purchase-orders': guard('procurement', (c) => renderPurchaseOrders(c, me)),
       '#receipts': guard('procurement', (c) => renderReceipts(c, me)),
       '#rate-cards': guard('procurement', (c) => renderRateCards(c, me)),
+      '#fulfilment': guard('fulfilment', (c) => renderPickList(c, me)),
+      '#trips': guard('fulfilment', (c) => renderTrips(c, me)),
+      '#driver-cash': guard('fulfilment', (c) => renderDriverCash(c, me)),
+      '#delivery-charges': guard('fulfilment', (c) => renderDeliveryCharges(c, me)),
+      '#slots': guard('settings', (c) => renderSlots(c, me)),
+      '#issues': guard('orders', (c) => renderIssues(c, me)),
     },
   });
 }

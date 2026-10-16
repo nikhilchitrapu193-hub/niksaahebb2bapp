@@ -1,6 +1,6 @@
 # API reference
 
-All write operations are Postgres functions (migrations 003, 004, 005, 006, 009, 010 and 011 in `supabase/migrations/`),
+All write operations are Postgres functions (migrations 003, 004, 005, 006, 009, 010, 011, 012 and 013 in `supabase/migrations/`),
 called via `supabase.rpc(name, args)` and wrapped in `web/js/core/api.js`.
 All require a signed-in user; each re-checks the role and raises `42501` (permission denied) otherwise.
 Since migration 006, admin-app functions check a **permission** (`has_permission(module, action)`, see
@@ -79,7 +79,9 @@ See the diagram in [architecture.md](architecture.md#order-lifecycle).
 `product_city_availability` (signed-in) · `audit_log` (audit:view) · `hsn_codes` (signed-in) ·
 `pricing_rules`, `product_pricing`, `benchmark_sources`, `benchmark_prices`, `price_history`, `scheduled_prices`,
 `order_line_costs`, views `v_product_cost` / `v_product_benchmark`, `price_lists`, `price_list_items` (pricing:view) ·
-`supplier_products` (procurement:view) · `purchase_orders`, `purchase_order_items`, `goods_receipts`, `goods_receipt_items` (procurement:view or inventory:view, within scope).
+`supplier_products` (procurement:view) · `purchase_orders`, `purchase_order_items`, `goods_receipts`, `goods_receipt_items` (procurement:view or inventory:view, within scope) ·
+`stock_batches` (inventory/fulfilment view) · `vehicles`, `trips`, `trip_orders`, `delivery_returns`, `driver_cash`, `cash_settlements` (fulfilment view, in scope; a driver sees their own trip and cash) · `delivery_charge_rules` (fulfilment/pricing view) ·
+`slot_config` (any signed-in) · `order_issues`, `credit_notes` (the customer sees their own; staff with orders/payments/customers view).
 `categories` now carry `parent_id` (two levels); `products` carry grade, origin, veg_type, shelf_life_days, storage_note,
 parent_product_id / variant_label (pack sizes), sold_by_weight / weight_tolerance_pct.
 Logged-out visitors (`anon`) may read `categories`, listed `products`, `cities` and `sectors`, and call `check_pincode`.
@@ -106,12 +108,27 @@ From the browser: `listSupplierProducts`, `saveSupplierProduct`, `deleteSupplier
 `getPurchaseOrder`, `createPurchaseOrder`, `updatePurchaseOrder`, `setPurchaseOrderStatus`, `listGoodsReceipts`, `receiveGoods`,
 `uploadBillPhoto`, `billPhotoUrl` — all in `web/js/core/api.js`, section "Procurement".
 
+## Fulfilment & delivery (migration 012)
+
+Pick list, stock batches / expiry, vehicles, trip sheets, proof of delivery, doorstep returns and driver cash
+are described in [modules/fulfilment.md](modules/fulfilment.md). Key functions: `pick_list`, `expiring_batches`,
+`write_off_expired`, `create_trip` / `update_trip` / `dispatch_trip` / `set_trip_status`, `complete_delivery`,
+`settle_driver_cash`, `driver_cash_summary`, `delivery_fee_for`. Browser wrappers are in `web/js/core/api.js`,
+section "Fulfilment & delivery".
+
+## Orders + (migration 013)
+
+Slot cut-offs, order editing, order-on-behalf, cancellation and issues → credit notes are described in
+[modules/orders-plus.md](modules/orders-plus.md). Key functions: `slot_open`, `place_order` (v6),
+`place_order_for`, `edit_order`, `cancel_order`, `report_issue`, `resolve_issue`. Wrappers are in the "Orders +"
+section of `web/js/core/api.js`.
+
 ## Audit log
 
 `audit_log` gets one row per insert / update / delete on products (price, listing, HSN and pack columns), orders, restaurants,
 profiles, role_permissions, sectors, cities, warehouses, service_zones, company_settings, pricing_rules, product_pricing,
 benchmark_sources, hsn_codes, categories, price_lists, price_list_items, suppliers, supplier_products, purchase_orders,
-purchase_order_items and goods_receipts, written by the
+purchase_order_items, goods_receipts, vehicles, trips, delivery_charge_rules, cash_settlements, slot_config, order_issues and credit_notes, written by the
 `write_audit_log()` trigger with `changed_by = auth.uid()`. For updates `changes` holds only the changed columns:
 `{"price": {"old": 32, "new": 33}}`. Stock has its own ledger (`stock_movements`) and is not duplicated here.
 
@@ -126,6 +143,7 @@ purchase_order_items and goods_receipts, written by the
 Bucket `product-photos` (public read, 5 MB, JPEG/PNG/WebP). Only admins can upload, replace or delete.
 Bucket `purchase-bills` (private, 8 MB, JPEG/PNG/WebP): photos of mandi bills and rejected goods; read with inventory:view
 (the app uses signed links, `billPhotoUrl`), upload with inventory:edit.
+Bucket `delivery-pod` (private, 8 MB, JPEG/PNG/WebP): proof-of-delivery photos; read with fulfilment:view (signed links, `podPhotoUrl`), uploaded by the driver app.
 
 ## Errors
 

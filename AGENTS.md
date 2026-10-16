@@ -68,10 +68,10 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 web/index.html                 public landing page
 web/<role>/login.html          per-role login (shared module web/js/pages/login.js)
 web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
-web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, csv-import, pricing, catalogue, procurement
-web/js/pages/<role>/*.js       one module per screen (admin: locations, sectors, roles, audit in 006; price-board, pricing-rules, benchmarks in 009; price-lists in 010; buying-list, purchase-orders, grn, rate-cards in 011; restaurant: product page in 010); web/js/pages/po.js + web/po.html print a PO
+web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, csv-import, pricing, catalogue, procurement, fulfilment
+web/js/pages/<role>/*.js       one module per screen (admin: …006/009/010; buying-list, purchase-orders, grn, rate-cards in 011; fulfilment, trips, driver-cash, delivery-charges, slots, issues in 012/013; restaurant: product page, order edit/cancel/issue; delivery: POD completion); web/js/pages/po.js + web/po.html print a PO
 web/css/                       base.css (tokens), components.css, landing.css
-supabase/migrations/           schema → RLS → functions → inventory → first admin → foundation (006) → anon revoke (007) → all sectors sign up (008) → pricing engine (009) → catalogue + (010) → procurement (011), in order
+supabase/migrations/           schema → … → procurement (011) → fulfilment (012) → orders + (013), in order
 supabase/seed.sql              sample catalogue
 supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres

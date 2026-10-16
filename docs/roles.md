@@ -32,6 +32,8 @@ Logged-out visitors can browse the public catalogue, read the city and sector li
 | `city_manager` | Runs one city (scope = city). |
 | `warehouse_manager` | Runs one warehouse (scope = warehouse). |
 | `procurement_buyer` | Plans the buying list, keeps rate cards and raises purchase orders (procurement: view, edit, export); types the morning mandi rates (pricing: view, edit). |
+| `dispatcher` | Builds and dispatches trips; reads the pick list (fulfilment: view, edit; orders: view, edit). |
+| `logistics_partner` | A third-party delivery partner: sees fulfilment for its own city only (fulfilment: view, edit). |
 | `pricing_manager` | Sets and approves prices (pricing: view, edit, approve, export). |
 | `finance` | Payments, credit, invoices. |
 | `sales` | Signs up and approves customers, sets their terms. |
@@ -44,7 +46,7 @@ The list lives in `team_roles`; add a role with a migration, then tick its boxes
 
 ## The permission matrix
 
-Modules: dashboard, orders, products, inventory, customers, payments, team, settings, audit, reports, pricing (migration 009), procurement (migration 011).
+Modules: dashboard, orders, products, inventory, customers, payments, team, settings, audit, reports, pricing (migration 009), procurement (migration 011), fulfilment (migration 012).
 Actions: **view**, **edit** (create / change), **approve**, **export**. A tick = allowed.
 Super admin needs no ticks. Starting ticks are seeded by migration 006; the owner changes them on
 Settings → Roles & permissions (`role_permissions` table).
@@ -66,6 +68,7 @@ Where each permission is checked:
 | `reports:*` | reserved for the reports batch |
 | `pricing:view` / `pricing:edit` / `pricing:approve` / `pricing:export` | open the price board, rules, benchmarks, history, price lists / enter benchmarks and quotes, change rules, overrides and price lists / publish, schedule and cancel prices / export |
 | `procurement:view` / `procurement:edit` / `procurement:approve` / `procurement:export` | open the buying list, purchase orders, receipts, rate cards / keep rate cards, create and edit draft POs, close short, cancel / approve & send a PO to the supplier / export |
+| `fulfilment:view` / `fulfilment:edit` / `fulfilment:approve` / `fulfilment:export` | open the pick list, trips, driver cash, delivery charges / build and dispatch trips, record returns, write off expiry / settle driver cash / export |
 
 ## Scope
 

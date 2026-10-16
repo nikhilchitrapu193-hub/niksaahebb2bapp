@@ -13,6 +13,7 @@ export function settingsTabs(me, active) {
     { href: '#settings', label: 'Company', show: true },
     { href: '#locations', label: 'Cities & warehouses', show: true },
     { href: '#sectors', label: 'Sectors & terms', show: true },
+    { href: '#slots', label: 'Delivery slots', show: true },
     { href: '#roles', label: 'Roles & permissions', show: can(me, 'team', 'view') },
   ];
   return html`<div class="tabs" role="tablist">

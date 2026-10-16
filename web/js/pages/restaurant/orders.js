@@ -2,11 +2,11 @@
 // orders.js — a restaurant's order history, order detail, cancel and reorder.
 // =============================================================================
 
-import { html, mount, on, formatINR, formatQty, formatDateTime, formatDate, statusBadge, openModal,
+import { html, mount, on, $, formatINR, formatQty, formatDateTime, formatDate, statusBadge, openModal,
          confirmDialog, reportError, toast, STATUS_LABELS } from '../../core/ui.js';
-import { listOrders, getOrderHistory, setOrderStatus } from '../../core/api.js';
+import { listOrders, getOrderHistory, cancelOrder, editOrder, reportIssue } from '../../core/api.js';
 import { setQty, getQty } from './cart.js';
-import { DELIVERY_SLOTS, PAYMENT_METHODS, webRoot } from '../../core/config.js';
+import { DELIVERY_SLOTS, PAYMENT_METHODS, ISSUE_KINDS, webRoot } from '../../core/config.js';
 import { isUnavailable } from './catalogue.js';
 
 export async function renderOrders(container, state) {
@@ -63,8 +63,10 @@ async function showOrder(order, state, refresh) {
       <h3 style="margin:var(--space-4) 0 var(--space-3)">Progress</h3>
       <ul class="timeline">${history.map((h) => html`<li><strong>${STATUS_LABELS[h.to_status]}</strong>
         <span class="muted"> · ${formatDateTime(h.created_at)}</span>${h.note ? html`<div class="muted">${h.note}</div>` : ''}</li>`)}</ul>
-      <div class="row" style="justify-content:flex-end;margin-top:var(--space-5)">
+      <div class="row" style="justify-content:flex-end;margin-top:var(--space-5);flex-wrap:wrap">
+        ${order.status === 'placed' ? html`<button class="btn" data-edit>Edit order</button>` : ''}
         ${order.status === 'placed' ? html`<button class="btn danger" data-cancel>Cancel order</button>` : ''}
+        ${order.status === 'delivered' ? html`<button class="btn" data-issue>Report an issue</button>` : ''}
         <a class="btn" target="_blank" rel="noopener" href="${webRoot}invoice.html?order=${order.id}">Invoice</a>
         <button class="btn primary" data-reorder>Order again</button>
       </div>`);
@@ -73,11 +75,13 @@ async function showOrder(order, state, refresh) {
   on(el, 'click', '[data-cancel]', async () => {
     if (!(await confirmDialog('Cancel this order?', { confirmText: 'Cancel order', danger: true }))) return;
     try {
-      await setOrderStatus(order.id, 'cancelled', 'Cancelled by restaurant');
+      await cancelOrder(order.id, 'Cancelled by customer');
       toast('Order cancelled', 'success');
       close(); refresh();
     } catch (error) { reportError(error); }
   });
+  on(el, 'click', '[data-edit]', () => editDialog(order, close, refresh));
+  on(el, 'click', '[data-issue]', () => issueDialog(order, close, refresh));
   on(el, 'click', '[data-reorder]', () => {
     let added = 0;
     for (const item of order.order_items) {
@@ -87,4 +91,48 @@ async function showOrder(order, state, refresh) {
     close();
     toast(added ? `${added} item${added === 1 ? '' : 's'} added to your cart` : 'None of these items are available right now', added ? 'success' : 'error');
   });
+}
+
+/** Edit a still-placed order: adjust quantities or drop a line (before the cut-off). */
+function editDialog(order, closeParent, refresh) {
+  const lines = order.order_items.map((i) => ({ product_id: i.product_id, name: i.product_name, unit: i.unit, quantity: Number(i.ordered_quantity ?? i.quantity) }));
+  const { el, close } = openModal(html`
+    <form id="edit" class="stack" novalidate>
+      <p class="muted small">Change quantities or remove a line. To add new products, use “Order again”.</p>
+      <table class="table small-table"><thead><tr><th>Item</th><th class="right">Quantity</th><th></th></tr></thead>
+        <tbody>${lines.map((l, n) => html`<tr data-row="${n}"><td>${l.name}<div class="muted tiny">${l.unit}</div></td>
+          <td class="right"><input class="input small num right" type="number" min="0" step="any" data-qty="${n}" value="${l.quantity}" style="width:90px"></td>
+          <td class="right"><button type="button" class="btn ghost small" data-remove="${n}">✕</button></td></tr>`)}</tbody></table>
+      <p class="form-error" id="edit-error" role="alert"></p>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save changes</button></div>
+    </form>`, { title: `Edit ${order.order_number}` });
+  on(el, 'input', '[data-qty]', (_e, input) => { lines[Number(input.dataset.qty)].quantity = input.value; });
+  on(el, 'click', '[data-remove]', (_e, b) => { lines[Number(b.dataset.remove)].quantity = 0; el.querySelector(`[data-qty="${b.dataset.remove}"]`).value = '0'; });
+  $('#edit', el).onsubmit = async (event) => {
+    event.preventDefault();
+    const items = lines.filter((l) => Number(l.quantity) > 0).map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity) }));
+    if (!items.length) { $('#edit-error', el).textContent = 'Keep at least one line (or cancel the order instead).'; return; }
+    try {
+      await editOrder(order.id, items);
+      toast('Order updated', 'success'); close(); closeParent(); refresh();
+    } catch (error) { $('#edit-error', el).textContent = error.message; }
+  };
+}
+
+/** Report a problem with a delivered order. Support may raise a credit note. */
+function issueDialog(order, closeParent, refresh) {
+  const { el, close } = openModal(html`
+    <form id="issue" class="stack" novalidate>
+      <label class="field"><span class="label">What went wrong?</span><select class="select" name="kind">${Object.entries(ISSUE_KINDS).map(([k, v]) => html`<option value="${k}">${v.label}</option>`)}</select></label>
+      <label class="field"><span class="label">Tell us more</span><textarea class="input" name="note" rows="3" maxlength="1000" placeholder="What happened?"></textarea></label>
+      <p class="form-error" id="issue-error" role="alert"></p>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Send report</button></div>
+    </form>`, { title: `Report an issue · ${order.order_number}` });
+  $('#issue', el).onsubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await reportIssue(order.id, event.target.elements.kind.value, event.target.elements.note.value);
+      toast('Thanks — we’ll look into it', 'success'); close(); closeParent(); refresh();
+    } catch (error) { $('#issue-error', el).textContent = error.message; }
+  };
 }

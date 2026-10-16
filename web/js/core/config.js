@@ -22,6 +22,8 @@ export const config = Object.freeze({
   photoBucket: 'product-photos',
   // Private bucket for mandi bills and quality photos (migration 011)
   billBucket: 'purchase-bills',
+  // Private bucket for delivery proof-of-delivery photos (migration 012)
+  podBucket: 'delivery-pod',
 
   // How often the delivery screen refreshes its list, in milliseconds
   deliveryPollMs: 30_000,
@@ -85,6 +87,7 @@ export const MODULES = Object.freeze({
   reports:   { label: 'Reports', nav: null },
   pricing:   { label: 'Pricing', nav: '#pricing' },
   procurement: { label: 'Procurement', nav: '#procurement' },
+  fulfilment: { label: 'Fulfilment', nav: '#fulfilment' },
 });
 
 /** Selling-unit contents (products.pack_unit). Per-kg costs apply to kg/g/l/ml, not to pieces. */
@@ -130,6 +133,31 @@ export const GRN_SOURCES = Object.freeze({
   mandi:  { label: 'Mandi cash purchase' },
   direct: { label: 'Direct delivery (no PO)' },
 });
+
+/** Trip-sheet statuses (trips.status), migration 012. */
+export const TRIP_STATUSES = Object.freeze({
+  draft:      { label: 'Draft', badge: 'pending' },
+  dispatched: { label: 'Dispatched', badge: 'packed' },
+  closed:     { label: 'Closed', badge: 'delivered' },
+  cancelled:  { label: 'Cancelled', badge: 'cancelled' },
+});
+
+/** What a customer can report about an order (order_issues.kind), migration 013. */
+export const ISSUE_KINDS = Object.freeze({
+  quality:    { label: 'Quality problem' },
+  short:      { label: 'Short / missing items' },
+  damaged:    { label: 'Damaged in transit' },
+  wrong_item: { label: 'Wrong item sent' },
+  other:      { label: 'Something else' },
+});
+
+/** order_issues.status. */
+export const ISSUE_STATUSES = Object.freeze({
+  open:     { label: 'Open', badge: 'pending' },
+  resolved: { label: 'Resolved', badge: 'delivered' },
+  rejected: { label: 'Declined', badge: 'cancelled' },
+});
+
 
 export const ACTIONS = Object.freeze({
   view:    'View',

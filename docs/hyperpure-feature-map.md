@@ -32,7 +32,7 @@ we could identify, then maps each one to our build: **Built**, **Built (simplifi
 | Order tracking (placed → confirmed → packed → out for delivery → delivered) | **Built** |
 | Reorder from past orders | **Built** |
 | GST invoice per order | **Built** — printable invoice page with company and buyer GSTIN, per-line GST |
-| Returns / refunds, ratings, chat support | Roadmap — support contact shown; returns need a credit-note flow |
+| Returns / refunds, ratings, chat support | **Built** (batch 6) — report an issue → credit note; doorstep returns (batch 5). Ratings / chat are roadmap |
 | Credit terms and interest on overdue dues | **Built (simplified)** — credit orders, outstanding balance per restaurant, mark-as-paid. Interest roadmap |
 
 ## 3. Operations / warehouse (what Hyperpure runs internally)
@@ -43,7 +43,7 @@ we could identify, then maps each one to our build: **Built**, **Built (simplifi
 | Warehouse inventory with quantity on hand, low-stock alerts | **Built** — stock per product, low-stock threshold, low-stock banner |
 | Stock adjustments: wastage, damage, counts | **Built** — adjustments with reason and note; full movement ledger |
 | Quality checks, cold chain, batch/expiry tracking | Roadmap — batch/expiry columns are the next step in the ledger |
-| Order picking/packing, dispatch, fleet assignment | **Built** — packed status, driver assignment, delivery app |
+| Order picking/packing, dispatch, fleet assignment | **Built** (batch 5) — pick list, trip sheets (driver + vehicle), dispatch with a POD OTP, proof of delivery, doorstep returns, driver cash settlement |
 | Seller (supplier) app: POs, GRNs, invoices, payments | Roadmap — suppliers managed by admin for now |
 | Private-label products ("Hyperpure – Walnut Brownie") | **Built** — brand field; your own brand is just a brand |
 | Pricing: market rate tracking, "best rate" | **Built (simplified)** — market price vs your price |

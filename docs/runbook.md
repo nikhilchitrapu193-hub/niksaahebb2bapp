@@ -136,6 +136,38 @@ Admin → **Inventory**. With several warehouses, pick one in the dropdown (tota
 * **Export CSV** downloads the list you are looking at.
 * The low-stock banner lists products at or below their alert level (set per product under Products → Edit).
 
+## Fulfilment: pick, trip, deliver (Fulfilment)
+Admin → **Fulfilment** (needs `fulfilment:view`; the `dispatcher` role has it).
+1. **Pick list**: pick a warehouse and the delivery day. You get the quantity to pick per product across that
+   day's confirmed orders, plus a **Expiring soon** panel — **Write off expired** posts the wastage in one click
+   (needs `inventory:edit`). Receiving with an expiry date (Procurement / Inventory → Receive) is what fills this.
+2. **Trips**: **New trip** → pick the day, slot, driver and vehicle, tick the confirmed/packed orders, create.
+   Open a draft and **Dispatch**: every packed order goes out for delivery under that driver, each with a 4-digit
+   delivery code. **Close** the trip once everything is delivered. (Vehicles are added from the trip form's list;
+   manage them in the database or a later screen.)
+3. **Driver cash**: for each driver, COD cash collected vs settled. **Settle** records cash handed back
+   (needs `fulfilment:approve` or `payments:edit`).
+4. **Delivery charges**: a fee per city / slot with a free-above threshold; the most specific active rule wins,
+   and with no rule an order falls back to the sector's minimum-order fee.
+
+## The driver's app (delivery)
+The driver sees the orders on their trip. **Start delivery** (if not already dispatched), then **Complete
+delivery**: snap a photo, enter the customer's delivery code, note anything refused at the door (it goes back to
+stock and the bill drops), and mark delivered. A COD order shows the cash to collect.
+
+## Delivery slots (Settings → Delivery slots)
+Set a **cut-off hour** (when a slot stops taking orders) and an optional **capacity** per city and slot. No row =
+always open and uncapped. Express closes at the cut-off the same day; scheduled slots close a next-day order at
+the cut-off the day before.
+
+## Edit, cancel, order for a customer, issues
+* A customer can **edit** or **cancel** a placed order before its cut-off (My orders → open the order). Staff can
+  edit until it is packed and cancel any order that is not delivered.
+* **New order for a customer** (Orders → the button) places an order on someone's behalf (`orders:edit`); it may
+  go in past the cut-off.
+* A customer **reports an issue** on a delivered order. Admin → Orders → **Issues & credits**: resolve it and,
+  if due, raise a **credit note** (applied to the balance in the payments batch).
+
 ## Collect payment
 Admin → Orders → open an order → **Mark paid** (needs `payments:edit`). Customers shows the total each customer still owes on credit.
 

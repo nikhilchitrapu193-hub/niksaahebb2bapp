@@ -74,6 +74,8 @@ function setup({ session, profile, tables = {}, rpc = {}, body }) {
       hsn_codes: HSN, pricing_rules: RULES, product_pricing: [], benchmark_sources: SOURCES, benchmark_prices: [], price_history: [], scheduled_prices: [],
       company_settings: [COMPANY], price_lists: [], price_list_items: [],
       supplier_products: [], purchase_orders: [], goods_receipts: [],
+      vehicles: [], trips: [], trip_orders: [], stock_batches: [], delivery_returns: [],
+      driver_cash: [], cash_settlements: [], delivery_charge_rules: [], slot_config: [], order_issues: [], credit_notes: [],
       ...tables,
     },
     rpc,
@@ -1183,4 +1185,207 @@ test('admin: a picker has no Procurement menu and sees "No access" on #procureme
   await importFresh('web/js/pages/admin/main.js');
   await waitFor(() => /No access/.test(document.querySelector('#view').textContent));
   assert.equal(document.querySelector('nav a[href="#procurement"]'), null);
+});
+
+// ---------------------------------------------------------------------------
+// Fulfilment (migration 012) and Orders + (migration 013) screens.
+// ---------------------------------------------------------------------------
+const TOMORROW = (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+const FULFIL_RPC = { ...ADMIN_RPC, pick_list: () => [], expiring_batches: () => [], driver_cash_summary: () => [] };
+
+test('admin: pick list shows what to pick and a near-expiry write-off', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { products: PRODUCTS, warehouses: [WAREHOUSE] },
+    rpc: { ...ADMIN_RPC,
+      pick_list: () => [{ product_id: 'p1', sku: 'VEG-001', name: 'Tomato', unit: 'kg', category_name: 'Vegetables', pick_qty: 40, orders: 3, free_stock: 30, short: 10 }],
+      expiring_batches: () => [{ id: 'b1', name: 'Tomato', unit: 'kg', batch_no: 'OLD', remaining_qty: 5, expiry_date: '2026-10-10', days_left: -6, expired: true }],
+      write_off_expired: () => ({ batches: 1, qty: 5 }) },
+  });
+  location.hash = '#fulfilment';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.table'));
+  const text = document.body.textContent.replace(/\s+/g, ' ');
+  assert.match(text, /Tomato.*40.*3.*30.*10/, 'pick quantity, orders, stock and short');
+  assert.match(text, /Expiring soon/);
+  document.querySelector('#writeoff').click();
+  const yes = await waitFor(() => document.querySelector('[data-yes]'));
+  yes.click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'write_off_expired'));
+  assert.equal(fake.calls.find((c) => c.name === 'write_off_expired').args.p_warehouse_id, 'wh-1');
+});
+
+test('admin: a picker has no Fulfilment menu and sees "No access" on #fulfilment', async () => {
+  const { document, location } = setup({ session: { user: { id: 'u-pick', email: 'p@x.com' } }, profile: PICKER, rpc: FULFIL_RPC });
+  location.hash = '#fulfilment';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => /No access/.test(document.querySelector('#view').textContent));
+  assert.equal(document.querySelector('nav a[href="#fulfilment"]'), null);
+});
+
+test('admin: build a trip from a confirmed order and dispatch it', async () => {
+  const order = { ...ORDER, id: 'co1', order_number: 'ORD-2001', status: 'confirmed', delivery_date: TOMORROW, delivery_slot: 'morning', warehouse_id: 'wh-1', city_id: 'city-vz' };
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { orders: [order], warehouses: [WAREHOUSE], vehicles: [{ id: 've1', city_id: 'city-vz', registration: 'AP39-1', is_active: true }] },
+    rpc: { ...ADMIN_RPC, admin_list_users: () => [ADMIN, DRIVER], create_trip: () => ({ id: 't-new', trip_number: 'TRIP-1' }), dispatch_trip: () => ({ dispatched: 1 }) },
+  });
+  location.hash = '#trips';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#new'));
+  document.querySelector('#new').click();
+  const form = await waitFor(() => document.querySelector('#trip-form'));
+  await waitFor(() => form.querySelector('[data-pick="co1"]'));
+  form.querySelector('[data-pick="co1"]').click();
+  await waitFor(() => document.querySelector('[data-pick="co1"]'));   // re-draw
+  document.querySelector('[name=driver]').value = 'u-d';
+  document.querySelector('#trip-form').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'create_trip'));
+  const call = fake.calls.find((c) => c.name === 'create_trip').args;
+  assert.deepEqual(call.p_order_ids, ['co1']);
+  assert.equal(call.p_driver_id, 'u-d');
+});
+
+test('admin: driver cash shows the in-hand total and settles it', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    rpc: { ...ADMIN_RPC, driver_cash_summary: () => [{ driver_id: 'u-d', driver_name: 'Dev Driver', collected: 355, settled: 100, in_hand: 255, orders: 2 }], settle_driver_cash: () => null },
+  });
+  location.hash = '#driver-cash';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-settle="u-d"]'));
+  assert.match(document.body.textContent.replace(/\s+/g, ' '), /Dev Driver.*2.*355.*100.*255/);
+  document.querySelector('[data-settle="u-d"]').click();
+  const form = await waitFor(() => document.querySelector('#settle'));
+  form.querySelector('[name=amount]').value = '255';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'settle_driver_cash'));
+  assert.deepEqual(fake.calls.find((c) => c.name === 'settle_driver_cash').args, { p_driver_id: 'u-d', p_amount: 255, p_note: null });
+});
+
+test('admin: a delivery-charge rule is saved', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, tables: { cities: [CITY] }, rpc: ADMIN_RPC,
+  });
+  location.hash = '#delivery-charges';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#new'));
+  document.querySelector('#new').click();
+  const form = await waitFor(() => document.querySelector('#dc'));
+  form.querySelector('[name=slot]').value = 'express';
+  form.querySelector('[name=fee]').value = '49';
+  form.querySelector('[name=free_above]').value = '1500';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.table === 'delivery_charge_rules'));
+  const w = fake.calls.find((c) => c.table === 'delivery_charge_rules');
+  assert.equal(w.type, 'insert'); assert.equal(w.payload.slot, 'express'); assert.equal(w.payload.fee, 49); assert.equal(w.payload.free_above, 1500);
+});
+
+test('admin: resolve an issue and raise a credit note', async () => {
+  const issue = { id: 'iss1', order_id: 'co1', restaurant_id: 'r1', kind: 'quality', note: 'bruised', status: 'open', created_at: '2026-10-15T05:00:00Z', orders: { order_number: 'ORD-2001' }, restaurants: { name: 'Spice Hut' } };
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { order_issues: [issue], orders: [{ ...ORDER, id: 'co1', total_amount: 419 }] },
+    rpc: { ...ADMIN_RPC, resolve_issue: () => ({ status: 'resolved', credit_note: 'CN-1', amount: 50 }) },
+  });
+  location.hash = '#issues';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-open="iss1"]'));
+  document.querySelector('[data-open="iss1"]').click();
+  const form = await waitFor(() => document.querySelector('#resolve'));
+  form.querySelector('[name=resolution]').value = 'goodwill';
+  form.querySelector('[name=credit]').value = '50';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'resolve_issue'));
+  const call = fake.calls.find((c) => c.name === 'resolve_issue').args;
+  assert.equal(call.p_issue_id, 'iss1'); assert.equal(call.p_credit_amount, 50); assert.equal(call.p_reject, false);
+});
+
+test('delivery: driver completes a delivery with the OTP and a doorstep return', async () => {
+  const order = { ...ORDER, id: 'od1', order_number: 'ORD-2002', status: 'out_for_delivery', assigned_to: 'u-d',
+    order_items: [{ id: 'oi1', product_id: 'p1', product_name: 'Tomato', unit: 'kg', unit_price: 32, quantity: 10, line_total: 320 }] };
+  const { document, fake } = setup({
+    session: { user: { id: 'u-d', email: 'd@x.com' } }, profile: DRIVER,
+    tables: { orders: [order] },
+    rpc: { complete_delivery: () => ({ total_amount: 251, returned: 64, cash_collected: 251 }) },
+  });
+  await importFresh('web/js/pages/delivery/main.js');
+  await waitFor(() => document.querySelector('[data-done="od1"]'));
+  document.querySelector('[data-done="od1"]').click();
+  const form = await waitFor(() => document.querySelector('#pod'));
+  form.querySelector('[name=otp]').value = '1234';
+  form.querySelector('[data-ret="oi1"]').value = '2';
+  form.querySelector('[data-ret="oi1"]').dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'complete_delivery'));
+  const call = fake.calls.find((c) => c.name === 'complete_delivery').args;
+  assert.equal(call.p_otp, '1234');
+  assert.deepEqual(call.p_returns, [{ order_item_id: 'oi1', qty: 2 }]);
+});
+
+test('customer: edit a placed order changes the lines through edit_order', async () => {
+  const order = { ...ORDER, id: 'mo1', order_number: 'ORD-2003', status: 'placed', restaurant_id: 'r1',
+    order_items: [{ id: 'oi1', product_id: 'p1', product_name: 'Tomato', unit: 'kg', unit_price: 32, quantity: 10, ordered_quantity: 10, line_total: 320 }] };
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { products: PRODUCTS, restaurants: [RESTAURANT], orders: [order] },
+    rpc: { my_order_terms: () => ({ delivers: true }), my_price_list: () => [], edit_order: () => ({ order_number: 'ORD-2003', total_amount: 484, delivery_fee: 99 }), get_order_history: () => [] },
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('[data-order="mo1"]'));
+  document.querySelector('[data-order="mo1"]').click();
+  const edit = await waitFor(() => document.querySelector('[data-edit]'));
+  edit.click();
+  const form = await waitFor(() => document.querySelector('#edit'));
+  const qty = form.querySelector('[data-qty="0"]');
+  qty.value = '15'; qty.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'edit_order'));
+  assert.deepEqual(fake.calls.find((c) => c.name === 'edit_order').args.p_items, [{ product_id: 'p1', quantity: 15 }]);
+});
+
+test('customer: report an issue on a delivered order', async () => {
+  const order = { ...ORDER, id: 'do1', order_number: 'ORD-2004', status: 'delivered', restaurant_id: 'r1' };
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { products: PRODUCTS, restaurants: [RESTAURANT], orders: [order] },
+    rpc: { my_order_terms: () => ({ delivers: true }), my_price_list: () => [], report_issue: () => ({ id: 'iss9' }) },
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('[data-order="do1"]'));
+  document.querySelector('[data-order="do1"]').click();
+  const btn = await waitFor(() => document.querySelector('[data-issue]'));
+  btn.click();
+  const form = await waitFor(() => document.querySelector('#issue'));
+  form.querySelector('[name=kind]').value = 'short';
+  form.querySelector('[name=note]').value = 'one crate missing';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'report_issue'));
+  const call = fake.calls.find((c) => c.name === 'report_issue').args;
+  assert.equal(call.p_order_id, 'do1'); assert.equal(call.p_kind, 'short');
+});
+
+test('admin: place an order on behalf of a customer (place_order_for)', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { products: PRODUCTS, restaurants: [RESTAURANT] },
+    rpc: { ...ADMIN_RPC, place_order_for: () => ({ order_number: 'ORD-2005', total_amount: 419 }) },
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#new-order'));
+  document.querySelector('#new-order').click();
+  const form = await waitFor(() => document.querySelector('#po-for'));
+  form.querySelector('[name=restaurant]').value = 'r1';
+  form.querySelector('[data-field="product_id"]').value = 'p1';
+  form.querySelector('[data-field="product_id"]').dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  const q = form.querySelector('[data-field="quantity"]');
+  q.value = '10'; q.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'place_order_for'));
+  const call = fake.calls.find((c) => c.name === 'place_order_for').args;
+  assert.equal(call.p_restaurant_id, 'r1');
+  assert.deepEqual(call.p_items, [{ product_id: 'p1', quantity: 10 }]);
 });

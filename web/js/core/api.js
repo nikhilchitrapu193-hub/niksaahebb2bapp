@@ -735,3 +735,173 @@ export async function billPhotoUrl(path, seconds = 600) {
   if (!path) return null;
   return unwrap(await supabase.storage.from(config.billBucket).createSignedUrl(path, seconds)).signedUrl;
 }
+
+// ---------- Fulfilment & delivery (migration 012) ----------------------------
+
+/** Active delivery accounts, for assigning a driver to a trip. */
+export async function listDrivers() {
+  return (await listUsers()).filter((u) => u.role === 'delivery' && u.is_active);
+}
+
+export async function listVehicles(cityId) {
+  let query = supabase.from('vehicles').select('*').order('registration');
+  if (cityId) query = query.eq('city_id', cityId);
+  return unwrap(await query);
+}
+export async function saveVehicle(v) {
+  const row = { city_id: v.city_id, registration: v.registration, label: v.label || null, capacity_note: v.capacity_note || null, is_active: v.is_active ?? true };
+  if (v.id) return unwrap(await supabase.from('vehicles').update(row).eq('id', v.id));
+  return unwrap(await supabase.from('vehicles').insert(row));
+}
+
+/** What to pick for a warehouse / date / (optional) slot — confirmed, not-yet-packed orders. */
+export async function getPickList(warehouseId, deliveryDate, slot) {
+  return unwrap(await supabase.rpc('pick_list', { p_warehouse_id: warehouseId, p_delivery_date: deliveryDate, p_slot: slot || null }));
+}
+
+/** Batches at or within `withinDays` of expiry (0 = already expired). */
+export async function getExpiringBatches(warehouseId, withinDays = 3) {
+  return unwrap(await supabase.rpc('expiring_batches', { p_warehouse_id: warehouseId, p_within_days: withinDays }));
+}
+/** Write off every expired batch in a warehouse; returns { batches, qty }. */
+export async function writeOffExpired(warehouseId) {
+  return unwrap(await supabase.rpc('write_off_expired', { p_warehouse_id: warehouseId }));
+}
+
+const TRIP_SELECT = '*, vehicles(registration, label), driver:profiles!trips_driver_id_fkey(full_name), '
+  + 'trip_orders(stop_seq, orders(id, order_number, status, restaurant_name, delivery_address, contact_phone, total_amount, payment_method, payment_status, delivery_slot))';
+
+/** filters: { status, warehouseId, driverId, date, limit } */
+export async function listTrips({ status, warehouseId, driverId, date, limit = 100 } = {}) {
+  let query = supabase.from('trips').select(TRIP_SELECT).order('created_at', { ascending: false }).limit(limit);
+  if (status) query = query.eq('status', status);
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  if (driverId) query = query.eq('driver_id', driverId);
+  if (date) query = query.eq('trip_date', date);
+  return unwrap(await query);
+}
+export async function getTrip(id) {
+  return unwrap(await supabase.from('trips').select(TRIP_SELECT).eq('id', id).maybeSingle());
+}
+/** Returns { id, trip_number }. orderIds: packed/confirmed orders in one warehouse. */
+export async function createTrip({ driverId, vehicleId, tripDate, slot, orderIds, notes }) {
+  return unwrap(await supabase.rpc('create_trip', {
+    p_driver_id: driverId || null, p_vehicle_id: vehicleId || null, p_trip_date: tripDate,
+    p_slot: slot || null, p_order_ids: orderIds, p_notes: notes || null,
+  }));
+}
+export async function updateTrip(id, { driverId, vehicleId, notes, orderIds }) {
+  unwrap(await supabase.rpc('update_trip', { p_trip_id: id, p_driver_id: driverId || null, p_vehicle_id: vehicleId || null, p_notes: notes || null, p_order_ids: orderIds }));
+}
+/** Dispatch the trip: every packed order goes out for delivery with a POD OTP. Returns { dispatched }. */
+export async function dispatchTrip(id) {
+  return unwrap(await supabase.rpc('dispatch_trip', { p_trip_id: id }));
+}
+export async function setTripStatus(id, status) {
+  unwrap(await supabase.rpc('set_trip_status', { p_trip_id: id, p_status: status }));
+}
+
+/**
+ * Mark an out-for-delivery order delivered (the assigned driver, or fulfilment:edit staff).
+ * returns: [{ order_item_id, qty, reason }] are doorstep refusals. Returns { total_amount, returned, cash_collected }.
+ */
+export async function completeDelivery(orderId, { otp, photoPath, note, returns = [] } = {}) {
+  return unwrap(await supabase.rpc('complete_delivery', {
+    p_order_id: orderId, p_otp: otp || null, p_photo_path: photoPath || null, p_note: note || null, p_returns: returns,
+  }));
+}
+
+/** Per-driver cash collected vs settled. */
+export async function getDriverCashSummary() {
+  return unwrap(await supabase.rpc('driver_cash_summary'));
+}
+export async function settleDriverCash(driverId, amount, note) {
+  unwrap(await supabase.rpc('settle_driver_cash', { p_driver_id: driverId, p_amount: Number(amount), p_note: note || null }));
+}
+
+export async function listDeliveryCharges() {
+  return unwrap(await supabase.from('delivery_charge_rules').select('*, cities(name)').order('created_at', { ascending: false }));
+}
+export async function saveDeliveryCharge(r) {
+  const row = { city_id: r.city_id || null, slot: r.slot || null, fee: Number(r.fee) || 0,
+                free_above: r.free_above === '' || r.free_above == null ? null : Number(r.free_above),
+                is_active: r.is_active ?? true, note: r.note || null };
+  if (r.id) return unwrap(await supabase.from('delivery_charge_rules').update(row).eq('id', r.id));
+  return unwrap(await supabase.from('delivery_charge_rules').insert(row));
+}
+export async function deleteDeliveryCharge(id) {
+  unwrap(await supabase.from('delivery_charge_rules').delete().eq('id', id));
+}
+
+/** Upload a delivery photo to the private delivery-pod bucket; returns its path. */
+export async function uploadPodPhoto(file) {
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type];
+  if (!extension) throw new Error('Please choose a JPG, PNG or WebP image.');
+  if (file.size > 8 * 1024 * 1024) throw new Error('Image is larger than 8 MB.');
+  const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`;
+  unwrap(await supabase.storage.from(config.podBucket).upload(path, file, { contentType: file.type }));
+  return path;
+}
+export async function podPhotoUrl(path, seconds = 600) {
+  if (!path) return null;
+  return unwrap(await supabase.storage.from(config.podBucket).createSignedUrl(path, seconds)).signedUrl;
+}
+
+// ---------- Orders + (migration 013) -----------------------------------------
+
+/** Staff place an order for a customer (orders:edit). Same shape as placeOrder plus restaurantId. */
+export async function placeOrderFor(restaurantId, items, { notes, deliveryDate, slot = 'morning', paymentMethod = 'cod', poReference } = {}) {
+  return unwrap(await supabase.rpc('place_order_for', {
+    p_restaurant_id: restaurantId, p_items: items, p_notes: notes || null,
+    p_delivery_date: deliveryDate || null, p_delivery_slot: slot, p_payment_method: paymentMethod, p_po_reference: poReference || null,
+  }));
+}
+/** Rebuild an order's lines before it is packed. Returns { total_amount, delivery_fee }. */
+export async function editOrder(orderId, items, { notes, deliveryDate, slot, poReference } = {}) {
+  return unwrap(await supabase.rpc('edit_order', {
+    p_order_id: orderId, p_items: items, p_notes: notes ?? null,
+    p_delivery_date: deliveryDate || null, p_delivery_slot: slot || null, p_po_reference: poReference ?? null,
+  }));
+}
+/** Customer (before cut-off) or staff cancel; stock goes back. */
+export async function cancelOrder(orderId, reason) {
+  unwrap(await supabase.rpc('cancel_order', { p_order_id: orderId, p_reason: reason || null }));
+}
+/** Is a slot still open for a delivery date? { open, reason }. */
+export async function slotOpen(cityId, date, slot) {
+  return unwrap(await supabase.rpc('slot_open', { p_city_id: cityId, p_date: date, p_slot: slot }));
+}
+
+export async function reportIssue(orderId, kind, note) {
+  return unwrap(await supabase.rpc('report_issue', { p_order_id: orderId, p_kind: kind, p_note: note || null }));
+}
+/** Support resolves an issue; creditAmount > 0 raises a credit note; reject closes with no credit. */
+export async function resolveIssue(issueId, { resolution, creditAmount = 0, reject = false } = {}) {
+  return unwrap(await supabase.rpc('resolve_issue', { p_issue_id: issueId, p_resolution: resolution || null, p_credit_amount: Number(creditAmount) || 0, p_reject: Boolean(reject) }));
+}
+const ISSUE_SELECT = '*, orders(order_number, delivery_date), restaurants(name)';
+export async function listOrderIssues({ status, orderId, limit = 200 } = {}) {
+  let query = supabase.from('order_issues').select(ISSUE_SELECT).order('created_at', { ascending: false }).limit(limit);
+  if (status) query = query.eq('status', status);
+  if (orderId) query = query.eq('order_id', orderId);
+  return unwrap(await query);
+}
+export async function listCreditNotes({ restaurantId, limit = 200 } = {}) {
+  let query = supabase.from('credit_notes').select('*, restaurants(name), orders(order_number)').order('created_at', { ascending: false }).limit(limit);
+  if (restaurantId) query = query.eq('restaurant_id', restaurantId);
+  return unwrap(await query);
+}
+
+export async function listSlotConfig() {
+  return unwrap(await supabase.from('slot_config').select('*, cities(name)').order('slot'));
+}
+export async function saveSlotConfig(c) {
+  const row = { city_id: c.city_id || null, slot: c.slot, cutoff_hour: Number(c.cutoff_hour),
+                capacity_orders: c.capacity_orders === '' || c.capacity_orders == null ? null : Number(c.capacity_orders),
+                is_active: c.is_active ?? true, note: c.note || null };
+  if (c.id) return unwrap(await supabase.from('slot_config').update(row).eq('id', c.id));
+  return unwrap(await supabase.from('slot_config').insert(row));
+}
+export async function deleteSlotConfig(id) {
+  unwrap(await supabase.from('slot_config').delete().eq('id', id));
+}

@@ -87,7 +87,7 @@ test('can: super admin may do everything, others only what the matrix allows, cu
   assert.equal(can(customer, 'orders', 'view'), false);
   assert.equal(can(null, 'orders', 'view'), false);
   assert.deepEqual(visibleNav(picker), [{ href: '#orders', label: 'Orders' }]);
-  assert.equal(visibleNav(superAdmin).length, 10, 'every module with a nav entry (pricing added in 009, procurement in 011)');
+  assert.equal(visibleNav(superAdmin).length, 11, 'every module with a nav entry (pricing 009, procurement 011, fulfilment 012)');
 });
 
 test('orderPreview: below the minimum the delivery fee applies; with no fee the order is blocked', () => {
@@ -370,4 +370,50 @@ test('poMessage / whatsappLink: readable PO text; 10-digit Indian numbers get th
   assert.equal(whatsappLink('98480 12345', 'hi there'), 'https://wa.me/919848012345?text=hi%20there');
   assert.equal(whatsappLink('+91 98480 12345', 'x'), 'https://wa.me/919848012345?text=x');
   assert.equal(whatsappLink(null, 'x'), 'https://wa.me/?text=x', 'no phone → WhatsApp asks for a contact');
+});
+
+// ---------------------------------------------------------------------------
+// Fulfilment helpers (migration 012)
+// ---------------------------------------------------------------------------
+import { tripStops, tripCodToCollect, tripOpenStops, expiryTone, pickListTotals, cashInHand, buildReturns } from '../web/js/core/fulfilment.js';
+
+test('tripStops: orders in stop order; cod-to-collect sums unpaid COD only', () => {
+  const trip = { trip_orders: [
+    { stop_seq: 2, orders: { id: 'b', payment_method: 'cod', payment_status: 'unpaid', total_amount: 200, status: 'out_for_delivery' } },
+    { stop_seq: 1, orders: { id: 'a', payment_method: 'cod', payment_status: 'paid', total_amount: 100, status: 'delivered' } },
+    { stop_seq: 3, orders: { id: 'c', payment_method: 'credit', payment_status: 'unpaid', total_amount: 500, status: 'out_for_delivery' } },
+  ] };
+  assert.deepEqual(tripStops(trip).map((o) => o.id), ['a', 'b', 'c']);
+  assert.equal(tripCodToCollect(trip), 200, 'only the unpaid COD order (b) counts');
+  assert.equal(tripOpenStops(trip), 2, 'a is delivered, b and c still open');
+  assert.equal(tripCodToCollect({}), 0);
+});
+
+test('expiryTone: expired / soon / ok', () => {
+  assert.equal(expiryTone(-1), 'expired');
+  assert.equal(expiryTone(0), 'soon');
+  assert.equal(expiryTone(2), 'soon');
+  assert.equal(expiryTone(3), 'ok');
+  assert.equal(expiryTone(null), 'ok');
+});
+
+test('pickListTotals: products, units and short count', () => {
+  assert.deepEqual(pickListTotals([
+    { pick_qty: 10, short: 0 }, { pick_qty: 5.5, short: 2 }, { pick_qty: 3, short: 0 },
+  ]), { products: 3, units: 18.5, shortProducts: 1 });
+  assert.deepEqual(pickListTotals([]), { products: 0, units: 0, shortProducts: 0 });
+});
+
+test('cashInHand: collected minus settled', () => {
+  assert.equal(cashInHand({ collected: 355, settled: 100 }), 255);
+  assert.equal(cashInHand({}), 0);
+});
+
+test('buildReturns: a return must be >0 and strictly below the billed quantity', () => {
+  const items = [{ id: 'i1', product_name: 'Tomato', quantity: 10 }, { id: 'i2', product_name: 'Paneer', quantity: 2 }];
+  assert.deepEqual(buildReturns(items, new Map([['i1', '2'], ['i2', '0']])), { lines: [{ order_item_id: 'i1', qty: 2 }] });
+  assert.match(buildReturns(items, new Map([['i1', '10']])).error, /refuse the whole order/);
+  assert.match(buildReturns(items, new Map([['i1', '-1']])).error, /negative/);
+  assert.match(buildReturns(items, new Map([['x', '1']])).error, /Unknown line/);
+  assert.deepEqual(buildReturns(items, new Map()), { lines: [] });
 });

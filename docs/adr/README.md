@@ -19,3 +19,5 @@ Short notes on *why* we chose something. Add a new numbered file for each signif
 | [0013](0013-pricing-engine-rules-and-board.md) | Prices come from a formula in the database, mirrored in the browser |
 | [0014](0014-variants-as-products-price-lists-as-a-layer.md) | Pack sizes are products; price lists are a layer over the published price |
 | [0015](0015-procurement-po-grn-buying-list.md) | One receipt path (GRN), purchase orders as the plan, buying list planned forward |
+| [0016](0016-fulfilment-batches-trips-pod.md) | Batches are an expiry overlay, trips carry the POD, cash is tracked per driver |
+| [0017](0017-order-edit-slots-credit-notes.md) | One order core for place / edit / on-behalf; slots gate ordering; issues raise credit notes |

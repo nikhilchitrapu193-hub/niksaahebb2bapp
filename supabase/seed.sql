@@ -156,3 +156,21 @@ insert into public.warehouse_stock (warehouse_id, product_id, qty)
 select w.id, p.id, p.stock_qty from public.products p
 cross join (select id from public.warehouses where is_default order by created_at limit 1) as w
 where p.sku = 'GRN-001-25' and not exists (select 1 from public.warehouse_stock s where s.product_id = p.id);
+
+-- ---------- Fulfilment & Orders+ (migrations 012 / 013) ----------------------
+-- Sample ops config for a fresh install: one delivery vehicle, slot cut-offs and
+-- a flat express fee. Safe to change or delete; none of it is required.
+insert into public.vehicles (city_id, registration, label, capacity_note)
+select c.id, 'AP39 AB 1234', 'Tata Ace', 'about 750 kg' from public.cities c where c.name = 'Visakhapatnam'
+on conflict (registration) do nothing;
+
+insert into public.slot_config (city_id, slot, cutoff_hour, capacity_orders) values
+  (null, 'morning',   20, null),   -- order by 8 pm the day before
+  (null, 'afternoon',  9, null),
+  (null, 'evening',   13, null),
+  (null, 'express',   16, null)     -- express closes at 4 pm
+on conflict do nothing;
+
+insert into public.delivery_charge_rules (city_id, slot, fee, free_above, note) values
+  (null, 'express', 49, 2000, 'Express delivery fee, free above ₹2000')
+on conflict do nothing;
