@@ -191,6 +191,50 @@ export const ACTIONS = Object.freeze({
   export:  'Export',
 });
 
+/** How the selling price is set (products.pricing_mode). */
+export const PRICING_MODES = Object.freeze({
+  board:    { label: 'Board price (auto-calculated)' },
+  fixed:    { label: 'Fixed price (manually set)' },
+  list:     { label: 'From price list' },
+});
+
+/** How product cost is calculated (products.cost_basis). */
+export const COST_METHODS = Object.freeze({
+  mandi:    { label: 'Mandi rate + handling' },
+  supplier: { label: 'Supplier rate card' },
+  manual:   { label: 'Manual entry' },
+});
+
+/** Pack / unit types for products (products.pack_unit). */
+export const PACK_UNITS = Object.freeze({
+  kg:    { label: 'kg', abbr: 'kg' },
+  g:     { label: 'grams', abbr: 'g' },
+  piece: { label: 'piece', abbr: 'pc' },
+  dozen: { label: 'dozen', abbr: 'dz' },
+  litre: { label: 'litre', abbr: 'L' },
+  ml:    { label: 'ml', abbr: 'ml' },
+  box:   { label: 'box', abbr: 'box' },
+  bag:   { label: 'bag', abbr: 'bag' },
+  crate: { label: 'crate', abbr: 'crt' },
+});
+
+/** Sort options for the restaurant catalogue. */
+export const CATALOGUE_SORTS = Object.freeze({
+  name:        { label: 'Name A–Z' },
+  name_desc:   { label: 'Name Z–A' },
+  price:       { label: 'Price: low to high' },
+  price_desc:  { label: 'Price: high to low' },
+  popular:     { label: 'Most ordered' },
+});
+
+/** Veg / non-veg flags for products (products.veg_type). */
+export const VEG_TYPES = Object.freeze({
+  veg:     { label: 'Veg',     color: '#22863a' },
+  nonveg:  { label: 'Non-veg', color: '#dc3545' },
+  egg:     { label: 'Egg',     color: '#e6a800' },
+  vegan:   { label: 'Vegan',   color: '#0a6f33' },
+});
+
 /**
  * MODULES — maps permission module names (used by permissions.js) to their
  * display labels. Every module listed here can be granted a view / edit /

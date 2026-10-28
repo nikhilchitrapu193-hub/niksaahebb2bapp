@@ -42,6 +42,27 @@ export async function checkPincode(pincode) {
   return data ?? null;
 }
 
+/**
+ * Claim the very first admin account (onboarding only).
+ * Returns { ok: true } on success; throws on failure.
+ */
+export async function claimFirstAdmin({ email, password, fullName }) {
+  const { data, error } = await supabase.functions.invoke('claim-first-admin', {
+    body: { email, password, full_name: fullName },
+  });
+  if (error) throw new Error(error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+/**
+ * Fetch the company settings row (for invoice / statement footers).
+ * Returns null when not yet configured.
+ */
+export async function getCompanySettings() {
+  return unwrap(await supabase.from('company_settings').select('*').maybeSingle());
+}
+
 // ---------- Catalogue --------------------------------------------------------
 
 export async function listCategories() {
@@ -130,6 +151,25 @@ export async function recordDelivery(orderId, { podPhotoPath, latitude, longitud
     p_recipient_name: recipientName || null,
     p_recipient_phone: recipientPhone || null,
   }));
+}
+
+/**
+ * Complete a delivery with OTP verification.
+ * p_otp: the 4-digit OTP the customer shows; p_returned_items: [] for a full delivery.
+ */
+export async function completeDelivery(orderId, { otp, returnedItems = [], podPhotoPath, latitude, longitude } = {}) {
+  unwrap(await supabase.rpc('complete_delivery', {
+    p_order_id: orderId,
+    p_otp: otp || null,
+    p_returned_items: returnedItems,
+    p_pod_photo_path: podPhotoPath || null,
+    p_latitude: latitude ?? null,
+    p_longitude: longitude ?? null,
+  }));
+}
+
+export async function uploadPodPhoto(orderId, file) {
+  return uploadPOD(orderId, file);
 }
 
 export async function uploadPOD(orderId, file) {
