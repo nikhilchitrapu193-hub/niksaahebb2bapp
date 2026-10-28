@@ -44,15 +44,12 @@ export async function checkPincode(pincode) {
 
 /**
  * Claim the very first admin account (onboarding only).
- * Returns { ok: true } on success; throws on failure.
+ * Calls the Postgres function directly via RPC — it has a built-in guard
+ * that returns false once any admin already exists, so it cannot be abused.
+ * Returns true on success; throws if not authenticated or already claimed.
  */
-export async function claimFirstAdmin({ email, password, fullName }) {
-  const { data, error } = await supabase.functions.invoke('claim-first-admin', {
-    body: { email, password, full_name: fullName },
-  });
-  if (error) throw new Error(error.message);
-  if (data?.error) throw new Error(data.error);
-  return data;
+export async function claimFirstAdmin() {
+  return unwrap(await supabase.rpc('claim_first_admin'));
 }
 
 /**
