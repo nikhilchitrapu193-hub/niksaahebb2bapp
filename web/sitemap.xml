@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Replace YOUR-DOMAIN with the site's address. Add a <url> when you publish a new page under Settings → Website. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://YOUR-DOMAIN/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+  <url><loc>https://YOUR-DOMAIN/page.html?slug=about</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://YOUR-DOMAIN/page.html?slug=terms</loc><changefreq>yearly</changefreq></url>
+  <url><loc>https://YOUR-DOMAIN/page.html?slug=privacy</loc><changefreq>yearly</changefreq></url>
+  <url><loc>https://YOUR-DOMAIN/page.html?slug=refund-policy</loc><changefreq>yearly</changefreq></url>
+  <url><loc>https://YOUR-DOMAIN/restaurant/login.html</loc><changefreq>monthly</changefreq></url>
+</urlset>

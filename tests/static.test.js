@@ -22,7 +22,7 @@ test('HTML pages reference existing scripts and stylesheets', () => {
     const source = readFileSync(page, 'utf8');
     for (const [, ref] of source.matchAll(/(?:src|href)="([^"#]+)"/g)) {
       if (/^(https?:|mailto:|tel:)/.test(ref)) continue;
-      assert.ok(existsSync(resolve(dirname(page), ref)), `${page} references missing ${ref}`);
+      assert.ok(existsSync(resolve(dirname(page), ref.split('?')[0])), `${page} references missing ${ref}`);   // page.html?slug=… (019)
     }
   }
 });

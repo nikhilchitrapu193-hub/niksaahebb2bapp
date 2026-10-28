@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fresh Supply</title>
+  <meta name="description" content="">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/landing.css">
+  <style>
+    .page-body { max-width: 760px; margin: 0 auto; padding: var(--space-7) var(--space-4) var(--space-8); min-height: 60vh; }
+    .page-body h1 { margin-bottom: var(--space-4); }
+    .page-body h2 { margin: var(--space-6) 0 var(--space-2); font-size: var(--text-lg); }
+    .page-body p { margin: 0 0 var(--space-3); line-height: 1.65; }
+    .page-body .updated { color: var(--ink-muted); font-size: var(--text-sm); margin-top: var(--space-6); }
+  </style>
+</head>
+<body class="landing">
+  <header class="site-header">
+    <a class="brand" href="./"><span class="brand-mark">F</span><span>Fresh Supply</span></a>
+    <nav class="site-nav" aria-label="Site"><a href="./#catalogue">Catalogue</a><a href="./#faq">FAQ</a></nav>
+    <div class="site-actions"><a class="btn" href="restaurant/login.html">Partner login</a><a class="btn primary" href="restaurant/login.html#register">Register</a></div>
+  </header>
+  <!-- Content comes from content_pages (Admin → Settings → Website) by ?slug=…; js/pages/page.js fills it. -->
+  <main class="page-body" id="page"><div class="loading"><span class="spinner"></span></div></main>
+  <footer class="site-footer">
+    <div><div class="brand"><span class="brand-mark">F</span><span>Fresh Supply</span></div><p class="muted small" id="footer-company"></p></div>
+    <div><h4>Partners</h4><a href="restaurant/login.html">Restaurant login</a><a href="restaurant/login.html#register">Register</a></div>
+    <div id="footer-pages"><h4>Company</h4></div>
+    <div id="footer-contact"><h4>Contact</h4></div>
+  </footer>
+  <script src="vendor/supabase.js"></script>
+  <script type="module" src="js/pages/page.js"></script>
+</body>
+</html>

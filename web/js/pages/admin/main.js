@@ -5,6 +5,7 @@
 //   #pricing (price board) · #pricing-rules · #benchmarks · #price-lists
 //   #procurement (buying list) · #purchase-orders · #receipts · #rate-cards
 //   #payments (receivables) · #payments-receipts
+//   #notifications · #help-centre · #website (settings) · #tickets (orders) · #reports
 //
 // The menu shows only the modules the signed-in team member may VIEW
 // (web/js/core/permissions.js) AND that are switched on under Settings → Launch
@@ -46,13 +47,19 @@ import { renderDeliveryCharges } from './delivery-charges.js';
 import { renderSlots } from './slots.js';
 import { renderIssues } from './issues.js';
 import { renderReceivables, renderPaymentReceipts } from './payments.js';
+import { renderNotifications } from './notifications.js';
+import { renderTickets } from './tickets.js';
+import { renderHelpCentre } from './help-centre.js';
+import { renderWebsite } from './website.js';
+import { renderReports } from './reports.js';
 
 /** Sub-pages keep their parent menu item highlighted. */
 const PARENT_OF = { '#launch': '#settings', '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
                     '#pricing-rules': '#pricing', '#benchmarks': '#pricing', '#price-lists': '#pricing',
                     '#purchase-orders': '#procurement', '#receipts': '#procurement', '#rate-cards': '#procurement',
                     '#trips': '#fulfilment', '#driver-cash': '#fulfilment', '#delivery-charges': '#fulfilment',
-                    '#slots': '#settings', '#issues': '#orders', '#payments-receipts': '#payments' };
+                    '#slots': '#settings', '#issues': '#orders', '#payments-receipts': '#payments',
+                    '#notifications': '#settings', '#help-centre': '#settings', '#website': '#settings', '#tickets': '#orders' };
 
 const me = await requireRole('admin');
 if (me) {
@@ -114,6 +121,11 @@ if (me) {
       '#issues': guard('orders', (c) => renderIssues(c, me)),
       '#payments': guard('payments', (c) => renderReceivables(c, me)),
       '#payments-receipts': guard('payments', (c) => renderPaymentReceipts(c, me)),
+      '#notifications': guard('settings', (c) => renderNotifications(c, me)),
+      '#help-centre': guard('settings', (c) => renderHelpCentre(c, me)),
+      '#tickets': guard('orders', (c) => renderTickets(c, me)),
+      '#website': guard('settings', (c) => renderWebsite(c, me)),
+      '#reports': guard('reports', (c) => renderReports(c, me)),
     },
   });
 }

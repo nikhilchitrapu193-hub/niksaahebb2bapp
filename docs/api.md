@@ -152,13 +152,40 @@ Key functions: `record_payment`, `allocate_payment`, `void_payment`, `raise_debi
 `allocate_customer_credits`, `sync_order_payment_status`, the `orders_before_delivered` / `orders_after_delivered` /
 `orders_paid_receipt` / `credit_notes_apply` triggers. Wrappers are in the "Payments & credit" section of `web/js/core/api.js`.
 
+## Notifications & support (migration 018)
+
+Outbox, templates, tickets, help centre, map pin and support channels are described in
+[modules/notifications.md](modules/notifications.md). Key functions: `render_template`, `phone_for_sms`,
+`queue_payment_reminders`, `claim_notifications`, `mark_notification` (the last three service-role only, called by the
+`send-notifications` Edge Function), `retry_notification`, `open_ticket`, `reply_ticket`, `set_ticket`,
+`update_my_location`, `delivery_pins`, `support_channels`; internal: `queue_notification` and the `orders_notify` /
+`payments_notify` / `restaurants_notify_approved` triggers. Wrappers are in the "Notifications, support & help" section
+of `web/js/core/api.js`; the JS twins of the SQL helpers are `web/js/core/notify.js`.
+
+## Reports & dashboard (migration 019)
+
+`sales_report`, `receivables_trend`, `admin_dashboard_stats(p_city_id)`, `set_customer_document`, the
+`customer-documents` bucket, `content_pages` and the SEO fields are described in [modules/reports.md](modules/reports.md).
+Wrappers: `getSalesReport`, `getReceivablesTrend`, `getDashboardStats(cityId)`, `uploadCustomerDocument`,
+`customerDocumentUrl`, `listContentPages`, `getContentPage`, `saveContentPage`, `deleteContentPage` in `web/js/core/api.js`;
+pure helpers in `web/js/core/reports.js`.
+
+## Customer organisation (migration 020)
+
+Outlets, members, approval before dispatch and the sector pages are described in
+[modules/customer-organisation.md](modules/customer-organisation.md). Key functions: `my_restaurant_id` (v2: members too),
+`my_customer_role`, `my_outlet_id`, `save_outlet`, `set_customer_user`, `my_customer_users`, `customer_users_of`,
+`place_order(…, p_outlet_id)`, `place_order_for(…, p_outlet_id)`, `approve_order`, `set_order_status` (v4),
+`my_order_terms` (v5), `delivery_pins` (v2); internal: `customer_needs_approval`, `restaurant_for_outlet`, the outlet ↔
+account sync triggers. Wrappers in the "Customer organisation" section of `web/js/core/api.js`.
+
 ## Audit log
 
 `audit_log` gets one row per insert / update / delete on products (price, listing, HSN and pack columns), orders, restaurants,
 profiles, role_permissions, sectors, cities, warehouses, service_zones, company_settings, pricing_rules, product_pricing,
 benchmark_sources, hsn_codes, categories, price_lists, price_list_items, suppliers, supplier_products, purchase_orders,
 purchase_order_items, goods_receipts, vehicles, trips, delivery_charge_rules, cash_settlements, slot_config, order_issues, credit_notes,
-payments, debit_notes and payment_allocations, written by the
+payments, debit_notes, payment_allocations, notification_settings, support_tickets, help_articles, content_pages, outlets and customer_users, written by the
 `write_audit_log()` trigger with `changed_by = auth.uid()`. For updates `changes` holds only the changed columns:
 `{"price": {"old": 32, "new": 33}}`. Stock has its own ledger (`stock_movements`) and is not duplicated here.
 
@@ -169,6 +196,8 @@ payments, debit_notes and payment_allocations, written by the
 | `invite-staff` | admin (JWT checked server-side) | `{ email, role: 'admin'\|'delivery', full_name, team_role, redirect_to }` | Sends a Supabase invite email and sets the new profile's role and team role (only a super admin may invite a super admin). Source: `supabase/functions/invite-staff/index.ts`. |
 | `customer-access` | admin with customers:approve, in scope (JWT checked server-side) | `{ action: 'confirm_email'\|'resend_confirmation'\|'password_link'\|'set_password', restaurant_id, password?, redirect_to? }` | Gets a stuck customer signing in: confirms the email, resends the confirmation, returns a one-time recovery `link`, or sets a temporary password (the last three also confirm). Writes an `audit_log` row per action. Source: `supabase/functions/customer-access/index.ts`. |
 | `razorpay-order` | approved customer (JWT checked) | `{ amount }` (rupees) | Creates a Razorpay order with the gateway secret and returns `{ order_id, amount, currency, key_id }` for the checkout. Needs secrets `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`. |
+| `customer-users` | the account owner, or an admin with customers:edit in scope (JWT) | `{ action: 'invite', restaurant_id, email, full_name, phone?, role: 'outlet_manager'\|'approver', outlet_id?, redirect_to? }` | Invites a member to a customer account (`auth.admin.inviteUserByEmail` with member metadata; the sign-up trigger attaches them), or attaches an existing plain customer login. Audited. Source: `supabase/functions/customer-users/index.ts`. |
+| `send-notifications` | the scheduler (`x-cron-secret` = `CRON_SECRET`) or an admin with settings:edit (JWT) | `{ limit?, dry_run? }` | Runs `queue_payment_reminders()`, claims up to `limit` queued rows and sends each through the provider named by `SMS_PROVIDER` (httpsms / msg91 / none) and `EMAIL_PROVIDER` (resend / brevo / none), marking each sent / failed / skipped. `dry_run` only reports the queue size and providers. Source: `supabase/functions/send-notifications/index.ts`. |
 | `razorpay-webhook` | Razorpay (HMAC signature, no JWT) | Razorpay `payment.captured` event | Verifies `x-razorpay-signature` with `RAZORPAY_WEBHOOK_SECRET`, then `record_online_payment()` (idempotent on the payment id). Deploy with `--no-verify-jwt`. |
 
 ## Storage
@@ -177,6 +206,7 @@ Bucket `product-photos` (public read, 5 MB, JPEG/PNG/WebP). Only admins can uplo
 Bucket `purchase-bills` (private, 8 MB, JPEG/PNG/WebP): photos of mandi bills and rejected goods; read with inventory:view
 (the app uses signed links, `billPhotoUrl`), upload with inventory:edit.
 Bucket `delivery-pod` (private, 8 MB, JPEG/PNG/WebP): proof-of-delivery photos; read with fulfilment:view (signed links, `podPhotoUrl`), uploaded by the driver app.
+Bucket `customer-documents` (private, 8 MB, PDF/JPEG/PNG/WebP): FSSAI / GST documents under `<restaurant id>/`; the customer reads and writes their own folder, customers:view reads, customers:edit writes (`uploadCustomerDocument`, `customerDocumentUrl`).
 
 ## Errors
 

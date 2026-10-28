@@ -2,8 +2,8 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 248
--- rules (205 + 34 for launch control and payments & credit + 3 for customer access + 6 for the edit window), then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
+-- psql). It creates throw-away users, impersonates each role, checks 293
+-- rules (205 + 34 for launch control and payments & credit + 3 for customer access + 6 for the edit window + 15 for notifications & support + 15 for reports & dashboard + 15 for customer organisation), then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
 -- Run this after ANY change to RLS policies or the functions in migrations.
@@ -42,6 +42,8 @@ declare
   v_trip jsonb; v_veh uuid; v_otp text; v_iss jsonb; v_oc jsonb; v_od jsonb; v_oe jsonb; v_of jsonb; v_ddate date; v_later date := (now() at time zone 'Asia/Kolkata')::date + 3;
   -- Migration 014 (launch control) and 015 (payments & credit)
   v_rcid uuid; v_og jsonb; v_oh jsonb; v_pay jsonb; v_bal jsonb; v_stockc numeric; v_today date := (now() at time zone 'Asia/Kolkata')::date;
+  -- Migration 020 (customer organisation)
+  v_mgr uuid := gen_random_uuid(); v_appr uuid := gen_random_uuid(); v_out2 uuid; v_oi jsonb; v_oj jsonb;
 begin
   select id into v_city from public.cities where name = 'Visakhapatnam';
   select id into v_wh from public.warehouses where city_id = v_city and is_default;
@@ -1708,6 +1710,303 @@ begin
   set local role authenticated;
   update public.sectors set customer_edit_window_minutes = 15 where code = 'restaurant';
   reset role;
+
+  -- T63 notifications & support (migration 018)
+  -- v_rc placed orders above; the sector-default settings queue an SMS per status change (phone 9000000009).
+  select count(*) into v_n from public.notifications where restaurant_id = v_rcid and event = 'order_placed' and channel = 'sms' and to_address = '919000000009';
+  v_res := v_res || jsonb_build_array(case when v_n >= 1 then 'PASS T63a placing an order queues an SMS to the customer (' || v_n || ' queued)' else 'FAIL T63a ' || v_n end);
+  select count(*) into v_n from public.notifications where restaurant_id = v_rcid and event = 'order_delivered';
+  v_res := v_res || jsonb_build_array(case when v_n >= 1 then 'PASS T63b delivery queues an order_delivered message' else 'FAIL T63b ' || v_n end);
+  select count(*) into v_n from public.notifications where restaurant_id = v_rcid and event = 'receipt_recorded';
+  v_res := v_res || jsonb_build_array(case when v_n >= 1 then 'PASS T63c a receipt queues a receipt_recorded message' else 'FAIL T63c ' || v_n end);
+  -- Payment reminders: v_og (credit, delivered) is paid by now; make a fresh overdue one.
+  reset role;
+  update public.sectors set customer_edit_window_minutes = 15 where code = 'restaurant';
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_oh := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'credit');
+  reset role;
+  update public.orders set status = 'delivered', delivered_at = now() - interval '10 days', due_date = v_today - 3 where id = (v_oh ->> 'id')::uuid;
+  set local role service_role;
+  v_n := public.queue_payment_reminders();
+  v_num := public.queue_payment_reminders();   -- second run the same day: deduped
+  reset role;
+  v_res := v_res || jsonb_build_array(case when v_n >= 1 and v_num = 0
+      and exists (select 1 from public.notifications where order_id = (v_oh ->> 'id')::uuid and event = 'payment_overdue' and dedupe_key = 'payment_overdue:' || (v_oh ->> 'id'))
+    then 'PASS T63d queue_payment_reminders queues an overdue reminder once (second run deduped)' else 'FAIL T63d ' || v_n || '/' || v_num end);
+  set local role service_role;
+  select count(*) into v_n from public.claim_notifications(5);
+  v_json := (select to_jsonb(x) from (select status, attempts from public.notifications where status = 'sending' limit 1) x);
+  perform public.mark_notification((select id from public.notifications where status = 'sending' limit 1), 'sent', 'httpsms', 'msg_1');
+  reset role;
+  v_res := v_res || jsonb_build_array(case when v_n = 5 and (v_json ->> 'attempts')::int = 1
+      and (select count(*) from public.notifications where status = 'sent' and provider = 'httpsms') = 1
+    then 'PASS T63e the sender claims a batch (status sending, attempts 1) and marks one sent' else 'FAIL T63e ' || v_n || ' ' || coalesce(v_json::text, 'null') end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.claim_notifications(1);
+    v_res := v_res || jsonb_build_array('FAIL T63f picker claimed notifications');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T63f claim_notifications is service-role only');
+  end;
+  reset role;
+  -- Tickets
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.open_ticket('Wrong grade of tomato', 'The tomatoes were grade B, we ordered A', (v_oh ->> 'id')::uuid);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'ticket_number') like 'TKT-%' then 'PASS T63g a customer opens a ticket ' || (v_json ->> 'ticket_number') else 'FAIL T63g ' || v_json::text end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.reply_ticket((v_json ->> 'id')::uuid, 'Sorry about that — a credit note is on its way.');
+  select status || '/' || coalesce(assigned_to::text, 'none') into v_txt from public.support_tickets where id = (v_json ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'waiting_customer/' || v_admin::text
+      and exists (select 1 from public.notifications where ticket_id = (v_json ->> 'id')::uuid and event = 'ticket_reply')
+    then 'PASS T63h a staff reply sets waiting_customer, assigns the replier and notifies the customer' else 'FAIL T63h ' || v_txt end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);   -- another customer
+  set local role authenticated;
+  select count(*) into v_n from public.support_tickets where id = (v_json ->> 'id')::uuid;
+  begin
+    perform public.reply_ticket((v_json ->> 'id')::uuid, 'me too');
+    v_res := v_res || jsonb_build_array('FAIL T63i another customer replied on the ticket');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T63i another customer neither sees nor can reply on the ticket' else 'FAIL T63i sees ' || v_n end);
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.set_ticket((v_json ->> 'id')::uuid, 'closed');
+  begin
+    perform public.set_ticket((v_json ->> 'id')::uuid, 'open', v_admin);
+    v_res := v_res || jsonb_build_array('FAIL T63j customer reassigned a ticket');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when (select status from public.support_tickets where id = (v_json ->> 'id')::uuid) = 'closed'
+      then 'PASS T63j the customer may close their own ticket but not reopen or assign it' else 'FAIL T63j' end);
+  end;
+  reset role;
+  -- Help centre: the public reads 'public' articles only; settings:edit writes.
+  set local role anon;
+  select count(*), count(*) filter (where audience <> 'public') into v_n, v_num from public.help_articles;
+  reset role;
+  v_res := v_res || jsonb_build_array(case when v_n >= 5 and v_num = 0 then 'PASS T63k the website reads the public help articles only (' || v_n || ')' else 'FAIL T63k ' || v_n || '/' || v_num end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.help_articles set title = 'x' where slug = 'who-can-order';
+  get diagnostics v_n = row_count;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T63l a picker cannot edit help articles (settings:edit)' else 'FAIL T63l rows ' || v_n end);
+  reset role;
+  -- Map pin
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.update_my_location(17.6868, 83.2185);
+  v_res := v_res || jsonb_build_array(case when (select lat::text || ',' || lng::text from public.restaurants where id = v_rcid) = '17.686800,83.218500'
+    then 'PASS T63m the customer drops their own map pin' else 'FAIL T63m' end);
+  begin
+    perform public.update_my_location(95, 83);
+    v_res := v_res || jsonb_build_array('FAIL T63n an impossible latitude was accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T63n an impossible location is refused');
+  end;
+  reset role;
+  v_res := v_res || jsonb_build_array(case when public.render_template('Hi {customer}, {order} {nope}', '{"customer":"A","order":"ORD-1"}'::jsonb) = 'Hi A, ORD-1 {nope}'
+    then 'PASS T63o render_template fills known placeholders and leaves unknown ones visible' else 'FAIL T63o' end);
+
+  -- T64 reports & dashboard (migration 019)
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.sales_report(v_today - 30, v_today + 7, 'day');
+  v_res := v_res || jsonb_build_array(case when jsonb_array_length(v_json) >= 1 and (v_json -> 0) ? 'total' and (v_json -> 0) ? 'cancelled'
+    then 'PASS T64a sales_report by day returns rows with totals and a cancelled count' else 'FAIL T64a ' || v_json::text end);
+  v_json := public.sales_report(v_today - 30, v_today + 7, 'product');
+  v_res := v_res || jsonb_build_array(case when jsonb_array_length(v_json) >= 1 and (v_json -> 0 ->> 'quantity') is not null
+    then 'PASS T64b sales_report by product carries quantities' else 'FAIL T64b ' || v_json::text end);
+  v_json := public.sales_report(v_today - 30, v_today + 7, 'sector');
+  select sum((x ->> 'total')::numeric) into v_num from jsonb_array_elements(v_json) x;
+  select coalesce(sum(total_amount), 0) into v_stockc from public.orders where status <> 'cancelled' and created_at >= (v_today - 30)::timestamp at time zone 'Asia/Kolkata';
+  v_res := v_res || jsonb_build_array(case when v_num = v_stockc then 'PASS T64c sector totals add up to the non-cancelled order total (' || v_num || ')' else 'FAIL T64c ' || v_num || ' vs ' || v_stockc end);
+  begin
+    perform public.sales_report(v_today, v_today - 1, 'day');
+    v_res := v_res || jsonb_build_array('FAIL T64d reversed dates accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T64d sales_report refuses a reversed range');
+  end;
+  v_json := public.receivables_trend(4);
+  v_res := v_res || jsonb_build_array(case when jsonb_array_length(v_json) = 4 and (v_json -> 3) ? 'open' and (v_json -> 3) ? 'overdue' and (v_json -> 3 ->> 'open')::numeric >= (v_json -> 3 ->> 'overdue')::numeric
+    then 'PASS T64e receivables_trend returns one row per week, open ≥ overdue' else 'FAIL T64e ' || v_json::text end);
+  v_stats := public.admin_dashboard_stats(v_city2);
+  v_json := public.admin_dashboard_stats(null);
+  v_res := v_res || jsonb_build_array(case when (v_stats ->> 'orders_today')::int <= (v_json ->> 'orders_today')::int and jsonb_array_length(v_json -> 'daily_14d') = 14 and (v_json ->> 'open_tickets') is not null
+    then 'PASS T64f the dashboard narrows to a city and carries 14 days + open tickets' else 'FAIL T64f ' || v_stats::text end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_cm, 'role', 'authenticated')::text, true);   -- city manager of city2
+  set local role authenticated;
+  v_json := public.sales_report(v_today - 30, v_today + 7, 'city');
+  v_res := v_res || jsonb_build_array(case when not exists (select 1 from jsonb_array_elements(v_json) x where x ->> 'key' = v_city::text)
+    then 'PASS T64g a city manager''s report never shows the other city' else 'FAIL T64g ' || v_json::text end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.sales_report(v_today - 7, v_today, 'day');
+    v_res := v_res || jsonb_build_array('FAIL T64h picker read the sales report');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T64h a picker (no reports:view) cannot run reports');
+  end;
+  reset role;
+  -- Customer documents
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.set_customer_document(null, 'fssai', v_rcid::text || '/fssai.pdf');
+  v_res := v_res || jsonb_build_array(case when (select fssai_doc_path from public.restaurants where id = v_rcid) = v_rcid::text || '/fssai.pdf'
+    then 'PASS T64i the customer records their own FSSAI document' else 'FAIL T64i' end);
+  begin
+    perform public.set_customer_document(null, 'gst', 'somewhere-else/gst.pdf');
+    v_res := v_res || jsonb_build_array('FAIL T64j a path outside the customer folder was accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T64j a document path outside the customer''s folder is refused');
+  end;
+  insert into storage.objects (bucket_id, name, owner) values ('customer-documents', v_rcid::text || '/fssai.pdf', v_rc);
+  begin
+    insert into storage.objects (bucket_id, name, owner) values ('customer-documents', gen_random_uuid()::text || '/fssai.pdf', v_rc);
+    v_res := v_res || jsonb_build_array('FAIL T64k customer uploaded into another folder');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T64k the customer can upload into their own folder only');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);   -- another customer
+  set local role authenticated;
+  select count(*) into v_n from storage.objects where bucket_id = 'customer-documents' and name like v_rcid::text || '/%';
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_num from storage.objects where bucket_id = 'customer-documents' and name like v_rcid::text || '/%';
+  reset role;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 and v_num = 1 then 'PASS T64l another customer cannot see the document; staff with customers:view can' else 'FAIL T64l ' || v_n || '/' || v_num end);
+  -- Content pages
+  set local role anon;
+  select count(*), count(*) filter (where not is_published) into v_n, v_num from public.content_pages;
+  reset role;
+  v_res := v_res || jsonb_build_array(case when v_n >= 4 and v_num = 0 then 'PASS T64m the website reads the published content pages only (' || v_n || ')' else 'FAIL T64m ' || v_n end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.content_pages set title = 'x' where slug = 'about';
+  get diagnostics v_n = row_count;
+  reset role;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T64n a picker cannot edit content pages (settings:edit)' else 'FAIL T64n rows ' || v_n end);
+  set local role anon;
+  v_json := public.support_channels();
+  reset role;
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'seo_title') is not null and (v_json ->> 'name') is not null then 'PASS T64o support_channels() carries the SEO title for the home page' else 'FAIL T64o ' || v_json::text end);
+
+  -- T65 customer organisation (migration 020)
+  -- Every account got a primary outlet mirroring its address; editing the account moves the outlet and back.
+  select count(*) into v_n from public.outlets p join public.restaurants r on r.id = p.restaurant_id and p.is_primary
+   where p.address = r.address and p.pincode is not distinct from r.pincode and p.warehouse_id is not distinct from r.warehouse_id;
+  select count(*) into v_num from public.restaurants;
+  v_res := v_res || jsonb_build_array(case when v_n = v_num and v_n > 0 then 'PASS T65a every account has one primary outlet mirroring its address (' || v_n || ')' else 'FAIL T65a ' || v_n || '/' || v_num end);
+  update public.restaurants set address = '9 Dock Rd, Gate 2' where id = v_rcid;
+  update public.outlets set phone = '9000000010' where restaurant_id = v_rcid and is_primary;
+  v_res := v_res || jsonb_build_array(case when (select address || '|' || phone from public.outlets where restaurant_id = v_rcid and is_primary) = '9 Dock Rd, Gate 2|9000000010'
+      and (select phone from public.restaurants where id = v_rcid) = '9000000010'
+    then 'PASS T65b account ↔ primary outlet stay in sync both ways' else 'FAIL T65b' end);
+  -- Members: an invited outlet manager and an approver join v_rc's account through the sign-up trigger.
+  insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data, created_at, updated_at) values
+    (v_mgr,  'authenticated', 'authenticated', 'mgr@test.local',  now(), jsonb_build_object('full_name', 'Mess Manager', 'customer_user_of', v_rcid, 'customer_role', 'outlet_manager'), now(), now()),
+    (v_appr, 'authenticated', 'authenticated', 'appr@test.local', now(), jsonb_build_object('full_name', 'Approving Officer', 'customer_user_of', v_rcid, 'customer_role', 'approver'), now(), now());
+  v_res := v_res || jsonb_build_array(case when (select count(*) from public.customer_users where restaurant_id = v_rcid) = 3
+      and (select count(*) from public.restaurants where owner_id in (v_mgr, v_appr)) = 0
+    then 'PASS T65c invited members join the account (owner + manager + approver), no new account is created' else 'FAIL T65c' end);
+  -- The owner adds a second outlet in another pin code; a manager scoped to it sees only its orders.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_out2 := public.save_outlet(null, null, 'Officers Mess', 'Mess Road, Cantonment', '9000000011', v_city, '530001', 17.7, 83.3, 'evening');
+  v_res := v_res || jsonb_build_array(case when (select warehouse_id from public.outlets where id = v_out2) = v_wh
+      and (select jsonb_array_length(public.my_order_terms() -> 'outlets')) = 2 and (public.my_order_terms() ->> 'customer_role') = 'owner'
+    then 'PASS T65d the owner adds an outlet; the warehouse follows its pin code; my_order_terms lists both' else 'FAIL T65d' end);
+  perform public.set_customer_user(v_mgr, 'outlet_manager', v_out2);
+  reset role;
+  -- The manager (outlet 2) orders for their outlet: the order carries the outlet, its address and is held for approval (defence sector).
+  update public.restaurants set sector_code = 'defence', needs_order_approval = null where id = v_rcid;
+  update public.sectors set needs_order_approval = true, needs_po_reference = false, is_active = true where code = 'defence';
+  perform set_config('request.jwt.claims', json_build_object('sub', v_mgr, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_res := v_res || jsonb_build_array(case when (select public.my_restaurant_id()) = v_rcid and (select public.my_customer_role()) = 'outlet_manager' and (select public.my_outlet_id()) = v_out2
+      and (public.my_order_terms() ->> 'orders_held_for_me')::boolean and jsonb_array_length(public.my_order_terms() -> 'outlets') = 1
+    then 'PASS T65e a member resolves to the account with their role and outlet scope' else 'FAIL T65e ' || coalesce((select public.my_customer_role()), 'null') end);
+  v_oi := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), 'for the mess', null, 'evening', 'cod');
+  v_res := v_res || jsonb_build_array(case when (v_oi ->> 'approval_status') = 'pending' and (v_oi ->> 'outlet_id')::uuid = v_out2
+      and (select delivery_address || '|' || approval_status from public.orders where id = (v_oi ->> 'id')::uuid) = 'Mess Road, Cantonment|pending'
+    then 'PASS T65f an outlet manager''s order carries the outlet address and is held for approval' else 'FAIL T65f ' || v_oi::text end);
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod', null,
+                               (select id from public.outlets where restaurant_id = v_rcid and is_primary));
+    v_res := v_res || jsonb_build_array('FAIL T65g manager ordered for another outlet');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T65g an outlet manager cannot order for another outlet');
+  end;
+  select count(*) into v_n from public.orders where restaurant_id = v_rcid;
+  select count(*) into v_num from public.orders where restaurant_id = v_rcid and outlet_id = v_out2;
+  v_res := v_res || jsonb_build_array(case when v_n = v_num and v_n >= 1 then 'PASS T65h the manager sees only their outlet''s orders (' || v_n || ')' else 'FAIL T65h ' || v_n || '/' || v_num end);
+  begin
+    perform public.approve_order((v_oi ->> 'id')::uuid, true);
+    v_res := v_res || jsonb_build_array('FAIL T65i the manager approved their own order');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T65i an outlet manager cannot approve');
+  end;
+  reset role;
+  -- The kitchen cannot confirm a held order.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.set_order_status((v_oi ->> 'id')::uuid, 'confirmed');
+    v_res := v_res || jsonb_build_array('FAIL T65j staff confirmed a held order');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when sqlerrm like '%waiting for the customer%' then 'PASS T65j staff cannot confirm an order still awaiting approval' else 'FAIL T65j ' || sqlerrm end);
+  end;
+  reset role;
+  -- The approver sees every outlet, approves one order and rejects another (stock returns).
+  perform set_config('request.jwt.claims', json_build_object('sub', v_appr, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_oj := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod', null, v_out2);
+  v_res := v_res || jsonb_build_array(case when (v_oj ->> 'approval_status') = 'not_required' and (select count(*) from public.orders where restaurant_id = v_rcid) > v_num
+    then 'PASS T65k an approver''s own order is not held and they see every outlet' else 'FAIL T65k ' || v_oj::text end);
+  perform public.approve_order((v_oi ->> 'id')::uuid, true, 'ok');
+  v_res := v_res || jsonb_build_array(case when (select approval_status || '/' || status from public.orders where id = (v_oi ->> 'id')::uuid) = 'approved/placed'
+      and (select approved_by from public.orders where id = (v_oi ->> 'id')::uuid) = v_appr
+    then 'PASS T65l the approver approves; the order stays placed for the kitchen' else 'FAIL T65l' end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.set_order_status((v_oi ->> 'id')::uuid, 'confirmed');
+  v_res := v_res || jsonb_build_array(case when (select status from public.orders where id = (v_oi ->> 'id')::uuid) = 'confirmed' then 'PASS T65m once approved, staff confirm it' else 'FAIL T65m' end);
+  reset role;
+  -- A rejected order: place as the manager, reject as the owner → cancelled, stock back.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_mgr, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_oj := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod');
+  reset role;
+  select qty into v_stockc from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.approve_order((v_oj ->> 'id')::uuid, false, 'wrong quantity');
+  reset role;
+  v_res := v_res || jsonb_build_array(case when (select approval_status || '/' || status from public.orders where id = (v_oj ->> 'id')::uuid) = 'rejected/cancelled'
+      and (select qty from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1) = v_stockc + 10
+    then 'PASS T65n the owner rejects: the order is cancelled and its stock returns' else 'FAIL T65n' end);
+  -- Another customer cannot see this account's outlets or members; staff in scope can.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_ra, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.outlets where restaurant_id = v_rcid;
+  select count(*) into v_num from public.customer_users where restaurant_id = v_rcid;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 and v_num = 0 and (select count(*) from public.customer_users_of(v_rcid)) = 3
+    then 'PASS T65o another customer sees no outlets or members of the account; staff list its members' else 'FAIL T65o ' || v_n || '/' || v_num end);
+  reset role;
+  update public.sectors set needs_po_reference = true where code = 'defence';   -- restore for anything after
 
   -- Abort on purpose so no test data is ever saved. The message IS the report.
   raise exception E'SECURITY TEST REPORT (rolled back, no data kept)\n%', jsonb_pretty(v_res);

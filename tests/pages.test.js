@@ -1497,7 +1497,7 @@ test('admin: in lite mode the menu drops Pricing, Inventory and Procurement, #pr
   await importFresh('web/js/pages/admin/main.js');
   await waitFor(() => document.querySelector('.nav-link'));
   const labels = [...document.querySelectorAll('.nav-link')].map((a) => a.firstChild.textContent.trim());
-  assert.deepEqual(labels, ['Dashboard', 'Orders', 'Products', 'Customers', 'Payments', 'Team', 'Settings', 'Audit log', 'Fulfilment']);
+  assert.deepEqual(labels, ['Dashboard', 'Orders', 'Products', 'Customers', 'Payments', 'Team', 'Settings', 'Audit log', 'Reports', 'Fulfilment']);
   assert.match((await waitFor(() => document.querySelector('.empty'))).textContent, /Switched off/);
   // Products: no "On hand" column; the form shows the essentials and a details fold; saving marks the price a hand price.
   location.hash = '#products';
@@ -1714,10 +1714,453 @@ test('admin: Customers shows who cannot sign in yet and Access confirms the emai
   dialog.querySelector('[data-act="password_link"]').click();
   await waitFor(() => document.querySelector('#access-link'));
   assert.equal(document.querySelector('#access-link').value, 'https://x.supabase.co/auth/v1/verify?token=abc');
-  assert.match(document.querySelector('a[href^="https://wa.me/919900011111"]').href, /token%3Dabc/);
+  assert.match(dialog.querySelector('a[href^="https://wa.me/919900011111"]').href, /token%3Dabc/);
   const form = dialog.querySelector('#set-pass');
   form.elements.password.value = 'mess12345';
   form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => fake.calls.filter((c) => c.name === 'customer-access').length === 3);
   assert.equal(fake.calls.filter((c) => c.name === 'customer-access')[2].body.password, 'mess12345');
+});
+
+// ---------- Notifications & support (migration 018) ---------------------------
+const NOTIFY_SETTING = { id: 'ns1', event: 'order_placed', sector_code: null, sms_enabled: true, email_enabled: false,
+  sms_template: '{company}: order {order} received, total {total}.', email_subject: '', email_template: '', updated_at: '2026-10-27T00:00:00Z' };
+const NOTIFICATION = { id: 'n1', event: 'order_placed', channel: 'sms', restaurant_id: 'r1', to_address: '919900011111', subject: null,
+  body: 'Fresh Supply: order ORD-1 received', status: 'skipped', provider: 'none', error: 'SMS_PROVIDER is not set (none): message skipped', attempts: 1, created_at: '2026-10-27T05:00:00Z', restaurants: { name: 'Spice Hut' } };
+const TICKET = { id: 't1', ticket_number: 'TKT-1000', restaurant_id: 'r1', subject: 'Wrong grade of tomato', status: 'open', priority: 'normal', assigned_to: null,
+  created_at: '2026-10-27T05:00:00Z', last_message_at: '2026-10-27T05:00:00Z', restaurants: { name: 'Spice Hut', phone: '9900011111' } };
+const TICKET_MESSAGE = { id: 'm1', ticket_id: 't1', author_id: 'u-r', is_staff: false, body: 'They were grade B', created_at: '2026-10-27T05:00:00Z' };
+const ARTICLE = { id: 'h1', slug: 'who-can-order', title: 'Who can order?', body: 'Any food business.\n\nHome chefs too.', audience: 'public', sort_order: 10, is_published: true, updated_at: '2026-10-27T00:00:00Z' };
+const CHANNELS = { phone: '+91 99000 00001', whatsapp: '919900000001', email: 'help@fresh.in', name: 'Fresh Supply' };
+
+test('admin: Settings → Notifications edits a template with a live preview and the log shows skipped messages with Retry + Send now', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { notification_settings: [NOTIFY_SETTING], notifications: [NOTIFICATION] },
+    rpc: { ...ADMIN_RPC, retry_notification: () => null, 'send-notifications': () => ({ ok: true, reminders_queued: 0, claimed: 1, sent: 0, failed: 0, skipped: 1 }) },
+  });
+  location.hash = '#notifications';
+  document.defaultView.location.hash = '#notifications';   // tabs are same-page anchors: keep jsdom's real hash in step so a tab click fires no hashchange
+  await new Promise((r) => setTimeout(r, 0));              // let jsdom's own hashchange pass before the router exists
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-edit="ns1"]'));
+  assert.match(document.body.textContent, /Order placed/);
+  document.querySelector('[data-edit="ns1"]').click();
+  const form = await waitFor(() => document.querySelector('#tpl'));
+  assert.match(document.querySelector('#sms-preview').textContent, /Fresh Supply: order ORD-1042 received, total ₹4,250.00/);
+  form.elements.sms_template.value = 'Order {order} {oops}';
+  form.elements.sms_template.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  assert.match(document.querySelector('#sms-preview').textContent, /unknown: \{oops\}/);
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'notification_settings'));
+  assert.equal(fake.calls.find((c) => c.table === 'notification_settings').payload.sms_template, 'Order {order} {oops}');
+  // The log tab
+  document.querySelector('[data-tab="log"]').click();
+  await waitFor(() => document.querySelector('[data-retry="n1"]'));
+  assert.match(document.body.textContent, /SMS_PROVIDER is not set/);
+  document.querySelector('[data-retry="n1"]').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'retry_notification'));
+  document.querySelector('#send-now').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'function' && c.name === 'send-notifications'));
+  assert.equal(fake.calls.find((c) => c.name === 'send-notifications').body.limit, 100);
+});
+
+test('admin: Support channels saves the WhatsApp number as digits and the master switch', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { notification_settings: [], notifications: [], company_settings: [{ ...COMPANY, support_phone: '', support_whatsapp: '', support_email: '', sms_from_label: 'Fresh Supply', notify_customers: true }] },
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#notifications';
+  document.defaultView.location.hash = '#notifications';
+  await new Promise((r) => setTimeout(r, 0));
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-tab="channels"]'));
+  document.querySelector('[data-tab="channels"]').click();
+  const form = await waitFor(() => document.querySelector('#channels-form'));
+  form.elements.support_whatsapp.value = '+91 99000 00001';
+  form.elements.support_phone.value = '99000 00001';
+  form.elements.notify_customers.checked = false;
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'company_settings'));
+  const saved = fake.calls.find((c) => c.table === 'company_settings').payload;
+  assert.equal(saved.support_whatsapp, '919900000001'); assert.equal(saved.notify_customers, false);
+});
+
+test('admin: Orders → Tickets lists tickets with Call / WhatsApp, a reply calls reply_ticket and "update without replying" calls set_ticket', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { support_tickets: [TICKET], ticket_messages: [TICKET_MESSAGE], restaurants: [RESTAURANT] },
+    rpc: { ...ADMIN_RPC, reply_ticket: () => null, set_ticket: () => null },
+  });
+  location.hash = '#tickets';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-open="t1"]'));
+  assert.match(document.querySelector('a[href^="https://wa.me/919900011111"]').href, /TKT-1000/);
+  document.querySelector('[data-open="t1"]').click();
+  const form = await waitFor(() => document.querySelector('#reply'));
+  assert.match(document.querySelector('.modal, [role="dialog"]')?.textContent ?? document.body.textContent, /They were grade B/);
+  form.elements.body.value = 'Sorry — credit note on its way';
+  form.elements.priority.value = 'high';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'reply_ticket'));
+  assert.equal(fake.calls.find((c) => c.name === 'reply_ticket').args.p_body, 'Sorry — credit note on its way');
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'set_ticket'));
+  assert.equal(fake.calls.find((c) => c.name === 'set_ticket').args.p_priority, 'high');
+});
+
+test('admin: Settings → Help centre creates an article (slug from the title) and the website FAQ reads public ones', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { help_articles: [ARTICLE] }, rpc: ADMIN_RPC,
+  });
+  location.hash = '#help-centre';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-edit="h1"]'));
+  document.querySelector('#new-article').click();
+  const form = await waitFor(() => document.querySelector('#article'));
+  form.elements.title.value = 'How do I pay?';
+  form.elements.title.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  assert.equal(form.elements.slug.value, 'how-do-i-pay');
+  form.elements.body.value = 'Cash on delivery or credit.';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'insert' && c.table === 'help_articles'));
+  const row = fake.calls.find((c) => c.table === 'help_articles').payload;
+  assert.equal(row.slug, 'how-do-i-pay'); assert.equal(row.audience, 'customer'); assert.equal(row.sort_order, 20);
+});
+
+test('landing: the FAQ and footer contact come from help_articles (public) and support_channels()', async () => {
+  const body = '<div id="categories"></div><div id="featured"></div><div class="faq" id="faq-list"><details><summary>Static</summary></details></div><div id="footer-contact"><h4>Contact</h4></div>';
+  const { document } = setup({ session: null, tables: { products: PRODUCTS, help_articles: [ARTICLE, { ...ARTICLE, id: 'h2', slug: 'drv', title: 'Driver only', audience: 'driver' }] },
+    rpc: { support_channels: () => CHANNELS }, body });
+  await importFresh('web/js/pages/landing.js');
+  await waitFor(() => /Who can order\?/.test(document.querySelector('#faq-list').textContent));
+  assert.doesNotMatch(document.querySelector('#faq-list').textContent, /Driver only|Static/);
+  assert.equal(document.querySelectorAll('#faq-list details p').length, 2, 'blank line → two paragraphs');
+  await waitFor(() => /help@fresh.in/.test(document.querySelector('#footer-contact').textContent));
+  assert.match(document.querySelector('#footer-contact a[href^="https://wa.me/"]').href, /919900000001/);
+});
+
+test('restaurant: Help shows contact buttons, raises a ticket about an order, and replies on it', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, orders: [{ ...ORDER, status: 'delivered' }], support_tickets: [TICKET], ticket_messages: [TICKET_MESSAGE], help_articles: [ARTICLE] },
+    rpc: { my_order_terms: () => TERMS, support_channels: () => CHANNELS, open_ticket: () => ({ id: 't2', ticket_number: 'TKT-1001' }), reply_ticket: () => null, set_ticket: () => null },
+  });
+  location.hash = '#help';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('#new-ticket'));
+  assert.match(document.querySelector('#contact-card a[href^="tel:"]').href, /tel:\+919900000001/);
+  assert.match(document.querySelector('#contact-card a[href^="https://wa.me/"]').href, /919900000001/);
+  assert.match(document.body.textContent, /Who can order\?/);
+  document.querySelector('#new-ticket').click();
+  const form = await waitFor(() => document.querySelector('#new'));
+  form.elements.subject.value = 'Invoice query'; form.elements.body.value = 'GST line looks wrong'; form.elements.orderId.value = ORDER.id;
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'open_ticket'));
+  const args = fake.calls.find((c) => c.name === 'open_ticket').args;
+  assert.equal(args.p_subject, 'Invoice query'); assert.equal(args.p_order_id, ORDER.id); assert.equal(args.p_restaurant_id, null);
+  await waitFor(() => document.querySelector('[data-ticket="t1"]'));
+  document.querySelector('[data-ticket="t1"]').click();
+  const reply = await waitFor(() => document.querySelector('#reply'));
+  reply.elements.body.value = 'Thanks';
+  reply.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'reply_ticket'));
+  document.querySelector('#close-ticket').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'set_ticket'));
+  assert.equal(fake.calls.find((c) => c.name === 'set_ticket').args.p_status, 'closed');
+});
+
+test('restaurant: Account → "Use my location" stores the pin (update_my_location); the driver gets a pin link (delivery_pins)', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [{ ...RESTAURANT }], products: PRODUCTS },
+    rpc: { my_order_terms: () => TERMS, update_my_location: () => null },
+  });
+  Object.defineProperty(document.defaultView.navigator, 'geolocation', { configurable: true, value: { getCurrentPosition: (ok) => ok({ coords: { latitude: 17.68681234, longitude: 83.21851234 } }) } });
+  location.hash = '#account';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('#use-location'));
+  document.querySelector('#use-location').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'update_my_location'));
+  assert.deepEqual(fake.calls.find((c) => c.name === 'update_my_location').args, { p_lat: 17.686812, p_lng: 83.218512 });
+  await waitFor(() => /Pinned at 17.68681/.test(document.querySelector('#pin-status').textContent));
+
+  const d = setup({
+    session: { user: { id: 'u-d', email: 'd@x.com' } }, profile: DRIVER,
+    tables: { orders: [{ ...ORDER, status: 'packed', assigned_to: 'u-d', contact_phone: '9900011111' }] },
+    rpc: { delivery_pins: () => [{ order_id: ORDER.id, lat: 17.686812, lng: 83.218512 }] },
+  });
+  await importFresh('web/js/pages/delivery/main.js');
+  await waitFor(() => d.document.querySelector('[data-start]'));
+  assert.equal(d.document.querySelector('a[href^="https://www.google.com/maps"]').href, 'https://www.google.com/maps?q=17.686812,83.218512');
+  assert.match(d.document.querySelector('a[href^="https://wa.me/"]').href, /ORD-/);
+});
+
+// ---------- Reports & dashboard (migration 019) ------------------------------
+const CITY2 = { id: 'city-hyd', name: 'Hyderabad', state_code: '36', is_active: true, sort_order: 20 };
+const STATS = { orders_today: 7, revenue_today: 12500, revenue_7d: 80000, pending_restaurants: 0, open_orders_by_status: {}, top_products_30d: [],
+  receivables_open: 100, receivables_overdue: 0, open_tickets: 2, daily_14d: Array.from({ length: 14 }, (_, i) => ({ day: `2026-10-${String(i + 10).padStart(2, '0')}`, orders: i, revenue: i * 100 })) };
+const PAGE = { slug: 'about', title: 'About us', body: 'We supply kitchens.\n\n## Where\n\nVisakhapatnam.', is_published: true, show_in_footer: true, sort_order: 10, updated_at: '2026-10-27T00:00:00Z' };
+
+test('admin: Reports shows the sales table with totals, regroups, switches to the trend, and exports CSV (reports:export)', async () => {
+  const calls = [];
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { cities: [CITY, CITY2] },
+    rpc: { ...ADMIN_RPC,
+      sales_report: (a) => { calls.push(a); return a.p_group_by === 'product'
+        ? [{ key: 'p1', label: 'Tomato', orders: 3, quantity: 40, subtotal: 1280, tax: 0, delivery_fee: 0, total: 1280, cancelled: 0 }]
+        : [{ key: '2026-10-26', label: '26 Oct 2026', orders: 2, quantity: null, subtotal: 1000, tax: 50, delivery_fee: 0, total: 1050, cancelled: 1 },
+           { key: '2026-10-27', label: '27 Oct 2026', orders: 1, quantity: null, subtotal: 500, tax: 0, delivery_fee: 49, total: 549, cancelled: 0 }]; },
+      receivables_trend: () => [{ week_end: '2026-10-19', invoiced: 1000, collected: 400, open: 600, overdue: 100 }, { week_end: '2026-10-26', invoiced: 500, collected: 600, open: 500, overdue: 0 }] },
+  });
+  location.hash = '#reports';
+  document.defaultView.location.hash = '#reports';
+  await new Promise((r) => setTimeout(r, 0));
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('tfoot'));
+  assert.match(document.querySelector('tfoot').textContent.replace(/\s/g, ''), /Total3.*₹1,599\.00.*1/);
+  assert.equal(calls[0].p_group_by, 'day'); assert.equal(calls[0].p_city_id, null);
+  const group = document.querySelector('[data-f="groupBy"]'); group.value = 'product';
+  group.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => /Quantity/.test(document.querySelector('thead').textContent));
+  assert.match(document.body.textContent, /Tomato/);
+  const city = document.querySelector('[data-f="cityId"]'); city.value = 'city-hyd';
+  city.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => calls.some((c) => c.p_city_id === 'city-hyd'));
+  // CSV export goes through a blob URL; stub it and check the file name.
+  const win = document.defaultView; let downloaded = null;
+  win.URL.createObjectURL = () => 'blob:x'; win.URL.revokeObjectURL = () => {};
+  const realClick = win.HTMLAnchorElement.prototype.click;
+  win.HTMLAnchorElement.prototype.click = function () { downloaded = this.download; };
+  document.querySelector('#export').click();
+  win.HTMLAnchorElement.prototype.click = realClick;
+  assert.match(downloaded, /^sales-product-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.csv$/);
+  document.querySelector('[data-tab="trend"]').click();
+  await waitFor(() => document.querySelector('.bars'));
+  assert.equal(document.querySelectorAll('.bar-col').length, 2);
+  assert.match(document.body.textContent, /Open now ₹500\.00/);
+});
+
+test('admin: a picker has no Reports menu and sees "No access" on #reports', async () => {
+  const { document, location } = setup({ session: { user: { id: 'u-pick', email: 'p@x.com' } }, profile: PICKER, rpc: ADMIN_RPC });
+  location.hash = '#reports';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => /No access/.test(document.querySelector('#view').textContent));
+  assert.equal([...document.querySelectorAll('.nav-link')].some((a) => a.textContent.includes('Reports')), false);
+});
+
+test('admin: the dashboard shows the 14-day chart and open tickets, and the city filter re-queries the stats', async () => {
+  const seen = [];
+  const { document } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN, tables: { cities: [CITY, CITY2] },
+    rpc: { ...ADMIN_RPC, admin_dashboard_stats: (a) => { seen.push(a?.p_city_id ?? null); return STATS; } },
+  });
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('#daily-chart'));
+  assert.equal(document.querySelectorAll('#daily-chart .bar-col').length, 14);
+  assert.match(document.body.textContent, /Open tickets\s*2/);
+  const sel = document.querySelector('#dash-city'); sel.value = 'city-hyd';
+  sel.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => seen.includes('city-hyd'));
+});
+
+test('admin: Settings → Website saves the SEO title and creates a page (slug from the title, upsert)', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { content_pages: [PAGE], company_settings: [{ ...COMPANY, seo_title: 'Old', seo_description: 'Old d' }] }, rpc: ADMIN_RPC,
+  });
+  location.hash = '#website';
+  await importFresh('web/js/pages/admin/main.js');
+  const seo = await waitFor(() => document.querySelector('#seo-form'));
+  seo.elements.seo_title.value = 'Fresh Supply — wholesale for kitchens';
+  seo.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'company_settings'));
+  assert.equal(fake.calls.find((c) => c.table === 'company_settings').payload.seo_title, 'Fresh Supply — wholesale for kitchens');
+  assert.match(document.body.textContent, /page\.html\?slug=about/);
+  document.querySelector('#new-page').click();
+  const form = await waitFor(() => document.querySelector('#page'));
+  form.elements.title.value = 'Delivery areas';
+  form.elements.title.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  assert.equal(form.elements.slug.value, 'delivery-areas');
+  form.elements.body.value = 'We deliver across Vizag.';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'upsert' && c.table === 'content_pages'));
+  const row = fake.calls.find((c) => c.table === 'content_pages').payload;
+  assert.equal(row.slug, 'delivery-areas'); assert.equal(row.show_in_footer, true); assert.equal(row.sort_order, 20);
+});
+
+test('public: page.html renders a content page from ?slug and the footer lists the published pages', async () => {
+  const body = '<main id="page"></main><footer><p id="footer-company"></p><div id="footer-pages"><h4>Company</h4></div><div id="footer-contact"></div></footer>';
+  const { document, location } = setup({ session: null, tables: { content_pages: [PAGE, { ...PAGE, slug: 'draft', title: 'Draft', is_published: false }] },
+    rpc: { support_channels: () => ({ ...CHANNELS, address: '12 Beach Rd', fssai: '123', gstin: '37X' }) }, body });
+  location.search = '?slug=about';
+  await importFresh('web/js/pages/page.js');
+  await waitFor(() => document.querySelector('#page h1'));
+  assert.equal(document.querySelector('#page h1').textContent, 'About us');
+  assert.equal(document.querySelector('#page h2').textContent, 'Where');
+  assert.equal(document.title, 'About us — Fresh Supply');
+  await waitFor(() => document.querySelector('#footer-pages a'));
+  assert.deepEqual([...document.querySelectorAll('#footer-pages a')].map((a) => a.textContent), ['About us'], 'drafts are not linked');
+  assert.match(document.querySelector('#footer-company').textContent, /12 Beach Rd.*FSSAI Lic\. No\. 123/);
+});
+
+test('restaurant: Account uploads an FSSAI document into the customer folder and records it (set_customer_document)', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [{ ...RESTAURANT, status: 'pending' }], products: PRODUCTS },
+    rpc: { my_order_terms: () => TERMS, set_customer_document: () => null },
+  });
+  location.hash = '#account';
+  await importFresh('web/js/pages/restaurant/main.js');
+  const input = await waitFor(() => document.querySelector('[data-upload-doc="fssai"]'));
+  assert.match(document.body.textContent, /Upload your FSSAI licence so we can approve your account faster/);
+  const file = new document.defaultView.File(['%PDF-1.4'], 'licence.pdf', { type: 'application/pdf' });
+  Object.defineProperty(input, 'files', { value: [file] });
+  input.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'set_customer_document'));
+  const up = fake.calls.find((c) => c.type === 'upload');
+  assert.equal(up.bucket, 'customer-documents'); assert.match(up.path, /^r1\/fssai-\d+\.pdf$/);
+  const args = fake.calls.find((c) => c.name === 'set_customer_document').args;
+  assert.equal(args.p_restaurant_id, 'r1'); assert.equal(args.p_kind, 'fssai'); assert.equal(args.p_path, up.path);
+  await waitFor(() => /on file/.test(document.querySelector('#documents').textContent));
+});
+
+// ---------- Customer organisation (migration 020) ------------------------------
+const OUTLETS = [
+  { id: 'out-1', restaurant_id: 'r1', name: 'Main kitchen', address: '12 MG Road', pincode: '530001', city_id: 'city-vz', warehouse_id: 'wh-1', delivers: true, default_slot: 'morning', is_primary: true, is_active: true, lat: null, lng: null, phone: '999' },
+  { id: 'out-2', restaurant_id: 'r1', name: 'Officers mess', address: 'Mess Road', pincode: '530001', city_id: 'city-vz', warehouse_id: 'wh-1', delivers: true, default_slot: 'evening', is_primary: false, is_active: true, lat: 17.7, lng: 83.3, phone: null },
+];
+const ORG_TERMS = { ...TERMS, min_order_value: 0, customer_role: 'owner', outlet_scope: null, needs_order_approval: true, orders_held_for_me: false, can_approve: true, pending_approvals: 1, outlets: OUTLETS };
+const HELD = { ...ORDER, id: 'o-held', order_number: 'ORD-77', status: 'placed', approval_status: 'pending', outlet_id: 'out-2', notes: 'for the mess' };
+
+test('restaurant (owner): the cart offers the outlets, pre-fills the outlet slot and sends p_outlet_id', async () => {
+  const { document, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, orders: [] },
+    rpc: { my_restaurant_id: () => 'r1', place_order: () => ({ id: 'o9', order_number: 'ORD-1009', total_amount: 160, approval_status: 'not_required' }), my_order_terms: () => ORG_TERMS },
+  });
+  localStorage.clear();
+  const cart = await import('../web/js/pages/restaurant/cart.js'); cart._reset();
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('[data-add="p1"]'));
+  document.querySelector('[data-add="p1"]').click();
+  document.querySelector('#open-cart').click();
+  const outlet = await waitFor(() => document.querySelector('#outlet'));
+  assert.equal(outlet.options.length, 2);
+  outlet.value = 'out-2'; outlet.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => document.querySelector('#slot').value === 'evening');
+  document.querySelector('#place:not([disabled])').click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'place_order'));
+  const call = fake.calls.find((c) => c.name === 'place_order');
+  assert.equal(call.args.p_outlet_id, 'out-2'); assert.equal(call.args.p_delivery_slot, 'evening');
+  // Approvals tab shows with the pending count for an approver / owner.
+  const tab = document.querySelector('[data-href="#approvals"]');
+  assert.equal(tab.hidden, false); assert.equal(tab.querySelector('.nav-badge').textContent, '1');
+});
+
+test('restaurant (owner): Approvals lists held orders and approves / rejects through approve_order', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, orders: [HELD, { ...ORDER, approval_status: 'not_required' }] },
+    rpc: { my_restaurant_id: () => 'r1', my_order_terms: () => ORG_TERMS, approve_order: () => null },
+  });
+  location.hash = '#approvals';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('[data-approve="o-held"]'));
+  assert.equal(document.querySelectorAll('[data-order]').length, 1, 'only the held order');
+  assert.match(document.body.textContent, /Officers mess/);
+  document.querySelector('[data-note="o-held"]').value = 'looks right';
+  document.querySelector('[data-approve="o-held"]').click();
+  await waitFor(() => fake.calls.some((c) => c.name === 'approve_order'));
+  assert.deepEqual(fake.calls.find((c) => c.name === 'approve_order').args, { p_order_id: 'o-held', p_approve: true, p_note: 'looks right' });
+});
+
+test('restaurant (outlet manager): the Approvals tab is hidden from the badge, the cart says orders are held, business details are read-only', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-m', email: 'm@x.com' } }, profile: { id: 'u-m', role: 'restaurant', full_name: 'Mess Manager', is_active: true },
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, orders: [], outlets: [OUTLETS[1]], cities: [CITY] },
+    rpc: { my_restaurant_id: () => 'r1', my_order_terms: () => ({ ...ORG_TERMS, customer_role: 'outlet_manager', outlet_scope: 'out-2', orders_held_for_me: true, can_approve: false, pending_approvals: 0, outlets: [OUTLETS[1]] }),
+      my_customer_users: () => [{ user_id: 'u-r', full_name: 'Ravi', role: 'owner', outlet_id: null, is_active: true, created_at: '2026-10-01T00:00:00Z' }] },
+  });
+  localStorage.clear();
+  const cart = await import('../web/js/pages/restaurant/cart.js'); cart._reset();
+  location.hash = '#account';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('#team'));
+  assert.equal(document.querySelector('#account-form [name="name"]').disabled, true, 'members cannot edit the business');
+  assert.equal(document.querySelector('#invite-member'), null, 'only the owner invites');
+  assert.match(document.body.textContent, /Spice Hut/); // restaurant resolved through my_restaurant_id
+  assert.equal(document.querySelector('[data-href="#approvals"]').querySelector('.nav-badge').hidden, true);
+  document.querySelector('#open-cart').click();
+  await waitFor(() => /go to the account owner/.test(document.body.textContent) || document.querySelector('.drawer'));
+  // With one outlet in scope there is no outlet picker.
+  assert.equal(document.querySelector('#outlet'), null);
+});
+
+test('restaurant (owner): Account → Team invites a member through the customer-users function; Outlets saves through save_outlet', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, orders: [], outlets: OUTLETS, cities: [CITY] },
+    rpc: { my_restaurant_id: () => 'r1', my_order_terms: () => ORG_TERMS, save_outlet: () => 'out-3',
+      my_customer_users: () => [{ user_id: 'u-r', full_name: 'Ravi', role: 'owner', outlet_id: null, is_active: true, created_at: '2026-10-01T00:00:00Z' }],
+      'customer-users': (b) => ({ ok: true, invited: true, email: b.email }) },
+  });
+  location.hash = '#account';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('#invite-member'));
+  document.querySelector('#invite-member').click();
+  const form = await waitFor(() => document.querySelector('#member-form'));
+  form.elements.fullName.value = 'Approving Officer'; form.elements.email.value = 'officer@unit.in'; form.elements.role.value = 'approver';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'function' && c.name === 'customer-users'));
+  const body = fake.calls.find((c) => c.name === 'customer-users').body;
+  assert.equal(body.role, 'approver'); assert.equal(body.restaurant_id, 'r1'); assert.equal(body.outlet_id, null);
+  await waitFor(() => !document.querySelector('#member-form'));
+  document.querySelector('#add-outlet').click();
+  const of = await waitFor(() => document.querySelector('#outlet-form'));
+  of.elements.name.value = 'Branch 2'; of.elements.address.value = 'Beach Road'; of.elements.pincode.value = '530002'; of.elements.defaultSlot.value = 'afternoon';
+  of.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'rpc' && c.name === 'save_outlet'));
+  const args = fake.calls.find((c) => c.name === 'save_outlet').args;
+  assert.equal(args.p_name, 'Branch 2'); assert.equal(args.p_pincode, '530002'); assert.equal(args.p_default_slot, 'afternoon'); assert.equal(args.p_id, null);
+});
+
+test('admin: orders can be filtered to "awaiting customer approval"; a held order shows the notice and the outlet', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { orders: [{ ...HELD, outlets: { name: 'Officers mess' } }, ORDER], order_status_history: [] },
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-order="o-held"]'));
+  assert.match(document.querySelector('[data-order="o-held"]').textContent, /Awaiting approval/);
+  const sel = document.querySelector('[data-filter="approvalStatus"]'); sel.value = 'pending';
+  sel.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await waitFor(() => document.querySelectorAll('[data-order]').length === 1);
+  document.querySelector('[data-order="o-held"]').click();
+  await waitFor(() => /Awaiting the customer's approval/.test(document.body.textContent));
+  assert.match(document.body.textContent, /Officers mess/);
+});
+
+test('login: a sector page link pre-selects the sector on the register form', async () => {
+  const { document, location } = setup({ session: null, body: '<div id="auth-root" data-role="restaurant"></div>' });
+  location.hash = '#register&sector=defence';
+  await importFresh('web/js/pages/login.js');
+  const select = await waitFor(() => document.querySelector('[name="sectorCode"]'));
+  assert.equal(select.value, 'defence');
+});
+
+test('landing: "Who we serve" tiles come from live sectors with their pages and a register link per sector', async () => {
+  const body = '<div id="categories"></div><div id="featured"></div><div class="faq" id="faq-list"></div><section><div id="sector-tiles"></div></section><div id="footer-pages"></div><div id="footer-contact"></div><p id="footer-company"></p>';
+  const { document } = setup({ session: null, tables: { products: PRODUCTS, content_pages: [{ slug: 'sector-defence', title: 'For messes', body: 'x', is_published: true, show_in_footer: false, sort_order: 1 }] }, rpc: { support_channels: () => CHANNELS }, body });
+  await importFresh('web/js/pages/landing.js');
+  await waitFor(() => document.querySelectorAll('#sector-tiles article').length > 0);
+  const tiles = [...document.querySelectorAll('#sector-tiles article')];
+  assert.equal(tiles.length, SECTORS.filter((s) => s.is_active && s.can_self_register).length);
+  const defence = tiles.find((t) => /defence|cantonment/i.test(t.textContent));
+  assert.ok(defence.querySelector('a[href="page.html?slug=sector-defence"]'), 'Learn more link when the page exists');
+  assert.ok(defence.querySelector('a[href="restaurant/login.html#register&sector=defence"]'));
 });

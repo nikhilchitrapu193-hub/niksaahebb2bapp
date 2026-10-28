@@ -60,16 +60,16 @@ Where each permission is checked:
 | Permission | Lets you |
 |---|---|
 | `dashboard:view` | open the dashboard (`admin_dashboard_stats`) |
-| `orders:view` / `orders:edit` | see orders in scope / move status, assign drivers, cancel, record packed quantities |
+| `orders:view` / `orders:edit` | see orders in scope and the support tickets of those customers / move status, assign drivers, cancel, record packed quantities, reply to / assign / close tickets, open a ticket on a customer's behalf, retry a failed message |
 | `orders:export` | download the order list as CSV |
 | `products:view` / `products:edit` | see / change products (details, pack sizes, loose weight), the category tree, photos, per-city listing, CSV upload |
 | `inventory:view` / `inventory:edit` / `inventory:export` | see stock, suppliers and receipts / receive goods (GRN, against a PO or not), adjust, write off / export |
-| `customers:view` / `customers:edit` / `customers:approve` / `customers:export` | see customers and their login state (email confirmed?) / change sector, area, terms / approve or suspend, and **Access**: confirm a stuck customer's email, resend it, hand over a password link or set a temporary password (customer-access Edge Function, 016) / export |
+| `customers:view` / `customers:edit` / `customers:approve` / `customers:export` | see customers, their login state (email confirmed?), their FSSAI / GST documents, their outlets and members (Customers → Account) / upload documents, add outlets, invite or disable members, set the approval-before-dispatch override, change sector, area, terms / approve or suspend, and **Access**: confirm a stuck customer's email, resend it, hand over a password link or set a temporary password (customer-access Edge Function, 016) / export |
 | `payments:view` / `payments:edit` / `payments:approve` / `payments:export` | open Payments (receivables, ageing, receipts, a customer's account and statement) / record receipts, apply them, raise debit notes / void a receipt (also settle driver cash) / export |
 | `team:view` / `team:edit` | list the team / invite, change roles and scope |
-| `settings:view` / `settings:edit` | see / change company details, Launch switches (live sectors, pricing mode, stock mode), cities, warehouses, pin codes, sector terms, delivery slots |
+| `settings:view` / `settings:edit` | see (and, for messages, read the whole log) / change company details, Launch switches (live sectors, pricing mode, stock mode), cities, warehouses, pin codes, sector terms, delivery slots, notification templates and support channels, help-centre articles, website pages and SEO; press Send now / Retry on the message log |
 | `audit:view` / `audit:export` | read / export the audit log |
-| `reports:*` | reserved for the reports batch |
+| `reports:view` / `reports:export` | open Reports (sales by day / city / sector / customer / product / category, receivables trend) / download them as CSV |
 | `pricing:view` / `pricing:edit` / `pricing:approve` / `pricing:export` | open the price board, rules, benchmarks, history, price lists / enter benchmarks and quotes, change rules, overrides and price lists / publish, schedule and cancel prices / export |
 | `procurement:view` / `procurement:edit` / `procurement:approve` / `procurement:export` | open the buying list, purchase orders, receipts, rate cards / keep rate cards, create and edit draft POs, close short, cancel / approve & send a PO to the supplier / export |
 | `fulfilment:view` / `fulfilment:edit` / `fulfilment:approve` / `fulfilment:export` | open the pick list, trips, driver cash, delivery charges / build and dispatch trips, record returns, write off expiry / settle driver cash / export |
@@ -100,3 +100,9 @@ An account that signs in on the wrong page is signed out with a hint; the databa
 2. Add it to `MODULES` / `ACTIONS` in `web/js/core/config.js` (they must match).
 3. Check it in the database function or RLS policy that guards the feature (`has_permission('x', 'y')`).
 4. Add a security test case.
+
+## Customer-side roles (migration 020)
+Inside one customer account: **owner** (the sign-up login — everything), **approver** (sees every outlet, approves /
+rejects held orders, may order without being held), **outlet manager** (orders for one outlet or all; held for approval
+when the account needs it; sees only their outlet's orders). All three carry the app role `restaurant`; the customer
+role comes from `customer_users` (`my_customer_role()`). Details in `docs/modules/customer-organisation.md`.

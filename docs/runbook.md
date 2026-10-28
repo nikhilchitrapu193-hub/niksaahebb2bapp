@@ -218,6 +218,98 @@ First launch: army cantonments on, the rest off, Simple + Simple. Saving the mod
 * **Statement**: open a customer → **Statement** (printable, any date range). Customers print their own under Payments.
 * **Online payments** (Razorpay): off until the keys are set — `docs/modules/payments.md`.
 
+## Messages to customers (Settings → Notifications)
+* **Templates.** One row per event (order placed / confirmed / out for delivery / delivered / cancelled, payment received,
+  payment due tomorrow, payment overdue, support reply, account approved). Tick SMS and / or email, edit the text with
+  `{customer} {order} {total} {amount} {due_date} {company} {ticket} {code}`; the preview fills sample values and flags a
+  typo'd placeholder. **Add a sector override** when one sector needs different wording (a cantonment's "indent received").
+  Keep SMS under 160 characters.
+* **Support channels.** The phone, WhatsApp number (digits with 91) and email shown on the website, the customer's Help
+  page and every *Call · WhatsApp* button; the company name used as `{company}`; and the master switch **Send customers
+  SMS / email** (off = nothing is queued at all — use it during testing).
+* **Message log.** Every message with its status: *queued* (waiting for the next run), *sent* (with the provider's
+  reference), *failed* (the provider refused — the error is shown; **Retry** re-queues), *skipped* (no provider set up
+  yet; also retryable once it is). **Check queue** shows how many are waiting and which providers are configured;
+  **Send now** runs the sender immediately instead of waiting for the scheduler.
+* **Nothing goes out until a provider is set up** (`docs/deployment.md` §7). The app works fully without one: messages
+  are logged as skipped so you can see what customers *would* have received.
+* **Payment reminders** go to credit customers the day before an invoice is due, then at most once a week while
+  overdue. They stop the moment the invoice is paid (the reminder is computed at send time, never pre-scheduled).
+
+## Support tickets (Orders → Support tickets) and the Help page
+* A customer raises a ticket from **Help** in their app (optionally about an order); it lands under Orders → Support
+  tickets as *Open*. Reply there: the customer gets an SMS / email ("we replied to TKT-1003"), the ticket shows *Waiting
+  for customer*, and you are assigned to it unless someone already is. Set priority, reassign, mark *Resolved* or
+  *Closed*; the customer can close their own. **Open a ticket for a customer** after a phone call so it is on record.
+* Customers *Call* / *WhatsApp* buttons sit on Customers, every order, every ticket and the driver's delivery card; the
+  WhatsApp link pre-fills the order or ticket number.
+* **Help centre** (Settings → Help centre): plain-text articles with an audience — *Everyone* also shows as the FAQ on
+  the public website; *Customers* under Help in the customer app; *Delivery staff* for drivers. Unpublished = draft.
+  The website keeps a built-in FAQ until at least one public article exists.
+
+## Map pin (where exactly is the gate?)
+At sign-up and under Account the customer can tap **Use my location** while standing at the delivery entrance; the
+driver's **Open map pin** then goes to that spot instead of searching the typed address. Staff see *Map pin / Find on
+map* on Customers. A pin is optional; the address still prints on the challan.
+
+## Backups and monitoring
+* **Database backups.** Supabase keeps daily backups on the free tier for 7 days (Project → Database → Backups; paid
+  plans add point-in-time recovery). Once a week, also download a logical dump: Database → Backups → Download, or
+  `pg_dump` with the connection string from Project settings, and keep it off the laptop (Google Drive / a second disk).
+  Restoring is a support request on the free tier or *Restore* on a paid one; test a restore into a fresh project once
+  before launch so the steps are familiar.
+* **Files.** Product photos, bills and POD photos live in Storage buckets; they are included in Supabase's backups, but
+  the weekly dump does not contain them. Keep the originals of product photos in a folder you own.
+* **What to look at every morning (five minutes).**
+  1. Dashboard → launch banner and pending customers.
+  2. Settings → Notifications → Message log filtered to *Failed*: a stuck SIM phone (httpSMS offline) shows as rows
+     stuck in *queued*; a wrong key shows as *failed* with the provider's words.
+  3. Supabase → Logs → Edge Functions: `send-notifications` should show a run every 5 minutes; Auth logs for bounced
+     confirmation emails.
+  4. Supabase → Advisors once a week; the `SECURITY DEFINER` warnings are intentional (ADR 0002).
+* **Alerts without extra tools.** cron-job.org (the scheduler) emails you when the sender URL fails; Supabase sends
+  emails for project pauses (free projects pause after a week of inactivity — the scheduler's calls count as activity)
+  and for resource limits. Put both on a shared inbox.
+* **Before a change goes live.** `npm test`, the SQL security test in the SQL editor (it rolls back), then apply the
+  migration and deploy the Edge Function named in the patch guide. Every migration is forward-only; never edit an
+  applied one.
+
+## Outlets, members and approvals (customer accounts)
+* A customer with several kitchens adds **outlets** under Account → Outlets (name, address, pin code, phone, usual slot,
+  map pin). The cart then asks which outlet the order is for; the order carries that address and is picked from that
+  outlet's warehouse. Staff add outlets too: Customers → **Account** → Add an outlet.
+* The owner **invites members** under Account → Team: *approver* (sees everything, signs off orders) or *outlet manager*
+  (orders for one outlet or all). The invitee gets an email, sets a password and signs in on the customer login page.
+  Staff can invite or disable members from Customers → Account; a stuck invite is fixed with Customers → Access like any login.
+* **Approval before dispatch** is a sector setting (Settings → Sectors & terms — on for army cantonments and
+  institutions) or a per-customer override (Customers → Terms). When it is on, an order placed by an *outlet manager*
+  shows **Awaiting approval** on Orders: you can see and cancel it but not confirm it until an owner / approver approves
+  it in their app (Approvals tab). Orders placed by the owner, an approver or by staff are never held.
+* Rejected orders appear as *cancelled* with the approver's note in the history; their stock is back.
+* Each sector has a public page (Settings → Website: slugs `sector-<code>`) linked from "Who we serve" on the home page;
+  its Register button pre-selects the sector on the sign-up form.
+
+## Reports (Reports menu)
+* **Sales**: pick a range (default the last 30 days) and a grouping — by day, city, sector, customer, product or
+  category. Cancelled orders are counted in their own column and left out of the money. **Export CSV** opens in Excel.
+* **Receivables trend**: what customers owed at the end of each week (the darker part of each bar is overdue), with
+  invoiced and collected per week. It is computed from the orders and receipts as they stood then, so it always agrees
+  with Payments.
+* A city manager sees their own city only; everyone else gets a city filter. The dashboard has the same filter, a
+  14-day chart and an *Open tickets* tile.
+
+## Customer documents
+Customers upload their FSSAI licence and GST certificate under Account → Documents (the pending banner asks them to).
+On Customers each row shows *FSSAI ✓ / GST ✓* with a view link (a short-lived private link) and an *upload* link for
+staff who received the document on WhatsApp. Approve once the FSSAI document (or number) is on file.
+
+## Website pages and search listing (Settings → Website)
+* **Pages**: About, Terms, Privacy and Refund policy are seeded; edit them or add pages (slug = the address,
+  `page.html?slug=…`). Blank line = paragraph, a line starting with `## ` = heading. *Link in the website footer* puts
+  the page in the footer of every public page; unpublished pages are hidden from the site.
+* **SEO**: the home page title and description shown by Google. `robots.txt` keeps the apps out of search; add a
+  `<url>` to `sitemap.xml` when you publish a new page and submit the sitemap once in Google Search Console.
+
 ## Who changed what
 Admin → **Audit log**: every change to prices, orders, payments, customers, team members, permissions and
 settings, with the person and the old and new values. Filter by table or person; export as CSV.
@@ -248,6 +340,20 @@ settings, with the person and the old and new values. Filter by table or person;
 | "Another supplier is already preferred for that product" | Only one supplier can be preferred per product; untick it on the other supplier's rate card first. |
 | "Purchase order is not a draft" | Only drafts can be edited; cancel it (nothing received) or close it short and raise a new one. |
 | "A rejected quantity needs a reason" | Type why in the *Reject reason* box on that line (bruised, short, wrong grade). |
+| Messages stay *queued* and never move | The scheduler is not calling `send-notifications` (check cron-job.org / the secret), or press **Send now**. |
+| Messages are *skipped* with "SMS_PROVIDER is not set" | No provider configured yet: `docs/deployment.md` §7. Retry them once it is. |
+| Messages *failed* with "401" or "invalid key" | The provider secret is wrong or expired; fix the Edge Function secret and Retry. |
+| SMS *sent* but the customer did not get it | httpSMS: the phone is offline / out of credit / hit the carrier's daily cap — open the httpSMS app on the phone. MSG91: DLT template mismatch. |
+| A customer got no "order placed" text | Their phone number is missing or not 10 digits (Customers), the master switch is off, or the template's SMS is unticked. |
+| Website FAQ shows the old built-in questions | No published article with audience *Everyone (website FAQ + apps)* yet. |
+| Driver's map opens a search, not a pin | The customer has not set a map pin (Account → Use my location); the address is used instead. |
+| "Choose a range of at most a year" | Reports cover up to 370 days per query; split the range. |
+| Reports menu missing | The team role lacks `reports:view` (Settings → Roles & permissions). |
+| Document upload says "Please choose a PDF, JPG, PNG or WebP file" | Other types (Word, HEIC) are not accepted; ask for a photo or PDF. |
+| A new website page shows "Page not found" | It is unpublished, or the slug in the address differs from the one saved (lower-case letters, digits and dashes only). |
+| "This order is waiting for the customer's approval" | Approval before dispatch is on for that account and an outlet manager placed it; the customer's owner / approver must approve it in their app (Approvals). You can still cancel it. |
+| A member says they see no orders / cannot order for an outlet | They are an outlet manager scoped to another outlet: the owner changes the outlet under Account → Team (or staff under Customers → Account). |
+| "Only the account owner can change the business details" | A member tried to edit the account; only the owner (sign-up login) can. |
 | "A mandi purchase needs the bill amount" | Type the total on the bill; the *Paid in cash* tick and the photo are how finance reconciles it later. |
 | Dispatch fails | No driver assigned to the order. |
 | Everything fails after weeks idle | Free project paused — resume it in the dashboard. |

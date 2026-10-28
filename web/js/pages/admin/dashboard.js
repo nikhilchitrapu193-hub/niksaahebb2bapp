@@ -1,25 +1,33 @@
 // =============================================================================
 // dashboard.js — headline numbers for the day, the launch-mode banner
-// (Settings → Launch, migration 014) and the receivables tiles (migration 015).
+// (Settings → Launch, migration 014), the receivables tiles (migration 015),
+// and — migration 019 — a city filter (for people who see several) plus the
+// last 14 days of orders / revenue as a small bar chart.
 // =============================================================================
 
-import { html, mount, formatINR, STATUS_LABELS, statusBadge } from '../../core/ui.js';
-import { getDashboardStats, listProducts, listSectors } from '../../core/api.js';
+import { html, mount, on, formatINR, STATUS_LABELS, statusBadge, reportError } from '../../core/ui.js';
+import { getDashboardStats, listProducts, listSectors, listCities } from '../../core/api.js';
 import { stockLevel } from './inventory.js';
 import { isSimpleStock, launchSummary } from '../../core/launch.js';
 import { can } from '../../core/permissions.js';
+import { barHeights, shortDate } from '../../core/reports.js';
 
 const OPEN_STATUSES = ['placed', 'confirmed', 'packed', 'out_for_delivery'];
 
-export async function renderDashboard(container, me, settings = {}) {
-  const [s, products, sectors] = await Promise.all([getDashboardStats(), listProducts(), listSectors().catch(() => [])]);
+export async function renderDashboard(container, me, settings = {}, cityId = null) {
+  const [s, products, sectors, cities] = await Promise.all([getDashboardStats(cityId), listProducts(), listSectors().catch(() => []), listCities().catch(() => [])]);
+  const scopedCity = me.profile?.city_id ?? null;
+  const daily = s.daily_14d ?? [];
+  const heights = barHeights(daily.map((d) => d.revenue));
   const open = s.open_orders_by_status ?? {};
   const simpleStock = isSimpleStock(settings);
   const lowStock = simpleStock ? products.filter((p) => p.is_active && !p.in_stock) : products.filter((p) => p.is_active && stockLevel(p) !== 'ok');
   const launch = launchSummary(settings, sectors);
 
   mount(container, html`
-    <div class="page-head"><div><h1>Dashboard</h1><p>Today's activity (India time)</p></div></div>
+    <div class="page-head"><div><h1>Dashboard</h1><p>Today's activity (India time)</p></div>
+      ${!scopedCity && cities.length > 1 ? html`<select class="select" id="dash-city" aria-label="City" style="max-width:240px"><option value="">All cities</option>
+        ${cities.map((c) => html`<option value="${c.id}" ${c.id === cityId ? 'selected' : ''}>${c.name}</option>`)}</select>` : ''}</div>
     ${launch.length ? html`<div class="banner info" id="launch-banner"><div><strong>Launch mode.</strong> ${launch.join(' · ')}.
       ${can(me, 'settings', 'view') ? html`<a href="#launch">Change</a>` : ''}</div></div>` : ''}
     ${s.pending_restaurants > 0 ? html`<div class="banner warn">
@@ -34,7 +42,13 @@ export async function renderDashboard(container, me, settings = {}) {
         : html`<div class="card stat"><div class="stat-label">Low / empty stock</div><div class="stat-value">${lowStock.length}</div><div class="stat-note"><a href="#inventory">Open inventory</a></div></div>`}
       ${s.receivables_open != null ? html`<div class="card stat"><div class="stat-label">Receivables</div><div class="stat-value">${formatINR(s.receivables_open)}</div>
         <div class="stat-note" style="${Number(s.receivables_overdue) > 0 ? 'color:var(--danger)' : ''}">${formatINR(s.receivables_overdue)} overdue${can(me, 'payments', 'view') ? html` · <a href="#payments">Payments</a>` : ''}</div></div>` : ''}
+      ${s.open_tickets != null ? html`<div class="card stat"><div class="stat-label">Open tickets</div><div class="stat-value">${s.open_tickets}</div><div class="stat-note">${can(me, 'orders', 'view') ? html`<a href="#tickets">Support tickets</a>` : 'support'}</div></div>` : ''}
     </div>
+
+    ${daily.length ? html`<section class="card card-pad" style="margin-top:var(--space-5)" id="daily-chart">
+      <div class="spread"><h2>Last 14 days</h2><span class="muted small">${formatINR(daily.reduce((t, d) => t + Number(d.revenue), 0))} · ${daily.reduce((t, d) => t + Number(d.orders), 0)} orders${can(me, 'reports', 'view') ? html` · <a href="#reports">Reports</a>` : ''}</span></div>
+      <div class="bars" style="height:120px;margin-top:var(--space-3)" role="img" aria-label="Revenue per day, last 14 days">${daily.map((d, i) => html`<div class="bar-col" title="${shortDate(d.day)}: ${d.orders} orders, ${formatINR(d.revenue)}"><div class="bar" style="height:${heights[i]}%"></div><span class="bar-label">${shortDate(d.day).split(' ')[0]}</span></div>`)}</div>
+    </section>` : ''}
 
     <div class="form-grid" style="margin-top:var(--space-5);align-items:start">
       <section class="card">
@@ -51,4 +65,6 @@ export async function renderDashboard(container, me, settings = {}) {
             <tbody>${s.top_products_30d.map((p) => html`<tr><td>${p.name}</td><td class="right num">${Number(p.quantity)}</td><td class="right money">${formatINR(p.revenue)}</td></tr>`)}</tbody></table></div>`}
       </section>
     </div>`);
+
+  on(container, 'change', '#dash-city', (_e, el) => renderDashboard(container, me, settings, el.value || null).catch(reportError));
 }

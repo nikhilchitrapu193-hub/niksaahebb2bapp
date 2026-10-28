@@ -15,7 +15,7 @@
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; gap: var(--space-2); font-weight: 700; letter-spacing: -0.02em; text-decoration: none; color: var(--ink); }
+.brand { display: flex; align-items: center; gap: var(--space-2); font-weight: 700; letter-spacing: -0.02em; text-decoration: none; color: var(--ink); white-space: nowrap; flex-shrink: 0; }
 .brand-mark {
   display: grid; place-items: center;
   width: 32px; height: 32px; border-radius: 9px;
@@ -27,7 +27,7 @@
 /* Ten-plus modules fit at desktop width; below that the menu scrolls sideways (the active link is kept in view). */
 .app-nav { display: flex; gap: var(--space-1); margin-left: var(--space-3); overflow-x: auto; scrollbar-width: thin; min-width: 0; }
 .nav-link {
-  appearance: none; border: 0; background: none; cursor: pointer;
+  appearance: none; border: 0; background: none; cursor: pointer; white-space: nowrap;
   padding: var(--space-2) 10px; border-radius: var(--radius-sm);
   font-weight: 600; font-size: var(--text-md); color: var(--ink-muted);
   white-space: nowrap; position: relative;
@@ -265,9 +265,11 @@
 
 /* ---------- Responsive --------------------------------------------------------- */
 
-@media (max-width: 1180px) {
+.header-user { white-space: nowrap; }
+@media (max-width: 1400px) {
+  /* Thirteen modules (reports, 019) need the room: drop the sub-title and shorten the name; the menu scrolls. */
   .brand-sub { display: none; }
-  .header-user { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .header-user { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 }
 @media (max-width: 720px) {
   .app-header { padding: 0 var(--space-3); gap: var(--space-2); }
@@ -360,3 +362,19 @@ details.more .form-grid { margin-top: var(--space-2); }
 .aging td.bucket { font-variant-numeric: tabular-nums; }
 .aging td.overdue { color: var(--danger); font-weight: 600; }
 .money.negative { color: var(--brand-strong); }
+
+/* ---------- Help centre (migration 018): FAQ list inside the apps ---------- */
+.faq details { border-bottom: 1px solid var(--line); padding: var(--space-3) 0; }
+.faq details:last-child { border-bottom: 0; }
+.faq summary { cursor: pointer; font-weight: 600; }
+.faq p { color: var(--ink-muted); margin-top: var(--space-2); }
+.contact-links a { color: var(--brand); }
+
+/* ---------- Reports (migration 019): CSS bar chart ---------- */
+.bars { display: flex; align-items: flex-end; gap: 6px; height: 160px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+.bar { width: 100%; max-width: 40px; background: var(--brand-soft); border-radius: 4px 4px 0 0; position: relative; min-height: 2px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.bar-overdue { width: 100%; background: var(--brand); opacity: .85; }
+.bar-label { font-size: 10px; color: var(--ink-muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.danger-text { color: var(--danger); }
+.nav-link[hidden] { display: none; }   /* a tab the account does not need (Approvals, migration 020) */

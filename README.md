@@ -72,8 +72,9 @@ docs/                           architecture, ADRs, API, roles, deployment, runb
 
 ## Roadmap
 
-Batches 1–8 of Phase 1 (foundation; pricing; catalogue +; procurement; fulfilment & delivery; orders +; launch control
-("lite mode": start with one sector, simple pricing and stock, open the rest with a switch); payments & credit) are in. Next:
-notifications & support, reports — see
-[docs/build-roadmap.md](docs/build-roadmap.md). AI stays out of the product by design
+Phase 1 is complete — batches 1–10 (foundation; pricing; catalogue +; procurement; fulfilment & delivery; orders +; launch
+control ("lite mode": start with one sector, simple pricing and stock, open the rest with a switch); payments & credit;
+notifications & support (SMS / email outbox, tickets, help centre, map pin); reports & dashboard, customer documents,
+website pages + SEO). Phase 2 has begun: P2-1 customer organisation (outlets, members, approval before dispatch, sector pages) is in. Next: P2-2 Ordering+ — see
+[docs/build-roadmap.md](docs/build-roadmap.md) and [docs/phase2-plan.md](docs/phase2-plan.md). AI stays out of the product by design
 ([docs/contributing.md](docs/contributing.md#adding-ai-later)).

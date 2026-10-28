@@ -16,6 +16,7 @@
     <a class="brand" href="./"><span class="brand-mark">F</span><span>Fresh Supply</span></a>
     <nav class="site-nav" aria-label="Site">
       <a href="#catalogue">Catalogue</a>
+      <a href="#sectors">Who we serve</a>
       <a href="#delivery">Delivery</a>
       <a href="#how">How it works</a>
       <a href="#faq">FAQ</a>
@@ -79,6 +80,12 @@
       <div class="product-grid" id="featured"></div>
     </section>
 
+    <!-- ============ Who we serve (filled from sectors + their pages by landing.js) ============ -->
+    <section class="section alt" id="sectors">
+      <div class="section-head"><h2>Who we serve</h2><p class="muted">Terms, slots and credit that fit each kind of kitchen.</p></div>
+      <div class="three-up" id="sector-tiles"></div>
+    </section>
+
     <!-- ============ Delivery models ============ -->
     <section class="section alt" id="delivery">
       <div class="section-head"><h2>Delivery that fits your kitchen</h2></div>
@@ -118,13 +125,14 @@
     <!-- ============ FAQ ============ -->
     <section class="section" id="faq">
       <div class="section-head"><h2>Frequently asked questions</h2></div>
-      <div class="faq">
+      <!-- Filled from help_articles (audience = public) by js/pages/landing.js; edit them under Admin → Settings → Help centre.
+           The entries below show until the database answers (and if it cannot). -->
+      <div class="faq" id="faq-list">
         <details><summary>Who can order?</summary><p>Any food business: restaurants, cloud kitchens, cafés, bakeries, hotels, caterers and canteens. Home chefs with an FSSAI registration are welcome too.</p></details>
         <details><summary>Is there a minimum order?</summary><p>Each product has its own minimum quantity (shown on the product). There is no minimum order value.</p></details>
         <details><summary>How do I pay?</summary><p>Cash on delivery, or credit for approved partners — settle your balance weekly or monthly.</p></details>
         <details><summary>What if something arrives damaged or short?</summary><p>Tell the driver at the door or contact us the same day. We adjust the invoice or replace the item on the next delivery.</p></details>
         <details><summary>Do you provide GST invoices?</summary><p>Yes. Every order has a GST invoice with your GSTIN, available in your account.</p></details>
-        <details><summary>Where do you source from?</summary><p>Directly from farms, mills and brand distributors. Perishables are bought daily and stored cold.</p></details>
       </div>
     </section>
   </main>
@@ -133,7 +141,7 @@
   <footer class="site-footer">
     <div>
       <div class="brand"><span class="brand-mark">F</span><span>Fresh Supply</span></div>
-      <p class="muted small">Your Company Pvt. Ltd.<br>Address line, Hyderabad, Telangana<br>FSSAI Lic. No. 00000000000000 · GSTIN 36XXXXXXXXXXXXX</p>
+      <p class="muted small" id="footer-company">Your Company Pvt. Ltd.<br>Address line, Hyderabad, Telangana<br>FSSAI Lic. No. 00000000000000 · GSTIN 36XXXXXXXXXXXXX</p>
     </div>
     <div>
       <h4>Partners</h4>
@@ -141,13 +149,22 @@
       <a href="restaurant/login.html#register">Register</a>
       <a href="reset.html">Reset password</a>
     </div>
+    <div id="footer-pages">
+      <!-- Filled from content_pages (Admin → Settings → Website); these links show until the database answers. -->
+      <h4>Company</h4>
+      <a href="page.html?slug=about">About us</a>
+      <a href="page.html?slug=terms">Terms of service</a>
+      <a href="page.html?slug=privacy">Privacy policy</a>
+      <a href="page.html?slug=refund-policy">Refund &amp; return policy</a>
+    </div>
     <div>
       <h4>Staff</h4>
       <a href="admin/login.html">Admin login</a>
       <a href="delivery/login.html">Delivery staff login</a>
     </div>
-    <div>
+    <div id="footer-contact">
       <h4>Contact</h4>
+      <!-- Filled from support_channels() (Admin → Settings → Notifications → Support channels). -->
       <a href="tel:+910000000000">+91 00000 00000</a>
       <a href="mailto:help@example.com">help@example.com</a>
       <span class="muted small">Mon–Sat, 7 am – 9 pm</span>

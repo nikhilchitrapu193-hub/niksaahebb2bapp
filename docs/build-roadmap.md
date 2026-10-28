@@ -21,15 +21,20 @@ Status: ✅ shipped · 🔧 in progress · ⬜ not started. Migration numbers ar
 | 8 | **Payments & credit**: open-item receivables (a delivered order is the invoice), receipts (cash / UPI / bank / cheque / online / other) with allocation oldest-due-first or by hand, void (never delete), debit notes, credit notes applied automatically, a receipt for every paid order (COD cash), credit limit per sector / customer, due dates, overdue block, ageing report (current / 1–30 / 31–60 / 61–90 / 90+), customer account + statement (printable), customer Payments page, Razorpay online payments (two Edge Functions + webhook, switch on with keys), dashboard receivables | ✅ | 015 | `supabase/migrations/20261020000002_payments_credit.sql`, `web/js/core/receivables.js`, `web/js/pages/admin/payments.js`, `web/js/pages/restaurant/payments.js`, `web/statement.html`, `supabase/functions/razorpay-order/`, `supabase/functions/razorpay-webhook/`, `docs/modules/payments.md`, ADR 0019 |
 | 6a | **Customer self-edit window (hotfix)**: 15-minute default for a customer to edit / cancel their own placed order, per-sector dial (0 for defence), shown in the app as "X minutes left" | ✅ | 017 | `supabase/migrations/20261022000002_customer_edit_window.sql`, ADR 0021 |
 | 8a | **Customer access (hotfix)**: a sign-up never dead-ends on the confirmation email — Resend on the login page; Customers shows login state; Access: confirm email / resend / one-time password link (WhatsApp) / temporary password, audited; SMTP guidance | ✅ | 016 | `supabase/migrations/20261022000001_customer_access.sql`, `supabase/functions/customer-access/`, ADR 0020 |
-| 9 | **Notifications & support**: email provider (Resend / Brevo), SMS + phone-OTP login (MSG91), support tickets, help centre, call / WhatsApp buttons, maps pin at sign-up, backups & monitoring, payment reminders | ⬜ | 016 | `supabase/functions/send-sms/`, `web/js/pages/admin/tickets.js` |
-| 10 | **Reports & dashboard**: sales by day / city / sector / customer / product, receivables trend, dashboard filtered by city, document upload at sign-up, content pages + SEO basics | ⬜ | 017 | `web/js/pages/admin/reports.js`, `supabase/storage` bucket for documents |
+| 9 | **Notifications & support**: outbox + templates per event / sector (Settings → Notifications), one provider interface — SMS via httpSMS (own phone, free) or MSG91, email via Resend / Brevo — drained by the `send-notifications` Edge Function (scheduler or Send now), message log with retry, payment reminders (due tomorrow / overdue), support tickets (customer Help page ↔ Orders → Tickets), help centre (apps + website FAQ), support channels + Call / WhatsApp buttons everywhere, map pin at sign-up / Account → driver's map, backups & monitoring runbook. Phone-OTP login deliberately out (ADR 0023) | ✅ | 018 | `supabase/migrations/20261027000001_notifications_support.sql`, `supabase/functions/send-notifications/`, `web/js/core/notify.js`, `web/js/pages/admin/notifications.js`, `tickets.js`, `help-centre.js`, `web/js/pages/restaurant/help.js`, `docs/modules/notifications.md`, ADR 0022–0023 |
+| 10 | **Reports & dashboard**: Reports menu — sales by day / city / sector / customer / product / category for any range with CSV; receivables trend by week (invoiced, collected, open, overdue, as at each week's end); dashboard city filter + 14-day chart + open tickets; customer documents (FSSAI / GST) on Account and Customers; content pages (About, Terms, Privacy, Refund policy) on `page.html` + footer; SEO title / description, robots.txt, sitemap.xml | ✅ | 019 | `supabase/migrations/20261027000002_reports_dashboard.sql`, `web/js/core/reports.js`, `web/js/pages/admin/reports.js`, `website.js`, `web/page.html`, `docs/modules/reports.md`, ADR 0024 |
 
-Phase 1 gate: every batch above used daily by the Vizag team before Phase 2 starts. Batches 1–8 are shipped; the launch itself is a configuration (Settings → Launch: army cantonments on, simple pricing, simple stock — `docs/modules/launch-control.md`). Next is batch 9 (Notifications & support).
+Phase 1 gate: every batch above used daily by the Vizag team before Phase 2 starts. **Phase 1 is complete** (batches 1–10 shipped); the launch itself is a configuration (Settings → Launch: army cantonments on, simple pricing, simple stock — `docs/modules/launch-control.md`). Phase 2 follows the sequence in `docs/phase2-plan.md`.
 
 ## Phase 2 — institutions, suppliers, full warehouse, Fleetbase
 
-Sector home pages and sign-up per sector · customer-side users (owner / outlet manager / approver) ·
-multiple outlets · approval before dispatch · standing orders · bulk order upload · coupons ·
+The sequence is `docs/phase2-plan.md` (P2-1 … P2-8, migrations 020 … 027).
+
+| # | Batch | Status | Migration | Files |
+|---|---|---|---|---|
+| P2-1 | **Customer organisation**: multiple outlets per account (own address, pin code → warehouse, phone, slot, map pin; primary outlet mirrors the account), customer-side users (owner / approver / outlet manager, invited by email), approval before dispatch (held orders, Approvals tab, kitchen cannot confirm), sector home pages + "Who we serve" + register link per sector | ✅ | 020 | `supabase/migrations/20261028000001_customer_organisation.sql`, `supabase/functions/customer-users/`, `web/js/pages/restaurant/organisation.js`, `approvals.js`, `docs/modules/customer-organisation.md`, ADR 0025 |
+
+Still to build: standing orders · bulk order upload · coupons ·
 spend reports · contract / tender rates and quantity slabs · price-change approval · quote builder,
 delivery-cost and credit-cost calculators · supplier onboarding, portal, three-way match, payments ·
 storage zones & bins, cycle counts, transfers, repacking, labels, barcode scanning, returns to stock,
@@ -37,7 +42,7 @@ stock valuation · Fleetbase self-hosted with the Indian adaptations (status map
 sync, UPI at the door, MSG91, WhatsApp) · GST reports, Tally export, profit per order · leads
 pipeline, sector settings, content management · PWA.
 
-Decision to make before Phase 2: keep "no framework" or adopt a light one (ADR 0003 revisit).
+Framework decision: stay with no framework (ADR 0022).
 
 ## Phase 3 — several cities
 

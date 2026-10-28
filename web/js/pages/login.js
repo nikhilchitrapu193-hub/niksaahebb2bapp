@@ -18,6 +18,7 @@
 
 import { html, mount, $, on, withBusy } from '../core/ui.js';
 import { signIn, signUpRestaurant, signUpStaff, requestPasswordReset, resendConfirmation, loadCurrentUser, homeFor, loginFor } from '../core/auth.js';
+import { currentPosition } from '../core/geo.js';
 import { claimFirstAdmin, listCities, listSectors } from '../core/api.js';
 import { supabase } from '../core/supabase.js';
 import { ROLE_LABELS, webRoot } from '../core/config.js';
@@ -26,7 +27,10 @@ const root = $('#auth-root');
 const ROLE = root.dataset.role;             // 'restaurant' | 'admin' | 'delivery'
 const canRegister = ROLE === 'restaurant';
 const canSetup = ROLE === 'admin';          // first-admin setup, works only while no admin exists
-let mode = (canRegister && location.hash === '#register') ? 'register' : 'signin'; // 'signin' | 'register' | 'setup' | 'forgot'
+// #register opens the register tab; #register&sector=defence (from a sector page, migration 020) also pre-selects the sector.
+const hashParams = new URLSearchParams(location.hash.replace(/^#register[&?]?/, ''));
+const presetSector = location.hash.startsWith('#register') ? (hashParams.get('sector') ?? '') : '';
+let mode = (canRegister && location.hash.startsWith('#register')) ? 'register' : 'signin'; // 'signin' | 'register' | 'setup' | 'forgot'
 
 // Cities and sectors for the register form (public lists). Every active sector
 // with can_self_register (all of them unless switched off under Settings →
@@ -93,8 +97,8 @@ function view() {
           <label class="field"><span class="label">Phone</span><input class="input" name="phone" type="tel" autocomplete="tel" required maxlength="20"></label>
         </div>
         ${sectors.length > 1 ? html`<label class="field"><span class="label">Type of business</span><select class="select" name="sectorCode">
-          ${sectors.map((s) => html`<option value="${s.code}">${s.name}</option>`)}</select>
-          <span class="hint" id="sector-hint">${sectors[0]?.description ?? ''}</span></label>` : ''}
+          ${sectors.map((s) => html`<option value="${s.code}" ${s.code === presetSector ? 'selected' : ''}>${s.name}</option>`)}</select>
+          <span class="hint" id="sector-hint">${(sectors.find((s) => s.code === presetSector) ?? sectors[0])?.description ?? ''}</span></label>` : ''}
         <label class="field"><span class="label">Delivery address</span><textarea class="textarea" name="address" rows="2" required maxlength="300"></textarea></label>
         <div class="form-grid">
           <label class="field"><span class="label">City</span>${cities.length
@@ -102,6 +106,9 @@ function view() {
             : html`<input class="input" value="Visakhapatnam" disabled><input type="hidden" name="cityId" value="">`}</label>
           <label class="field"><span class="label">Pin code</span><input class="input" name="pincode" required pattern="[1-9][0-9]{5}" maxlength="6" inputmode="numeric" placeholder="530001"><span class="hint">Tells us which warehouse serves you</span></label>
         </div>
+        <div class="field"><span class="label">Map pin (optional)</span>
+          <div class="row-wrap"><button class="btn" type="button" id="use-location">📍 Use my location</button><span class="hint" id="pin-status">Helps the driver find your gate. Tap while standing at the delivery entrance.</span></div>
+          <input type="hidden" name="lat" value=""><input type="hidden" name="lng" value=""></div>
         <div class="form-grid">
           <label class="field"><span class="label">FSSAI licence no.</span><input class="input" name="fssai" maxlength="20" placeholder="14 digits"><span class="hint">Needed before approval</span></label>
           <label class="field"><span class="label">GSTIN (optional)</span><input class="input" name="gstin" maxlength="15"></label>
@@ -129,6 +136,18 @@ function view() {
 
 function render() { mount(root, view()); }
 function showError(message) { const el = $('#error', root); if (el) el.textContent = message; }
+
+// "Use my location" on the register form: stores lat/lng in hidden inputs → user metadata → restaurants.lat/lng.
+on(root, 'click', '#use-location', async (_e, button) => {
+  const status = $('#pin-status', root);
+  button.disabled = true;
+  try {
+    const { lat, lng } = await currentPosition();
+    $('[name="lat"]', root).value = lat; $('[name="lng"]', root).value = lng;
+    status.textContent = `Pinned at ${lat}, ${lng}.`;
+  } catch (error) { status.textContent = error.message; }
+  button.disabled = false;
+});
 
 on(root, 'click', '[data-mode]', (e, el) => { e.preventDefault(); mode = el.dataset.mode; render(); });
 on(root, 'change', '[name=sectorCode]', (_e, el) => {

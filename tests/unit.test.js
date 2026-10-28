@@ -87,9 +87,9 @@ test('can: super admin may do everything, others only what the matrix allows, cu
   assert.equal(can(customer, 'orders', 'view'), false);
   assert.equal(can(null, 'orders', 'view'), false);
   assert.deepEqual(visibleNav(picker), [{ href: '#orders', label: 'Orders' }]);
-  assert.equal(visibleNav(superAdmin).length, 12, 'every module with a nav entry (pricing 009, procurement 011, fulfilment 012, payments 015)');
+  assert.equal(visibleNav(superAdmin).length, 13, 'every module with a nav entry (pricing 009, procurement 011, fulfilment 012, payments 015, reports 019)');
   // Launch modes (014) hide modules on top of the matrix.
-  assert.equal(visibleNav(superAdmin, new Set(['pricing', 'inventory', 'procurement'])).length, 9);
+  assert.equal(visibleNav(superAdmin, new Set(['pricing', 'inventory', 'procurement'])).length, 10);
   assert.deepEqual(visibleNav(picker, new Set(['orders'])), [], 'hidden beats granted');
 });
 
@@ -493,4 +493,62 @@ test('minutesLeftToChange rounds up and bottoms out at 0', () => {
   assert.ok([3, 4].includes(custOrders.minutesLeftToChange(t(11), terms)), 'about 4 min left');
   assert.equal(custOrders.minutesLeftToChange(t(20), terms), 0);
   assert.ok([14, 15].includes(custOrders.minutesLeftToChange(t(0.5), terms)), 'nearly a full window');
+});
+
+
+// ---------- Notifications & support (migration 018) ---------------------------
+const notify = await import('../web/js/core/notify.js');
+
+test('renderTemplate fills known placeholders and leaves unknown ones visible (mirrors render_template in SQL)', () => {
+  assert.equal(notify.renderTemplate('Hi {customer}, order {order} total {total} {unknown} {', { customer: 'Spice Hut', order: 'ORD-1', total: '₹10' }),
+    'Hi Spice Hut, order ORD-1 total ₹10 {unknown} {');
+  assert.equal(notify.renderTemplate(null, {}), '');
+  assert.equal(notify.renderTemplate('{a}{a}', { a: 'x' }), 'xx');
+  assert.deepEqual(notify.templatePlaceholders('{order} and {total} and {order}'), ['order', 'total']);
+  assert.deepEqual(notify.unknownPlaceholders('{order} {totl}', ['order', 'total']), ['totl']);
+});
+
+test('phoneDigits normalises Indian numbers like phone_for_sms; tel / WhatsApp / map hrefs follow', () => {
+  assert.equal(notify.phoneDigits('+91 99000 11111'), '919900011111');
+  assert.equal(notify.phoneDigits('09900011111'), '919900011111');
+  assert.equal(notify.phoneDigits('9900011111'), '919900011111');
+  assert.equal(notify.phoneDigits('12345'), null);
+  assert.equal(notify.telHref('99000 11111'), 'tel:+919900011111');
+  assert.equal(notify.whatsappHref('9900011111', 'Hi there'), 'https://wa.me/919900011111?text=Hi%20there');
+  assert.equal(notify.whatsappHref('123'), null);
+  assert.equal(notify.mapHref(17.6868, 83.2185), 'https://www.google.com/maps?q=17.6868,83.2185');
+  assert.equal(notify.mapHref(null, null, '12 MG Road'), 'https://www.google.com/maps/search/12%20MG%20Road');
+  assert.equal(notify.mapHref(null, null, ''), null);
+  assert.equal(notify.contactLinks('12'), '', 'no usable number → nothing rendered');
+  assert.match(notify.contactLinks('9900011111', 'x').toString(), /tel:\+919900011111.*wa\.me\/919900011111\?text=x/);
+});
+
+
+// ---------- Reports & dashboard (migration 019) ------------------------------
+const reports = await import('../web/js/core/reports.js');
+const pageMod = await import('../web/js/pages/page.js');
+
+test('reportTotals sums the money and count columns; reportColumns differ for product groupings', () => {
+  const rows = [{ orders: 2, subtotal: 100, tax: 5, delivery_fee: 0, total: 105, cancelled: 1 }, { orders: 1, subtotal: 50.5, tax: 0, delivery_fee: 49, total: 99.5, cancelled: 0 }];
+  assert.deepEqual(reports.reportTotals(rows), { orders: 3, quantity: 0, subtotal: 150.5, tax: 5, delivery_fee: 49, total: 204.5, cancelled: 1 });
+  assert.deepEqual(reports.reportColumns('day').map((c) => c.key), ['label', 'orders', 'subtotal', 'tax', 'delivery_fee', 'total', 'cancelled']);
+  assert.deepEqual(reports.reportColumns('product').map((c) => c.key), ['label', 'orders', 'quantity', 'total', 'cancelled']);
+  assert.equal(reports.reportColumns('customer')[0].label, 'Customer');
+});
+
+test('barHeights scales to the peak and handles an all-zero series; date helpers', () => {
+  assert.deepEqual(reports.barHeights([0, 50, 100, 25]), [0, 50, 100, 25]);
+  assert.deepEqual(reports.barHeights([0, 0]), [0, 0]);
+  assert.deepEqual(reports.barHeights(['3', null], 60), [60, 0]);
+  const r = reports.lastNDays(7);
+  assert.match(r.from, /^\d{4}-\d{2}-\d{2}$/); assert.ok(r.from < r.to);
+  assert.equal(reports.shortDate('2026-10-26'), '26 Oct');
+});
+
+test('renderBody turns "## " lines into headings and blank lines into paragraphs, escaping HTML', () => {
+  const out = pageMod.renderBody('Intro <b>x</b>\n\n## Heading\n\nPara one.\nStill one.').map((h) => h.toString());
+  assert.equal(out.length, 3);
+  assert.match(out[0], /^<p>Intro &lt;b&gt;x&lt;\/b&gt;<\/p>$/);
+  assert.equal(out[1], '<h2>Heading</h2>');
+  assert.match(out[2], /^<p>Para one\.\nStill one\.<\/p>$/);
 });

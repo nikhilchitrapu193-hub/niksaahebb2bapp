@@ -74,6 +74,18 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
     `sectors.is_active`) decides what the admin menu shows (`web/js/core/launch.js`) and what the database enforces
     (a sector that is off cannot order; simple stock never reserves). The permission matrix still applies on top. New
     screens for pricing / inventory / procurement must sit under those modules so the switches reach them.
+20. **Messages are queued, never sent from the app.** Anything a customer should hear about goes through
+    `queue_notification()` into the `notifications` outbox (a trigger or a database function queues it); only the
+    `send-notifications` Edge Function talks to a provider, behind its one `send(row)` interface. New events = a row in
+    `NOTIFICATION_EVENTS` (`config.js`), the `notification_settings.event` check, a seeded default template, and the
+    trigger / function that queues it. Template rendering is `render_template()` ↔ `renderTemplate()` (`notify.js`)
+    with shared test strings. Phone numbers normalise through `phone_for_sms()` ↔ `phoneDigits()`.
+21. **The account is the commercial unit; outlets and members hang off it.** Terms, credit, balance and statements
+    belong to the `restaurants` row; `outlets` are delivery points and `customer_users` are logins with a role
+    (migration 020). Anything customer-side keys on `my_restaurant_id()` (owner or member) — never on `owner_id` —
+    and an order carries `outlet_id`. Approval before dispatch is `orders.approval_status`, not an order status:
+    a held order is a placed order the kitchen may not confirm. New order paths go through `place_order_core`
+    with `restaurant_for_outlet()`; never copy the core.
 
 ## Where things live
 ```

@@ -44,12 +44,13 @@ export function photoUrl(path) {
 
 // ---------- Orders (restaurant + delivery + admin) ---------------------------
 
-const ORDER_SELECT = '*, order_items(*)';
+const ORDER_SELECT = '*, order_items(*), outlets(name)';   // outlets: migration 020
 
 /** Filters are optional: { status, cityId, sectorCode }. RLS limits rows to the caller's scope. */
-export async function listOrders({ status, cityId, sectorCode } = {}) {
+export async function listOrders({ status, cityId, sectorCode, approvalStatus } = {}) {
   let query = supabase.from('orders').select(ORDER_SELECT).order('created_at', { ascending: false }).limit(200);
   if (status) query = query.eq('status', status);
+  if (approvalStatus) query = query.eq('approval_status', approvalStatus);
   if (cityId) query = query.eq('city_id', cityId);
   if (sectorCode) query = query.eq('sector_code', sectorCode);
   return unwrap(await query);
@@ -64,7 +65,7 @@ export async function getOrderHistory(orderId) {
  * items: [{ product_id, quantity }]. Returns { id, order_number, total_amount, delivery_fee }.
  * options: { notes, deliveryDate (YYYY-MM-DD), slot, paymentMethod, poReference }
  */
-export async function placeOrder(items, { notes, deliveryDate, slot = 'morning', paymentMethod = 'cod', poReference } = {}) {
+export async function placeOrder(items, { notes, deliveryDate, slot = 'morning', paymentMethod = 'cod', poReference, outletId } = {}) {
   return unwrap(await supabase.rpc('place_order', {
     p_items: items,
     p_notes: notes || null,
@@ -72,6 +73,7 @@ export async function placeOrder(items, { notes, deliveryDate, slot = 'morning',
     p_delivery_slot: slot,
     p_payment_method: paymentMethod,
     p_po_reference: poReference || null,
+    p_outlet_id: outletId || null,   // migration 020: null = the member's outlet, else the primary
   }));
 }
 
@@ -398,6 +400,7 @@ export async function saveCustomerTerms(id, terms) {
     delivery_fee_below_mov: orNull(terms.delivery_fee_below_mov),
     credit_days: orNull(terms.credit_days),
     credit_limit: orNull(terms.credit_limit),
+    needs_order_approval: terms.needs_order_approval === 'true' ? true : terms.needs_order_approval === 'false' ? false : null,   // migration 020
   }).eq('id', id));
 }
 
@@ -466,8 +469,9 @@ export async function setTeamMember(userId, { role, isActive, teamRole, cityId, 
   }));
 }
 
-export async function getDashboardStats() {
-  return unwrap(await supabase.rpc('admin_dashboard_stats'));
+/** Dashboard numbers, optionally narrowed to one city (migration 019; null = whole scope). */
+export async function getDashboardStats(cityId = null) {
+  return unwrap(await supabase.rpc('admin_dashboard_stats', { p_city_id: cityId || null }));
 }
 
 // ---------- Pricing engine (migration 009) -----------------------------------
@@ -895,10 +899,11 @@ export async function podPhotoUrl(path, seconds = 600) {
 // ---------- Orders + (migration 013) -----------------------------------------
 
 /** Staff place an order for a customer (orders:edit). Same shape as placeOrder plus restaurantId. */
-export async function placeOrderFor(restaurantId, items, { notes, deliveryDate, slot = 'morning', paymentMethod = 'cod', poReference } = {}) {
+export async function placeOrderFor(restaurantId, items, { notes, deliveryDate, slot = 'morning', paymentMethod = 'cod', poReference, outletId } = {}) {
   return unwrap(await supabase.rpc('place_order_for', {
     p_restaurant_id: restaurantId, p_items: items, p_notes: notes || null,
     p_delivery_date: deliveryDate || null, p_delivery_slot: slot, p_payment_method: paymentMethod, p_po_reference: poReference || null,
+    p_outlet_id: outletId || null,
   }));
 }
 /** Rebuild an order's lines before it is packed. Returns { total_amount, delivery_fee }. */
@@ -1036,4 +1041,223 @@ export async function createOnlinePaymentOrder(amount) {
   }
   if (data?.error) throw new Error(data.error);
   return data;
+}
+
+// ---------- Notifications, support & help (migration 018) --------------------
+
+/** Settings → Notifications: one row per event (sector_code null = default) plus per-sector overrides. */
+export async function listNotificationSettings() {
+  return unwrap(await supabase.from('notification_settings').select('*').order('event').order('sector_code', { nullsFirst: true }));
+}
+
+/** Insert or update one template row: { id?, event, sector_code, sms_enabled, email_enabled, sms_template, email_subject, email_template }. */
+export async function saveNotificationSetting(row) {
+  const values = { event: row.event, sector_code: row.sector_code || null, sms_enabled: Boolean(row.sms_enabled), email_enabled: Boolean(row.email_enabled),
+    sms_template: row.sms_template ?? '', email_subject: row.email_subject ?? '', email_template: row.email_template ?? '', updated_at: new Date().toISOString() };
+  if (row.id) return unwrap(await supabase.from('notification_settings').update(values).eq('id', row.id).select().single());
+  return unwrap(await supabase.from('notification_settings').insert(values).select().single());
+}
+
+export async function deleteNotificationSetting(id) {
+  unwrap(await supabase.from('notification_settings').delete().eq('id', id));
+}
+
+/** The message log. Filters: { status, channel, restaurantId, orderId, limit }. RLS scopes rows. */
+export async function listNotifications({ status, channel, restaurantId, orderId, limit = 200 } = {}) {
+  let query = supabase.from('notifications').select('*, restaurants(name)').order('created_at', { ascending: false }).limit(limit);
+  if (status) query = query.eq('status', status);
+  if (channel) query = query.eq('channel', channel);
+  if (restaurantId) query = query.eq('restaurant_id', restaurantId);
+  if (orderId) query = query.eq('order_id', orderId);
+  return unwrap(await query);
+}
+
+/** Re-queue a failed / skipped message (orders:edit or settings:edit). */
+export async function retryNotification(id) {
+  unwrap(await supabase.rpc('retry_notification', { p_id: id }));
+}
+
+/**
+ * "Send now": runs the send-notifications Edge Function (queue reminders, then drain the outbox).
+ * Returns { reminders_queued, claimed, sent, failed, skipped } or, with dryRun, the queue size and providers.
+ */
+export async function sendNotificationsNow({ limit = 50, dryRun = false } = {}) {
+  const { data, error } = await supabase.functions.invoke('send-notifications', { body: { limit, dry_run: dryRun } });
+  if (error) {
+    let message = error.message;
+    try { message = (await error.context?.json())?.error ?? message; } catch { /* keep default */ }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+/** Phone / WhatsApp / email we publish for support: { phone, whatsapp, email, name }. Public. */
+export async function getSupportChannels() {
+  return unwrap(await supabase.rpc('support_channels'));
+}
+
+// ----- Support tickets -----
+
+/** Filters: { status, restaurantId, assignedTo, limit }. A customer sees only their own (RLS). */
+export async function listTickets({ status, restaurantId, assignedTo, limit = 200 } = {}) {
+  let query = supabase.from('support_tickets').select('*, restaurants(name, phone)').order('last_message_at', { ascending: false }).limit(limit);
+  if (status) query = status === 'active' ? query.in('status', ['open', 'waiting_customer']) : query.eq('status', status);
+  if (restaurantId) query = query.eq('restaurant_id', restaurantId);
+  if (assignedTo) query = query.eq('assigned_to', assignedTo);
+  return unwrap(await query);
+}
+
+export async function listTicketMessages(ticketId) {
+  return unwrap(await supabase.from('ticket_messages').select('*, profiles:author_id(full_name)').eq('ticket_id', ticketId).order('created_at'));
+}
+
+/** Returns { id, ticket_number }. Staff pass restaurantId to open one on a customer's behalf. */
+export async function openTicket({ subject, body, orderId, restaurantId, priority = 'normal' }) {
+  return unwrap(await supabase.rpc('open_ticket', { p_subject: subject, p_body: body, p_order_id: orderId || null, p_restaurant_id: restaurantId || null, p_priority: priority }));
+}
+
+export async function replyTicket(ticketId, body) {
+  unwrap(await supabase.rpc('reply_ticket', { p_ticket_id: ticketId, p_body: body }));
+}
+
+/** Staff: { status, assignedTo, priority } (any subset). A customer may only pass status 'closed'. */
+export async function setTicket(ticketId, { status, assignedTo, priority } = {}) {
+  unwrap(await supabase.rpc('set_ticket', { p_ticket_id: ticketId, p_status: status ?? null, p_assigned_to: assignedTo ?? null, p_priority: priority ?? null }));
+}
+
+// ----- Help centre -----
+
+/** Published articles for the caller (RLS); admins also see drafts. `audience` narrows client-side. */
+export async function listHelpArticles(audience) {
+  const rows = unwrap(await supabase.from('help_articles').select('*').order('sort_order').order('title'));
+  return audience ? rows.filter((a) => a.audience === audience || a.audience === 'all' || a.audience === 'public') : rows;
+}
+
+/** settings:edit. { id?, slug, title, body, audience, sort_order, is_published } */
+export async function saveHelpArticle(a) {
+  const values = { slug: a.slug, title: a.title, body: a.body, audience: a.audience, sort_order: Number(a.sort_order) || 0,
+    is_published: Boolean(a.is_published), updated_at: new Date().toISOString() };
+  if (a.id) return unwrap(await supabase.from('help_articles').update(values).eq('id', a.id).select().single());
+  return unwrap(await supabase.from('help_articles').insert(values).select().single());
+}
+
+export async function deleteHelpArticle(id) {
+  unwrap(await supabase.from('help_articles').delete().eq('id', id));
+}
+
+// ----- Map pin -----
+
+/** Driver: { order_id: { lat, lng } } for the caller's active deliveries that have a pin (delivery_pins). */
+export async function getDeliveryPins() {
+  const rows = unwrap(await supabase.rpc('delivery_pins'));
+  return Object.fromEntries((rows ?? []).map((r) => [r.order_id, { lat: r.lat, lng: r.lng }]));
+}
+
+/** The customer drops their own delivery pin (update_my_location). lat/lng null clears it. */
+export async function updateMyLocation(lat, lng) {
+  unwrap(await supabase.rpc('update_my_location', { p_lat: lat == null ? null : Number(lat), p_lng: lng == null ? null : Number(lng) }));
+}
+
+// ---------- Reports, documents, content pages (migration 019) ---------------------
+
+/** sales_report(): rows { key, label, orders, quantity, subtotal, tax, delivery_fee, total, cancelled }. reports:view. */
+export async function getSalesReport({ from, to, groupBy = 'day', cityId = null }) {
+  return unwrap(await supabase.rpc('sales_report', { p_from: from, p_to: to, p_group_by: groupBy, p_city_id: cityId || null }));
+}
+
+/** receivables_trend(): one row per week { week_end, invoiced, collected, open, overdue }, oldest first. */
+export async function getReceivablesTrend(weeks = 12, cityId = null) {
+  return unwrap(await supabase.rpc('receivables_trend', { p_weeks: weeks, p_city_id: cityId || null }));
+}
+
+/**
+ * Upload a customer document (FSSAI / GST) to <restaurantId>/<kind>.<ext> in the private bucket and record the
+ * path (set_customer_document). The customer passes their own restaurant id; staff any in scope.
+ */
+export async function uploadCustomerDocument(restaurantId, kind, file) {
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' }[file.type];
+  if (!extension) throw new Error('Please choose a PDF, JPG, PNG or WebP file.');
+  if (file.size > 8 * 1024 * 1024) throw new Error('File is larger than 8 MB.');
+  const path = `${restaurantId}/${kind}-${Date.now()}.${extension}`;
+  unwrap(await supabase.storage.from(config.documentBucket).upload(path, file, { contentType: file.type, upsert: true }));
+  unwrap(await supabase.rpc('set_customer_document', { p_restaurant_id: restaurantId, p_kind: kind, p_path: path }));
+  return path;
+}
+
+export async function customerDocumentUrl(path, seconds = 600) {
+  if (!path) return null;
+  return unwrap(await supabase.storage.from(config.documentBucket).createSignedUrl(path, seconds)).signedUrl;
+}
+
+/** Public pages. Anon sees published ones; admins also drafts. */
+export async function listContentPages() {
+  return unwrap(await supabase.from('content_pages').select('*').order('sort_order').order('title'));
+}
+
+export async function getContentPage(slug) {
+  return unwrap(await supabase.from('content_pages').select('*').eq('slug', slug).maybeSingle());
+}
+
+/** settings:edit. { slug, title, body, is_published, show_in_footer, sort_order } — upsert on slug. */
+export async function saveContentPage(page) {
+  const values = { slug: page.slug, title: page.title, body: page.body, is_published: Boolean(page.is_published),
+    show_in_footer: Boolean(page.show_in_footer), sort_order: Number(page.sort_order) || 0, updated_at: new Date().toISOString() };
+  return unwrap(await supabase.from('content_pages').upsert(values, { onConflict: 'slug' }).select().single());
+}
+
+export async function deleteContentPage(slug) {
+  unwrap(await supabase.from('content_pages').delete().eq('slug', slug));
+}
+
+// ---------- Customer organisation (migration 020) ------------------------------------
+
+/** Outlets of the signed-in customer (RLS: own account) or, for staff, of one customer. */
+export async function listOutlets(restaurantId) {
+  let query = supabase.from('outlets').select('*').order('is_primary', { ascending: false }).order('name');
+  if (restaurantId) query = query.eq('restaurant_id', restaurantId);
+  return unwrap(await query);
+}
+
+/** Owner (own account) or staff (customers:edit): add / edit an outlet. Returns the outlet id. */
+export async function saveOutlet({ id, restaurantId, name, address, phone, cityId, pincode, lat, lng, defaultSlot = 'morning', isActive = true, warehouseId }) {
+  return unwrap(await supabase.rpc('save_outlet', {
+    p_id: id || null, p_restaurant_id: restaurantId || null, p_name: name, p_address: address, p_phone: phone || null,
+    p_city_id: cityId || null, p_pincode: pincode || null, p_lat: lat ?? null, p_lng: lng ?? null,
+    p_default_slot: defaultSlot, p_is_active: isActive, p_warehouse_id: warehouseId || null,
+  }));
+}
+
+/** Members of my account: [{ user_id, full_name, phone, role, outlet_id, outlet_name, is_active, created_at }]. */
+export async function listMyCustomerUsers() {
+  return unwrap(await supabase.rpc('my_customer_users'));
+}
+
+/** Staff: members of one customer account (customers:view). */
+export async function listCustomerUsersOf(restaurantId) {
+  return unwrap(await supabase.rpc('customer_users_of', { p_restaurant_id: restaurantId }));
+}
+
+/** Owner or staff: change a member's role / outlet / active flag (any subset). */
+export async function setCustomerUser(userId, { role, outletId, isActive } = {}) {
+  unwrap(await supabase.rpc('set_customer_user', { p_user_id: userId, p_role: role ?? null, p_outlet_id: outletId ?? null, p_is_active: isActive ?? null }));
+}
+
+/** Invite a member by email (customer-users Edge Function). role: 'outlet_manager' | 'approver'. */
+export async function inviteCustomerUser({ restaurantId, email, fullName, phone, role, outletId }) {
+  const { data, error } = await supabase.functions.invoke('customer-users', {
+    body: { action: 'invite', restaurant_id: restaurantId, email, full_name: fullName, phone, role, outlet_id: outletId || null, redirect_to: `${webRoot}reset.html?role=restaurant` },
+  });
+  if (error) {
+    let message = error.message;
+    try { message = (await error.context?.json())?.error ?? message; } catch { /* keep default */ }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+/** Owner / approver: approve (true) or reject (false) an order held for approval. */
+export async function approveOrder(orderId, approve, note) {
+  unwrap(await supabase.rpc('approve_order', { p_order_id: orderId, p_approve: approve, p_note: note || null }));
 }

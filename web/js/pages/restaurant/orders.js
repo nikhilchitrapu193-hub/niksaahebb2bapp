@@ -9,8 +9,16 @@
 import { html, mount, on, $, formatINR, formatQty, formatDateTime, formatDate, statusBadge, openModal,
          confirmDialog, reportError, toast, STATUS_LABELS } from '../../core/ui.js';
 import { listOrders, getOrderHistory, cancelOrder, editOrder, reportIssue } from '../../core/api.js';
+
+/** "Awaiting approval" / "Rejected" badge for a held order (migration 020); '' otherwise. */
+export function approvalBadge(order) {
+  const a = APPROVAL_STATUSES[order.approval_status];
+  return a && order.approval_status !== 'not_required' && order.approval_status !== 'approved'
+    ? html`<span class="badge ${a.badge}">${a.label}</span>` : '';
+}
 import { setQty, getQty } from './cart.js';
-import { DELIVERY_SLOTS, PAYMENT_METHODS, ISSUE_KINDS, webRoot } from '../../core/config.js';
+import { DELIVERY_SLOTS, PAYMENT_METHODS, ISSUE_KINDS, APPROVAL_STATUSES, webRoot } from '../../core/config.js';
+import { approveOrder } from '../../core/api.js';
 
 /** True while the customer may still change / cancel their own placed order (migration 017). */
 export function canCustomerChange(order, terms) {
@@ -41,8 +49,8 @@ export async function renderOrders(container, state) {
     ${orders.map((o) => html`
       <article class="card order-card clickable" data-order="${o.id}" tabindex="0" style="cursor:pointer">
         <div class="spread">
-          <div><strong>${o.order_number}</strong> <span class="muted small">· ${formatDateTime(o.created_at)}</span></div>
-          ${statusBadge(o.status)}
+          <div><strong>${o.order_number}</strong> <span class="muted small">· ${formatDateTime(o.created_at)}${outletName(o, state) ? html` · ${outletName(o, state)}` : ''}</span></div>
+          <span>${approvalBadge(o)} ${statusBadge(o.status)}</span>
         </div>
         <div class="spread small" style="margin-top:var(--space-2)">
           <span class="muted">${o.order_items.length} item${o.order_items.length === 1 ? '' : 's'} · ${DELIVERY_SLOTS[o.delivery_slot]?.label ?? ''} ${formatDate(o.delivery_date)} · ${PAYMENT_METHODS[o.payment_method]?.label ?? ''}${o.payment_status === 'paid' ? ' · Paid' : ''}</span>
@@ -54,6 +62,13 @@ export async function renderOrders(container, state) {
     const order = orders.find((o) => o.id === el.dataset.order);
     showOrder(order, state, () => renderOrders(container, state));
   });
+}
+
+/** The outlet an order was placed for, when the account has more than one (migration 020). */
+function outletName(order, state) {
+  const outlets = state.terms?.outlets ?? [];
+  if (outlets.length < 2 || !order.outlet_id) return '';
+  return outlets.find((o) => o.id === order.outlet_id)?.name ?? '';
 }
 
 /** The one-line notice above the buttons: time left, "call us" when spent, or "no self-edit" when the sector is 0. */
@@ -75,7 +90,10 @@ async function showOrder(order, state, refresh) {
   try {
     const history = await getOrderHistory(order.id);
     mount(el, html`
-      <div class="spread"><span class="muted small">${formatDateTime(order.created_at)}</span>${statusBadge(order.status)}</div>
+      <div class="spread"><span class="muted small">${formatDateTime(order.created_at)}${outletName(order, state) ? html` · ${outletName(order, state)}` : ''}</span><span>${approvalBadge(order)} ${statusBadge(order.status)}</span></div>
+      ${order.approval_status === 'pending' ? html`<div class="banner ${state.terms?.can_approve ? 'info' : 'warn'}" style="margin-top:var(--space-3)">
+        ${state.terms?.can_approve ? html`This order is waiting for your approval. <button class="btn primary small" data-approve="yes">Approve</button> <button class="btn danger small" data-approve="no">Reject</button>`
+          : 'Waiting for the account owner / approver to approve this order before the kitchen picks it.'}</div>` : ''}
       <div class="table-wrap" style="margin:var(--space-4) 0"><table class="table">
         <thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Price</th><th class="right">Total</th></tr></thead>
         <tbody>${order.order_items.map((i) => html`<tr>
@@ -99,6 +117,7 @@ async function showOrder(order, state, refresh) {
         ${canCustomerChange(order, state.terms) ? html`<button class="btn" data-edit>Edit order</button>` : ''}
         ${canCustomerChange(order, state.terms) ? html`<button class="btn danger" data-cancel>Cancel order</button>` : ''}
         ${order.status === 'delivered' ? html`<button class="btn" data-issue>Report an issue</button>` : ''}
+        <a class="btn ghost" href="#help">Need help? Raise a ticket</a>
         <a class="btn" target="_blank" rel="noopener" href="${webRoot}invoice.html?order=${order.id}">Invoice</a>
         <button class="btn primary" data-reorder>Order again</button>
       </div>`);
@@ -114,6 +133,13 @@ async function showOrder(order, state, refresh) {
   });
   on(el, 'click', '[data-edit]', () => editDialog(order, close, refresh));
   on(el, 'click', '[data-issue]', () => issueDialog(order, close, refresh));
+  on(el, 'click', '[data-approve]', async (_e, b) => {
+    const yes = b.dataset.approve === 'yes';
+    const note = yes ? '' : window.prompt('Reason for rejecting (optional)') ?? null;
+    if (!yes && note === null) return;
+    try { await approveOrder(order.id, yes, note); toast(yes ? 'Order approved' : 'Order rejected', yes ? 'success' : 'info'); close(); await refresh(); }
+    catch (error) { reportError(error); }
+  });
   on(el, 'click', '[data-reorder]', () => {
     let added = 0;
     for (const item of order.order_items) {

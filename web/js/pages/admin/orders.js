@@ -14,6 +14,8 @@ import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers,
 import { receiptDialog } from './payments.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, webRoot } from '../../core/config.js';
 import { can } from '../../core/permissions.js';
+import { contactLinks } from '../../core/notify.js';
+import { listOutlets } from '../../core/api.js';
 import { downloadCsv } from '../../core/csv.js';
 
 const NEXT_STATUS = {
@@ -24,7 +26,7 @@ const NEXT_STATUS = {
 };
 
 export async function renderOrders(container, me) {
-  const filter = { status: '', cityId: '', sectorCode: '' };
+  const filter = { status: '', cityId: '', sectorCode: '', approvalStatus: '' };
   const [drivers, cities, sectors] = await Promise.all([
     can(me, 'team', 'view') ? listUsers().then((u) => u.filter((x) => x.role === 'delivery' && x.is_active)) : Promise.resolve([]),
     listCities(),
@@ -35,11 +37,12 @@ export async function renderOrders(container, me) {
   let orders = [];
 
   async function draw() {
-    orders = await listOrders({ status: filter.status || undefined, cityId: filter.cityId || undefined, sectorCode: filter.sectorCode || undefined });
+    orders = await listOrders({ status: filter.status || undefined, cityId: filter.cityId || undefined, sectorCode: filter.sectorCode || undefined, approvalStatus: filter.approvalStatus || undefined });
     mount(container, html`
       <div class="page-head"><div><h1>Orders</h1><p>${orders.length} shown</p></div>
         <div class="row">
           <a class="btn" href="#issues">Issues &amp; credits</a>
+          <a class="btn" href="#tickets">Support tickets</a>
           ${can(me, 'orders', 'edit') ? html`<button class="btn" id="new-order">New order for a customer</button>` : ''}
           ${can(me, 'orders', 'export') ? html`<button class="btn" id="export">Export CSV</button>` : ''}
         </div></div>
@@ -57,6 +60,12 @@ export async function renderOrders(container, me) {
           <option value="">All sectors</option>
           ${sectors.map((s) => html`<option value="${s.code}" ${s.code === filter.sectorCode ? 'selected' : ''}>${s.name}</option>`)}
         </select>
+        <select class="select" data-filter="approvalStatus" aria-label="Filter by customer approval">
+          <option value="">Any approval state</option>
+          <option value="pending" ${filter.approvalStatus === 'pending' ? 'selected' : ''}>Awaiting customer approval</option>
+          <option value="approved" ${filter.approvalStatus === 'approved' ? 'selected' : ''}>Approved by customer</option>
+          <option value="rejected" ${filter.approvalStatus === 'rejected' ? 'selected' : ''}>Rejected by customer</option>
+        </select>
       </div>
       <div class="card"><div class="table-wrap"><table class="table">
         <thead><tr><th>Order</th><th>Customer</th><th>Deliver</th><th class="right">Total</th><th>Payment</th><th>Status</th></tr></thead>
@@ -68,7 +77,7 @@ export async function renderOrders(container, me) {
               <td class="nowrap">${formatDate(o.delivery_date)}<div class="muted tiny">${DELIVERY_SLOTS[o.delivery_slot]?.label ?? ''}</div></td>
               <td class="right money">${formatINR(o.total_amount)}</td>
               <td><span class="badge ${o.payment_status === 'paid' ? 'approved' : 'pending'}">${o.payment_status === 'paid' ? 'Paid' : PAYMENT_METHODS[o.payment_method]?.label ?? 'Unpaid'}</span></td>
-              <td>${statusBadge(o.status)}</td></tr>`)}
+              <td>${o.approval_status === 'pending' ? html`<span class="badge pending" title="The customer's approver has not signed this off yet">Awaiting approval</span> ` : ''}${statusBadge(o.status)}</td></tr>`)}
         </tbody></table></div></div>`);
 
     container.querySelectorAll('[data-filter]').forEach((select) => {
@@ -107,15 +116,18 @@ export async function renderOrders(container, me) {
 async function newOrderDialog(onPlaced) {
   const { el, close } = openModal(html`<div class="loading"><span class="spinner"></span> Loading…</div>`, { title: 'New order for a customer', wide: true });
   try {
-    const [restaurants, products] = await Promise.all([listRestaurants(), listProducts()]);
+    const [restaurants, products, outlets] = await Promise.all([listRestaurants(), listProducts(), listOutlets().catch(() => [])]);
     const approved = restaurants.filter((r) => r.status === 'approved');
+    let chosenRestaurant = '';
     const active = products.filter((p) => p.is_active && !p.parent_product_id);
     const lines = [{ product_id: '', quantity: '' }];
     const draw = () => {
       mount(el, html`
         <form id="po-for" class="stack" novalidate>
           <div class="form-grid">
-            <label class="field"><span class="label">Customer</span><select class="select" name="restaurant" required><option value="">Choose a customer…</option>${approved.map((r) => html`<option value="${r.id}">${r.name}</option>`)}</select></label>
+            <label class="field"><span class="label">Customer</span><select class="select" name="restaurant" required><option value="">Choose a customer…</option>${approved.map((r) => html`<option value="${r.id}" ${r.id === chosenRestaurant ? 'selected' : ''}>${r.name}</option>`)}</select></label>
+            ${outlets.filter((o) => o.restaurant_id === chosenRestaurant && o.is_active).length > 1 ? html`<label class="field"><span class="label">Outlet</span><select class="select" name="outlet">
+              ${outlets.filter((o) => o.restaurant_id === chosenRestaurant && o.is_active).map((o) => html`<option value="${o.id}">${o.name} — ${o.address}</option>`)}</select></label>` : ''}
             <label class="field"><span class="label">Payment</span><select class="select" name="payment">${Object.entries(PAYMENT_METHODS).map(([k, v]) => html`<option value="${k}">${v.label}</option>`)}</select></label>
             <label class="field"><span class="label">Deliver on</span><input class="input" name="date" type="date"></label>
             <label class="field"><span class="label">Slot</span><select class="select" name="slot">${Object.entries(DELIVERY_SLOTS).map(([k, v]) => html`<option value="${k}" ${k === 'morning' ? 'selected' : ''}>${v.label}</option>`)}</select></label>
@@ -132,6 +144,7 @@ async function newOrderDialog(onPlaced) {
         </form>`);
     };
     on(el, 'change', '[data-field]', (_e, input) => { lines[Number(input.closest('[data-line]').dataset.line)][input.dataset.field] = input.value; });
+    on(el, 'change', '[name="restaurant"]', (_e, sel) => { chosenRestaurant = sel.value; draw(); });
     on(el, 'click', '#add-line', () => { lines.push({ product_id: '', quantity: '' }); draw(); });
     on(el, 'click', '[data-remove]', (_e, b) => { lines.splice(Number(b.dataset.remove), 1); draw(); });
     draw();
@@ -144,6 +157,7 @@ async function newOrderDialog(onPlaced) {
       try {
         const r = await withBusy($('button[type="submit"]', form), () => placeOrderFor(form.elements.restaurant.value, items, {
           deliveryDate: form.elements.date.value || null, slot: form.elements.slot.value, paymentMethod: form.elements.payment.value, poReference: form.elements.po.value,
+          outletId: form.elements.outlet?.value || null,
         }));
         toast(`${r.order_number} placed (${formatINR(r.total_amount)})`, 'success'); close(); onPlaced();
       } catch (error) { $('#po-for-error', el).textContent = error.message; }
@@ -165,10 +179,12 @@ async function showOrder(order, drivers, me, refresh) {
 
     mount(el, html`
       <div class="spread">${statusBadge(order.status)}<span class="muted small">${formatDateTime(order.created_at)}</span></div>
+      ${order.approval_status === 'pending' ? html`<div class="banner warn" style="margin-top:var(--space-3)">Awaiting the customer's approval (their owner / approver signs off in their app). It can be cancelled but not confirmed until then.</div>` : ''}
+      ${order.approval_status === 'rejected' ? html`<div class="banner info" style="margin-top:var(--space-3)">Rejected by the customer's approver.</div>` : ''}
       <dl class="kv" style="margin:var(--space-4) 0">
-        <dt>Restaurant</dt><dd>${order.restaurant_name}</dd>
+        <dt>Restaurant</dt><dd>${order.restaurant_name}${order.outlets?.name ? html` · <span class="muted">${order.outlets.name}</span>` : ''}</dd>
         <dt>Address</dt><dd>${order.delivery_address || '—'}</dd>
-        <dt>Phone</dt><dd>${order.contact_phone || '—'}</dd>
+        <dt>Phone</dt><dd>${order.contact_phone || '—'}${contactLinks(order.contact_phone, `Hello, about your order ${order.order_number}`)}</dd>
         <dt>Delivery</dt><dd>${DELIVERY_SLOTS[order.delivery_slot]?.label ?? '—'} (${DELIVERY_SLOTS[order.delivery_slot]?.time ?? ''}), ${formatDate(order.delivery_date)}</dd>
         <dt>Payment</dt><dd>${PAYMENT_METHODS[order.payment_method]?.label ?? '—'} ·
           ${order.payment_status === 'paid' ? html`Paid ${formatDateTime(order.paid_at)}` : html`<strong>Unpaid</strong>${order.due_date ? html` · due ${formatDate(order.due_date)}` : ''}`}

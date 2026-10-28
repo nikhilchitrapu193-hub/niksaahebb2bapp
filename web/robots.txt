@@ -1,0 +1,11 @@
+# Fresh Supply — public site. The apps (admin/, restaurant/, delivery/) need a login and are not for indexing.
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /restaurant/
+Disallow: /delivery/
+Disallow: /invoice.html
+Disallow: /statement.html
+Disallow: /po.html
+Disallow: /reset.html
+Sitemap: https://YOUR-DOMAIN/sitemap.xml

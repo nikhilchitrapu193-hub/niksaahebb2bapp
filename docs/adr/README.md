@@ -25,3 +25,7 @@ Short notes on *why* we chose something. Add a new numbered file for each signif
 | [0019](0019-open-item-receivables.md) | Receivables are open items computed from receipts and allocations; every paid order has a receipt |
 | [0020](0020-customer-access-never-stuck.md) | A sign-up never dead-ends on an email: self-service resend plus staff-side backups |
 | [0021](0021-customer-edit-window.md) | A short, per-sector window for customer self-edit and cancel |
+| [0022](0022-no-framework-for-phase-2.md) | Phase 2 stays with no framework and no build step (ADR 0003 revisited) |
+| [0023](0023-notification-outbox-and-providers.md) | Notifications are an outbox behind one provider interface; no phone-OTP login |
+| [0024](0024-reports-computed-not-stored.md) | Reports are computed on request, not stored as aggregates |
+| [0025](0025-customer-organisation.md) | One account, many outlets and members; approval as an order flag, not a status |

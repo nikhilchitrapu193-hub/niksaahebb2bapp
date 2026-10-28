@@ -1,6 +1,7 @@
 // =============================================================================
 // settings.js — company details printed on every invoice, plus the tab strip
-// that leads to the other settings screens (launch, locations, sectors, slots, roles).
+// that leads to the other settings screens (launch, locations, sectors, slots,
+// notifications, help centre, roles).
 // =============================================================================
 
 import { html, mount, on, $, withBusy, toast, reportError } from '../../core/ui.js';
@@ -15,6 +16,9 @@ export function settingsTabs(me, active) {
     { href: '#locations', label: 'Cities & warehouses', show: true },
     { href: '#sectors', label: 'Sectors & terms', show: true },
     { href: '#slots', label: 'Delivery slots', show: true },
+    { href: '#notifications', label: 'Notifications', show: true },
+    { href: '#help-centre', label: 'Help centre', show: true },
+    { href: '#website', label: 'Website', show: true },
     { href: '#roles', label: 'Roles & permissions', show: can(me, 'team', 'view') },
   ];
   return html`<div class="tabs" role="tablist">

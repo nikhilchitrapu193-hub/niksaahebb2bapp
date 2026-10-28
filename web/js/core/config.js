@@ -24,6 +24,8 @@ export const config = Object.freeze({
   billBucket: 'purchase-bills',
   // Private bucket for delivery proof-of-delivery photos (migration 012)
   podBucket: 'delivery-pod',
+  // Private bucket for customer FSSAI / GST documents (migration 019)
+  documentBucket: 'customer-documents',
 
   // How often the delivery screen refreshes its list, in milliseconds
   deliveryPollMs: 30_000,
@@ -113,7 +115,7 @@ export const MODULES = Object.freeze({
   team:      { label: 'Team', nav: '#team' },
   settings:  { label: 'Settings', nav: '#settings' },
   audit:     { label: 'Audit log', nav: '#audit' },
-  reports:   { label: 'Reports', nav: null },
+  reports:   { label: 'Reports', nav: '#reports' },
   pricing:   { label: 'Pricing', nav: '#pricing' },
   procurement: { label: 'Procurement', nav: '#procurement' },
   fulfilment: { label: 'Fulfilment', nav: '#fulfilment' },
@@ -187,6 +189,79 @@ export const ISSUE_STATUSES = Object.freeze({
   rejected: { label: 'Declined', badge: 'cancelled' },
 });
 
+
+/** Reports (migration 019): how sales_report() can group. */
+export const REPORT_GROUPINGS = Object.freeze({
+  day:      { label: 'By day' },
+  city:     { label: 'By city' },
+  sector:   { label: 'By sector' },
+  customer: { label: 'By customer' },
+  product:  { label: 'By product' },
+  category: { label: 'By category' },
+});
+
+/** Customer-side roles (customer_users.role), migration 020. The owner is the sign-up login. */
+export const CUSTOMER_ROLES = Object.freeze({
+  owner:          { label: 'Owner', hint: 'Everything: orders for every outlet, approvals, payments, outlets and members.' },
+  approver:       { label: 'Approver', hint: 'Sees every outlet, approves or rejects held orders, can order (not held).' },
+  outlet_manager: { label: 'Outlet manager', hint: 'Orders for one outlet (or all); orders are held for approval when the account needs it.' },
+});
+
+/** orders.approval_status, migration 020. */
+export const APPROVAL_STATUSES = Object.freeze({
+  not_required: { label: 'No approval needed', badge: '' },
+  pending:      { label: 'Awaiting approval', badge: 'pending' },
+  approved:     { label: 'Approved', badge: 'delivered' },
+  rejected:     { label: 'Rejected', badge: 'cancelled' },
+});
+
+/** Customer documents (restaurants.*_doc_path), migration 019. */
+export const CUSTOMER_DOCUMENTS = Object.freeze({
+  fssai: { label: 'FSSAI licence', column: 'fssai_doc_path', hint: 'Needed before approval' },
+  gst:   { label: 'GST certificate', column: 'gst_doc_path', hint: 'Optional — for GST invoices with your GSTIN' },
+});
+
+/**
+ * Customer messages (migration 018). Keys match the check constraint on
+ * notification_settings.event; `placeholders` are the {names} a template may use.
+ */
+export const NOTIFICATION_EVENTS = Object.freeze({
+  order_placed:           { label: 'Order placed', placeholders: ['customer', 'order', 'total', 'company'] },
+  order_confirmed:        { label: 'Order confirmed', placeholders: ['customer', 'order', 'total', 'due_date', 'company'] },
+  order_out_for_delivery: { label: 'Out for delivery', placeholders: ['customer', 'order', 'code', 'company'] },
+  order_delivered:        { label: 'Delivered', placeholders: ['customer', 'order', 'total', 'company'] },
+  order_cancelled:        { label: 'Cancelled', placeholders: ['customer', 'order', 'company'] },
+  receipt_recorded:       { label: 'Payment received', placeholders: ['customer', 'amount', 'ticket', 'company'] },
+  payment_due:            { label: 'Payment due tomorrow', placeholders: ['customer', 'order', 'amount', 'due_date', 'company'] },
+  payment_overdue:        { label: 'Payment overdue', placeholders: ['customer', 'order', 'amount', 'due_date', 'company'] },
+  ticket_reply:           { label: 'Support reply', placeholders: ['customer', 'ticket', 'company'] },
+  customer_approved:      { label: 'Account approved', placeholders: ['customer', 'company'] },
+});
+export const NOTIFICATION_CHANNELS = Object.freeze({ sms: 'SMS', email: 'Email' });
+export const NOTIFICATION_STATUSES = Object.freeze({
+  queued:  { label: 'Queued', badge: 'pending' },
+  sending: { label: 'Sending', badge: 'packed' },
+  sent:    { label: 'Sent', badge: 'delivered' },
+  failed:  { label: 'Failed', badge: 'cancelled' },
+  skipped: { label: 'Skipped', badge: 'confirmed' },
+});
+
+/** Support tickets (support_tickets.status / priority), migration 018. */
+export const TICKET_STATUSES = Object.freeze({
+  open:             { label: 'Open', badge: 'pending' },
+  waiting_customer: { label: 'Waiting for customer', badge: 'packed' },
+  resolved:         { label: 'Resolved', badge: 'delivered' },
+  closed:           { label: 'Closed', badge: 'cancelled' },
+});
+export const TICKET_PRIORITIES = Object.freeze({ low: 'Low', normal: 'Normal', high: 'High' });
+
+/** Who a help article is written for (help_articles.audience). `public` also shows on the website FAQ. */
+export const HELP_AUDIENCES = Object.freeze({
+  public:   'Everyone (website FAQ + apps)',
+  customer: 'Customers',
+  driver:   'Delivery staff',
+  all:      'Every signed-in user',
+});
 
 export const ACTIONS = Object.freeze({
   view:    'View',

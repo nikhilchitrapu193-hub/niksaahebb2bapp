@@ -12,7 +12,7 @@
 
 do $$ begin if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if; end $$;
 do $$ begin if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if; end $$;
-do $$ begin if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin; end if; end $$;  -- migration 015 grants to it
+do $$ begin if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if; end $$;  -- Supabase's service role: bypasses RLS, granted every new table (migration 015+ grants functions to it)
 grant usage on schema public to anon, authenticated, service_role;
 
 create schema if not exists auth;
@@ -34,10 +34,13 @@ create schema if not exists storage;
 create table if not exists storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
 create table if not exists storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid);
 alter table storage.objects enable row level security;
+-- storage.foldername(name) as Supabase defines it: the path split on '/', without the file name (migration 019 policies).
+create or replace function storage.foldername(name text) returns text[] language sql immutable as $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1]; $$;
 grant usage on schema storage to anon, authenticated;
+grant all on storage.objects, storage.buckets to anon, authenticated, service_role;   -- as Supabase: RLS policies decide
 
 -- Supabase grants every new public table / sequence / function to anon and
 -- authenticated by default; the migrations then revoke what must not exist.
-alter default privileges in schema public grant all on tables to anon, authenticated;
-alter default privileges in schema public grant all on sequences to anon, authenticated;
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated;

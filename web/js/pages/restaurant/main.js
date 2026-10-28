@@ -1,6 +1,6 @@
 // =============================================================================
 // main.js — restaurant app entry: auth guard, header, routes, cart drawer.
-// Routes: #catalogue (default) · #product/<id> · #orders · #payments · #account
+// Routes: #catalogue (default) · #product/<id> · #orders · #approvals · #payments · #help · #account
 // The cart obeys the credit rules from my_order_terms (migration 015): pay later
 // is offered only while nothing is overdue and the limit has room; and a sector
 // switched off under Settings → Launch (migration 014) cannot order.
@@ -16,6 +16,8 @@ import { renderCatalogue } from './catalogue.js';
 import { renderOrders } from './orders.js';
 import { renderAccount } from './account.js';
 import { renderPayments } from './payments.js';
+import { renderHelp } from './help.js';
+import { renderApprovals } from './approvals.js';
 import { cartEntries, cartCount, cartTotal, setQty, clearCart, toOrderItems, onCartChange, orderPreview } from './cart.js';
 import { isUnavailable } from './catalogue.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, config } from '../../core/config.js';
@@ -41,7 +43,9 @@ async function start() {
     links: [
       { href: '#catalogue', label: 'Catalogue' },
       { href: '#orders', label: 'My orders' },
+      { href: '#approvals', label: 'Approvals' },
       { href: '#payments', label: 'Payments' },
+      { href: '#help', label: 'Help' },
       { href: '#account', label: 'Account' },
     ],
     extra: html`<button class="btn primary small" id="open-cart">Cart <span id="cart-count">0</span></button>`,
@@ -58,13 +62,17 @@ async function start() {
     // place_order then agree, because place_order charges customer_price() too.
     state.products = applyPriceList(state.products, myPrices);
     state.byId = Object.fromEntries(state.products.map((p) => [p.id, p]));
+    // Approvals (migration 020): the tab shows only for accounts that hold orders, with a count for approvers.
+    const nav = document.querySelector('[data-href="#approvals"]');
+    if (nav) nav.hidden = !(state.terms?.needs_order_approval);
+    shell.setBadge('#approvals', state.terms?.can_approve ? Number(state.terms?.pending_approvals ?? 0) : 0);
   }
 
   /** Status banner shown above every page until the restaurant is approved and served. */
   function statusBanner() {
     const status = state.me.restaurant?.status;
     if (status === 'suspended') return html`<div class="banner warn">Your account is suspended. Please contact us to place orders.</div>`;
-    if (status !== 'approved') return html`<div class="banner warn">Your account is awaiting approval. You can browse the catalogue now and order as soon as we approve you.</div>`;
+    if (status !== 'approved') return html`<div class="banner warn">Your account is awaiting approval. You can browse the catalogue now and order as soon as we approve you.${state.me.restaurant?.fssai_doc_path ? '' : html` Uploading your FSSAI licence under <a href="#account">Account → Documents</a> speeds this up.`}</div>`;
     if (state.terms && state.terms.sector_active === false) return html`<div class="banner warn">We are not taking orders from ${state.terms.sector_name ?? 'your sector'} yet. You can browse the catalogue; we will let you know when ordering opens.</div>`;
     if (state.terms && !state.terms.delivers) return html`<div class="banner warn">We do not deliver to your pin code yet. Update it under <a href="#account">Account</a> or contact us.</div>`;
     if (state.terms && Number(state.terms.overdue) > 0) return html`<div class="banner warn">You have overdue invoices of ${formatINR(state.terms.overdue)}. See <a href="#payments">Payments</a> to settle them.</div>`;
@@ -98,7 +106,9 @@ async function start() {
     overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target.closest('[data-close]')) close(); });
 
     // Checkout choices survive re-renders of the drawer.
-    const checkout = { slot: 'morning', date: isoDate(1), payment: 'cod', notes: '', poReference: '' };
+    const outlets = (state.terms?.outlets ?? []).filter((o) => o.is_active);
+    const primary = outlets.find((o) => o.is_primary) ?? outlets[0];
+    const checkout = { slot: primary?.default_slot ?? 'morning', date: isoDate(1), payment: 'cod', notes: '', poReference: '', outletId: primary?.id ?? null };
     const needsPo = Boolean(state.terms?.needs_po_reference);
     // Pay later is blocked while an invoice is overdue or the limit is used up (place_order enforces it too).
     const creditBlocked = state.terms?.credit_blocked_reason ?? null;
@@ -126,6 +136,9 @@ async function start() {
                 })}
             ${entries.length ? html`
               <h3 style="margin:var(--space-5) 0 var(--space-3)">Delivery</h3>
+              ${outlets.length > 1 ? html`<label class="field" style="margin-bottom:var(--space-3)"><span class="label">Deliver to</span>
+                <select class="select" id="outlet">${outlets.map((o) => html`<option value="${o.id}" ${o.id === checkout.outletId ? 'selected' : ''} ${o.delivers ? '' : 'disabled'}>${o.name} — ${o.address}${o.delivers ? '' : ' (not served yet)'}</option>`)}</select></label>` : ''}
+              ${state.terms?.orders_held_for_me ? html`<div class="banner info" style="margin-bottom:var(--space-3)">Your orders go to the account owner / approver for sign-off before the kitchen picks them.</div>` : ''}
               <div class="form-grid">
                 <label class="field"><span class="label">Slot</span>
                   <select class="select" id="slot">${Object.entries(DELIVERY_SLOTS).map(([k, v]) =>
@@ -169,6 +182,7 @@ async function start() {
     });
     on(overlay, 'click', '[data-remove]', (_e, el) => setQty(el.dataset.remove, 0));
     on(overlay, 'change', '#slot', (_e, el) => { checkout.slot = el.value; draw(); });
+    on(overlay, 'change', '#outlet', (_e, el) => { checkout.outletId = el.value; const o = outlets.find((x) => x.id === el.value); if (o?.default_slot && o.default_slot !== 'express') { checkout.slot = o.default_slot; } draw(); });
     on(overlay, 'change', '#date', (_e, el) => { checkout.date = el.value; });
     on(overlay, 'change', '[name="pay"]', (_e, el) => { checkout.payment = el.value; });
     on(overlay, 'input', '#notes', (_e, el) => { checkout.notes = el.value; });
@@ -178,11 +192,13 @@ async function start() {
       try {
         const order = await withBusy(button, () => placeOrder(toOrderItems(), {
           notes: checkout.notes, deliveryDate: checkout.date, slot: checkout.slot, paymentMethod: checkout.payment,
-          poReference: checkout.poReference,
+          poReference: checkout.poReference, outletId: outlets.length > 1 ? checkout.outletId : null,
         }));
         clearCart();
         close();
-        toast(`Order ${order.order_number} placed — ${formatINR(order.total_amount)}`, 'success');
+        toast(order.approval_status === 'pending'
+          ? `Order ${order.order_number} sent for approval — ${formatINR(order.total_amount)}`
+          : `Order ${order.order_number} placed — ${formatINR(order.total_amount)}`, 'success');
         location.hash = '#orders';
       } catch (error) { reportError(error); }
     });
@@ -202,6 +218,8 @@ async function start() {
       '#product/': withBanner((c, id) => renderProduct(c, state, id)),
       '#orders': withBanner((c) => renderOrders(c, state)),
       '#payments': withBanner((c) => renderPayments(c, state)),
+      '#approvals': withBanner((c) => renderApprovals(c, state, (n) => shell.setBadge('#approvals', n))),
+      '#help': withBanner((c) => renderHelp(c, state)),
       '#account': withBanner((c) => renderAccount(c, state)),
     },
   });

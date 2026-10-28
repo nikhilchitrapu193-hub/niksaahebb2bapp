@@ -31,7 +31,7 @@ export async function signIn(email, password) {
  * Returns { needsEmailConfirmation } — true when Supabase has "Confirm email"
  * switched on and no session was issued yet.
  */
-export async function signUpRestaurant({ email, password, fullName, phone, restaurantName, address, gstin, fssai, cityId, pincode, sectorCode }) {
+export async function signUpRestaurant({ email, password, fullName, phone, restaurantName, address, gstin, fssai, cityId, pincode, sectorCode, lat, lng }) {
   const data = check(await supabase.auth.signUp({
     email: email.trim(),
     password,
@@ -39,6 +39,7 @@ export async function signUpRestaurant({ email, password, fullName, phone, resta
       data: {
         full_name: fullName, phone, restaurant_name: restaurantName, address, gstin, fssai,
         city_id: cityId || null, pincode: pincode || null, sector_code: sectorCode || 'restaurant',
+        lat: lat ? Number(lat) : null, lng: lng ? Number(lng) : null,   // map pin from "Use my location" (migration 018)
       },
       emailRedirectTo: `${webRoot}restaurant/login.html`,
     },
@@ -109,7 +110,11 @@ export async function loadCurrentUser() {
   let restaurant = null;
   let permissions = new Set();
   if (profile.role === 'restaurant') {
-    const res = await supabase.from('restaurants').select('*').eq('owner_id', profile.id).maybeSingle();
+    // The account this login belongs to: the owner's own, or — migration 020 — the one a member was invited to.
+    const { data: rid } = await supabase.rpc('my_restaurant_id');
+    const res = rid
+      ? await supabase.from('restaurants').select('*').eq('id', rid).maybeSingle()
+      : await supabase.from('restaurants').select('*').eq('owner_id', profile.id).maybeSingle();
     restaurant = check(res);
   } else if (profile.role === 'admin' && profile.team_role && profile.team_role !== 'super_admin') {
     const rows = check(await supabase.from('role_permissions').select('module, action').eq('team_role', profile.team_role));

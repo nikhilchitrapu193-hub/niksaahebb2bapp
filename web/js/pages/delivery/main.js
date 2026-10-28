@@ -8,7 +8,8 @@
 import { html, mount, $, on, openModal, formatINR, formatQty, formatDateTime, statusBadge, reportError, toast, withBusy } from '../../core/ui.js';
 import { requireRole } from '../../core/auth.js';
 import { renderShell } from '../../core/shell.js';
-import { listOrders, setOrderStatus, completeDelivery, uploadPodPhoto } from '../../core/api.js';
+import { listOrders, setOrderStatus, completeDelivery, uploadPodPhoto, getDeliveryPins } from '../../core/api.js';
+import { mapHref, whatsappHref } from '../../core/notify.js';
 import { buildReturns } from '../../core/fulfilment.js';
 import { config, DELIVERY_SLOTS, PAYMENT_METHODS } from '../../core/config.js';
 
@@ -21,11 +22,12 @@ function start() {
   let busy = false;
   let all = [];
 
-  /** Google Maps search link for an address (opens the Maps app on phones). */
-  const mapsUrl = (address) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  // Map pins (migration 018): the exact spot the customer marked, when they have; else the address.
+  let pins = {};
+  const mapsUrl = (o) => mapHref(pins[o.id]?.lat, pins[o.id]?.lng, o.delivery_address);
 
   async function draw() {
-    all = await listOrders();
+    [all, pins] = await Promise.all([listOrders(), getDeliveryPins().catch(() => ({}))]);
     const active = all.filter((o) => ['packed', 'out_for_delivery'].includes(o.status));
     const done = all.filter((o) => o.status === 'delivered').slice(0, 10);
 
@@ -48,8 +50,9 @@ function start() {
       <div class="spread small"><span class="muted">Slot</span><span>${DELIVERY_SLOTS[o.delivery_slot]?.label ?? '—'} · ${DELIVERY_SLOTS[o.delivery_slot]?.time ?? ''}</span></div>
       <div class="spread small" style="margin-bottom:var(--space-3)"><span class="muted">${o.payment_method === 'cod' && o.payment_status !== 'paid' ? 'Collect cash' : 'Order total (no cash to collect)'}</span><span class="money">${formatINR(o.total_amount)}</span></div>
       <div class="row-wrap">
-        ${o.delivery_address ? html`<a class="btn" target="_blank" rel="noopener" href="${mapsUrl(o.delivery_address)}">Open map</a>` : ''}
+        ${mapsUrl(o) ? html`<a class="btn" target="_blank" rel="noopener" href="${mapsUrl(o)}">${pins[o.id] ? 'Open map pin' : 'Open map'}</a>` : ''}
         ${o.contact_phone ? html`<a class="btn" href="tel:${o.contact_phone}">Call</a>` : ''}
+        ${whatsappHref(o.contact_phone) ? html`<a class="btn" target="_blank" rel="noopener" href="${whatsappHref(o.contact_phone, `Hello, your ${o.order_number} delivery is on its way.`)}">WhatsApp</a>` : ''}
         ${o.status === 'packed'
           ? html`<button class="btn primary grow" data-start="${o.id}">Start delivery</button>`
           : html`<button class="btn primary grow" data-done="${o.id}">Complete delivery</button>`}

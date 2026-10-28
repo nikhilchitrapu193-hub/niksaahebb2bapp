@@ -5,8 +5,9 @@
 // =============================================================================
 
 import { html, mount, $, on, formatINR } from '../core/ui.js';
-import { listCategories, listProducts, photoUrl, checkPincode } from '../core/api.js';
+import { listCategories, listProducts, photoUrl, checkPincode, listHelpArticles, listSectors, listContentPages } from '../core/api.js';
 import { categoryTree } from '../core/catalogue.js';
+import { fillFooter } from './page.js';
 
 async function fillCatalogue() {
   const [categories, products] = await Promise.all([listCategories(), listProducts()]);
@@ -65,3 +66,28 @@ on(document, 'submit', '#pin-check', async (event, form) => {
     result.textContent = 'Could not check right now. Please try again.';
   }
 });
+
+// ---------- FAQ, footer and SEO from the database (migrations 018 / 019) ------
+// help_articles with audience = 'public' replace the built-in FAQ; the footer
+// shows the published content pages and the support channels; the SEO title /
+// description come from Settings → Website. All fail quietly: the static text
+// in index.html stays if the database is away.
+async function fillHelp() {
+  const articles = await listHelpArticles('public').catch(() => []);
+  const publicOnes = articles.filter((a) => a.audience === 'public');
+  if (publicOnes.length) {
+    mount($('#faq-list'), html`${publicOnes.map((a) => html`<details><summary>${a.title}</summary>${String(a.body).split(/\n\s*\n/).filter((p) => p.trim()).map((p) => html`<p>${p.trim()}</p>`)}</details>`)}`);
+  }
+  // Who we serve (migration 020): one tile per live sector that can sign up, linking to its page when one is published.
+  const [sectors, pages] = await Promise.all([listSectors().catch(() => []), listContentPages().catch(() => [])]);
+  const tiles = sectors.filter((x) => x.is_active && x.can_self_register).map((x) => ({ ...x, page: pages.find((p) => p.slug === `sector-${x.code}` && p.is_published) }));
+  const host = $('#sector-tiles');
+  if (host && tiles.length) {
+    mount(host, html`${tiles.map((x) => html`<article class="card card-pad"><h3>${x.name}</h3><p class="muted">${x.description ?? ''}</p>
+      <div class="row-wrap" style="margin-top:var(--space-3)">${x.page ? html`<a class="btn" href="page.html?slug=${x.page.slug}">Learn more</a>` : ''}<a class="btn primary" href="restaurant/login.html#register&sector=${x.code}">Register</a></div></article>`)}`);
+  } else if (host) { host.closest('section')?.remove(); }
+  const ch = await fillFooter();
+  if (ch?.seo_title) document.title = ch.seo_title;
+  if (ch?.seo_description) document.querySelector('meta[name="description"]')?.setAttribute('content', ch.seo_description);
+}
+fillHelp().catch(console.error);
