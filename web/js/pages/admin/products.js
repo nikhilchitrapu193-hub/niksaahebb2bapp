@@ -6,6 +6,12 @@
 // listed (hidden in a city = invisible and unorderable there).
 // Buttons that change data appear only with products:edit; the database
 // refuses the write without it anyway.
+//
+// Launch modes (Settings → Launch, migration 014): with SIMPLE PRICING the form
+// shows the essentials (name, SKU, category, price, unit, GST, minimum, photo)
+// and folds the rest under "More details"; the price is always typed here and
+// saved as a hand price. With SIMPLE STOCK the on-hand count is not shown —
+// the In stock / Out of stock toggle is the stock control.
 // =============================================================================
 
 import { html, mount, on, $, formatINR, openModal, reportError, toast, withBusy, confirmDialog } from '../../core/ui.js';
@@ -16,10 +22,13 @@ import { PACK_UNITS, VEG_TYPES } from '../../core/config.js';
 import { categoryOptions } from '../../core/catalogue.js';
 import { parseCsv, readTextFile } from '../../core/csv.js';
 import { csvToProducts } from '../../core/csv-import.js';
+import { isSimplePricing, isSimpleStock } from '../../core/launch.js';
 
-export async function renderProducts(container, me) {
+export async function renderProducts(container, me, settings = {}) {
   let search = '';
   const editable = can(me, 'products', 'edit');
+  const simplePricing = isSimplePricing(settings);
+  const simpleStock = isSimpleStock(settings);
   let [products, categories, cities, availability, hsnCodes] = await Promise.all([listProducts(), listCategories(), listCities(), listProductAvailability(), listHsnCodes()]);
 
   async function reload() {
@@ -36,19 +45,19 @@ export async function renderProducts(container, me) {
     const term = search.trim().toLowerCase();
     const rows = products.filter((p) => !term || p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term));
     mount(container, html`
-      <div class="page-head"><div><h1>Products</h1><p>${products.length} products</p></div>
+      <div class="page-head"><div><h1>Products</h1><p>${products.length} products${simplePricing ? ' · simple pricing: type each price here' : ''}${simpleStock ? ' · simple stock: use the In stock toggle' : ''}</p></div>
         ${editable ? html`<div class="row"><button class="btn" id="categories">Categories</button><button class="btn" id="upload">Upload CSV</button><button class="btn primary" id="new">Add product</button></div>` : ''}</div>
       <div class="toolbar"><input class="input search" id="search" type="search" placeholder="Search name or SKU…" value="${search}"></div>
       <div class="card"><div class="table-wrap"><table class="table">
-        <thead><tr><th></th><th>Product</th><th>Category</th><th class="right">Price</th><th class="right">On hand</th><th>Stock</th><th>Listed</th><th></th></tr></thead>
-        <tbody>${rows.length === 0 ? html`<tr><td colspan="8"><div class="empty">No products.</div></td></tr>`
+        <thead><tr><th></th><th>Product</th><th>Category</th><th class="right">Price</th>${simpleStock ? '' : html`<th class="right">On hand</th>`}<th>Stock</th><th>Listed</th><th></th></tr></thead>
+        <tbody>${rows.length === 0 ? html`<tr><td colspan="${simpleStock ? 7 : 8}"><div class="empty">No products.</div></td></tr>`
           : rows.map((p) => html`<tr>
             <td>${p.photo_path ? html`<img class="thumb" src="${photoUrl(p.photo_path)}" alt="">` : html`<div class="thumb-empty">—</div>`}</td>
             <td><strong>${p.name}</strong><div class="muted small">${p.sku} · min ${Number(p.min_order_qty)} ${p.unit}${p.parent_product_id ? html` · pack of <em>${products.find((x) => x.id === p.parent_product_id)?.name ?? '?'}</em>` : ''}${p.sold_by_weight ? ' · by weight' : ''}</div>
               ${hiddenIn(p.id).length ? html`<div class="tiny" style="color:var(--accent)">Hidden in ${hiddenIn(p.id).join(', ')}</div>` : ''}</td>
             <td>${categoryOptions(categories).find((c) => c.id === p.category_id)?.path ?? p.categories?.name ?? '—'}</td>
-            <td class="right money">${formatINR(p.price)}<div class="muted tiny">per ${p.unit}${p.gst_rate > 0 ? ` · ${Number(p.gst_rate)}% GST` : ''}${p.price_source === 'rule' ? ' · from board' : ''}</div></td>
-            <td class="right num">${Number(p.stock_qty)}</td>
+            <td class="right money">${formatINR(p.price)}<div class="muted tiny">per ${p.unit}${p.gst_rate > 0 ? ` · ${Number(p.gst_rate)}% GST` : ''}${p.price_source === 'rule' && !simplePricing ? ' · from board' : ''}</div></td>
+            ${simpleStock ? '' : html`<td class="right num">${Number(p.stock_qty)}</td>`}
             <td><button class="badge ${p.in_stock ? 'in-stock' : 'out-of-stock'}" style="border:0;cursor:pointer" data-flag="in_stock" data-id="${p.id}" title="Click to toggle" ${editable ? '' : 'disabled'}>${p.in_stock ? 'In stock' : 'Out of stock'}</button></td>
             <td><button class="badge ${p.is_active ? 'approved' : 'inactive'}" style="border:0;cursor:pointer" data-flag="is_active" data-id="${p.id}" title="Click to toggle" ${editable ? '' : 'disabled'}>${p.is_active ? 'Listed' : 'Hidden'}</button></td>
             <td class="right">${editable ? html`<button class="btn small" data-edit="${p.id}">Edit</button>` : ''}</td></tr>`)}
@@ -57,10 +66,11 @@ export async function renderProducts(container, me) {
     input.oninput = () => { search = input.value; draw(); $('#search', container).focus(); };
   }
 
-  on(container, 'click', '#new', () => productForm(null, { categories, cities, availability, hsnCodes, products }, reload));
+  const formContext = () => ({ categories, cities, availability, hsnCodes, products, simplePricing, simpleStock });
+  on(container, 'click', '#new', () => productForm(null, formContext(), reload));
   on(container, 'click', '#upload', () => uploadDialog({ categories, hsnCodes, products }, reload));
   on(container, 'click', '#categories', () => categoryManager(categories, reload));
-  on(container, 'click', '[data-edit]', (_e, el) => productForm(products.find((p) => p.id === el.dataset.edit), { categories, cities, availability, hsnCodes, products }, reload));
+  on(container, 'click', '[data-edit]', (_e, el) => productForm(products.find((p) => p.id === el.dataset.edit), formContext(), reload));
   on(container, 'click', '[data-flag]', async (_e, el) => {
     const product = products.find((p) => p.id === el.dataset.id);
     const flag = el.dataset.flag;
@@ -70,37 +80,46 @@ export async function renderProducts(container, me) {
   draw();
 }
 
-function productForm(product, { categories, cities, availability, hsnCodes, products = [] }, onSaved) {
+function productForm(product, { categories, cities, availability, hsnCodes, products = [], simplePricing = false, simpleStock = false }, onSaved) {
   const p = product ?? { in_stock: true, is_active: true, min_order_qty: 1, unit: 'kg', pack_size: 1, pack_unit: 'kg', weight_tolerance_pct: 10 };
-  const priceFromBoard = p.price_source === 'rule';
+  // In simple pricing the price is always typed here (and saved as a hand price);
+  // in advanced mode a board-published price is changed on the price board.
+  const priceFromBoard = p.price_source === 'rule' && !simplePricing;
   // A product can be a pack size of another one (one level): offer main products only.
   const mains = products.filter((x) => !x.parent_product_id && x.id !== p.id);
   const hasVariants = products.some((x) => x.parent_product_id === p.id);
   let photoPath = p.photo_path ?? null;
   const listedIn = (cityId) => !availability.some((a) => a.product_id === p.id && a.city_id === cityId && !a.is_available);
 
-  const { el, close } = openModal(html`
-    <form id="product-form" class="stack" novalidate>
-      <div class="form-grid">
+  // Fields every product needs, then the detail fields (folded away in simple pricing).
+  const essentials = html`
         <label class="field"><span class="label">Name</span><input class="input" name="name" value="${p.name ?? ''}" required maxlength="120"></label>
         <label class="field"><span class="label">SKU</span><input class="input" name="sku" value="${p.sku ?? ''}" required maxlength="40"><span class="hint">Unique code, e.g. VEG-010</span></label>
+        <label class="field"><span class="label">Category</span><select class="select" name="category_id" required>
+          <option value="">Choose…</option>
+          ${categoryOptions(categories).map((c) => html`<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${c.depth ? '— ' : ''}${c.name}</option>`)}</select></label>
         <label class="field"><span class="label">Price (₹)</span><input class="input" name="price" type="number" min="0" step="0.01" value="${p.price ?? ''}" required ${priceFromBoard ? 'readonly' : ''}>
-          ${priceFromBoard ? html`<span class="hint">Published from the <a href="#pricing">price board</a>; change it there.</span>` : ''}</label>
+          ${priceFromBoard ? html`<span class="hint">Published from the <a href="#pricing">price board</a>; change it there.</span>` : simplePricing ? html`<span class="hint">What the customer pays per unit${p.price_source === 'rule' ? ' (saving makes this a hand price)' : ''}</span>` : ''}</label>
         <label class="field"><span class="label">Unit</span><input class="input" name="unit" value="${p.unit ?? ''}" required maxlength="20" placeholder="kg, litre, pack…"></label>
+        <label class="field"><span class="label">GST rate (%)</span><select class="select" name="gst_rate">
+          ${[0, 5, 12, 18, 28].map((r) => html`<option value="${r}" ${Number(p.gst_rate ?? 0) === r ? 'selected' : ''}>${r}%</option>`)}</select></label>
+        <label class="field"><span class="label">Minimum order qty</span><input class="input" name="min_order_qty" type="number" min="0.01" step="any" value="${p.min_order_qty ?? 1}" required></label>
+        <div class="field"><span class="label">Photo</span>
+          <div class="row"><div id="preview">${photoPath ? html`<img class="thumb" src="${photoUrl(photoPath)}" alt="">` : html`<div class="thumb-empty">None</div>`}</div>
+            <input type="file" id="photo" accept="image/jpeg,image/png,image/webp"></div>
+          <span class="hint">JPG, PNG or WebP, up to 5 MB.</span></div>
+        <label class="check"><input type="checkbox" name="in_stock" ${p.in_stock ? 'checked' : ''}> In stock${simpleStock ? html` <span class="muted small">(the stock control in simple mode)</span>` : ''}</label>
+        <label class="check"><input type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''}> Listed in catalogue</label>`;
+  const details = html`
         <label class="field"><span class="label">One unit holds</span><div class="row"><input class="input" name="pack_size" type="number" min="0.001" step="any" value="${p.pack_size ?? 1}" required style="width:110px">
           <select class="select" name="pack_unit">${Object.entries(PACK_UNITS).map(([k, v]) => html`<option value="${k}" ${(p.pack_unit ?? 'kg') === k ? 'selected' : ''}>${v}</option>`)}</select></div>
           <span class="hint">1 kg, 15 litre (a tin), 30 pieces (a tray). Per-kg costs on the price board use this.</span></label>
         <label class="field"><span class="label">HSN code</span><select class="select" name="hsn_code"><option value="">— none —</option>
-          ${hsnCodes.map((h) => html`<option value="${h.code}" ${h.code === p.hsn_code ? 'selected' : ''}>${h.code} · ${h.description}</option>`)}</select><span class="hint">Printed on invoices; sets the GST rate below when chosen</span></label>
-        <label class="field"><span class="label">Minimum order qty</span><input class="input" name="min_order_qty" type="number" min="0.01" step="any" value="${p.min_order_qty ?? 1}" required></label>
+          ${hsnCodes.map((h) => html`<option value="${h.code}" ${h.code === p.hsn_code ? 'selected' : ''}>${h.code} · ${h.description}</option>`)}</select><span class="hint">Printed on invoices; sets the GST rate when chosen</span></label>
         <label class="field"><span class="label">Market price (₹, optional)</span><input class="input" name="market_price" type="number" min="0" step="0.01" value="${p.market_price ?? ''}" ${priceFromBoard ? 'readonly' : ''}><span class="hint">${priceFromBoard ? html`Set from the benchmark when the board publishes (${p.benchmark_label ?? 'no benchmark yet'})` : 'Shown struck through as the "best rate" comparison'}</span></label>
-        <label class="field"><span class="label">GST rate (%)</span><select class="select" name="gst_rate">
-          ${[0, 5, 12, 18, 28].map((r) => html`<option value="${r}" ${Number(p.gst_rate ?? 0) === r ? 'selected' : ''}>${r}%</option>`)}</select></label>
         <label class="field"><span class="label">Brand (optional)</span><input class="input" name="brand" value="${p.brand ?? ''}" maxlength="60"></label>
-        <label class="field"><span class="label">Low-stock alert at</span><input class="input" name="low_stock_threshold" type="number" min="0" step="any" value="${p.low_stock_threshold ?? 0}"><span class="hint">Stock itself is changed under Inventory</span></label>
-        <label class="field"><span class="label">Category</span><select class="select" name="category_id" required>
-          <option value="">Choose…</option>
-          ${categoryOptions(categories).map((c) => html`<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${c.depth ? '— ' : ''}${c.name}</option>`)}</select></label>
+        ${simpleStock ? html`<input type="hidden" name="low_stock_threshold" value="${p.low_stock_threshold ?? 0}">`
+          : html`<label class="field"><span class="label">Low-stock alert at</span><input class="input" name="low_stock_threshold" type="number" min="0" step="any" value="${p.low_stock_threshold ?? 0}"><span class="hint">Stock itself is changed under Inventory</span></label>`}
         <label class="field"><span class="label">Grade</span><input class="input" name="grade" value="${p.grade ?? ''}" maxlength="20" placeholder="A, B, Premium"></label>
         <label class="field"><span class="label">Origin</span><input class="input" name="origin" value="${p.origin ?? ''}" maxlength="60" placeholder="Madanapalle"></label>
         <label class="field"><span class="label">Veg / non-veg</span><select class="select" name="veg_type"><option value="">Not applicable</option>
@@ -114,15 +133,17 @@ function productForm(product, { categories, cities, availability, hsnCodes, prod
         <label class="check"><input type="checkbox" name="sold_by_weight" ${p.sold_by_weight ? 'checked' : ''}> Sold by weight: billed on the packed weight</label>
         <label class="field"><span class="label">Weight tolerance (%)</span><input class="input" name="weight_tolerance_pct" type="number" min="0" max="100" step="0.5" value="${p.weight_tolerance_pct ?? 10}"><span class="hint">How far the packed weight may differ from the order</span></label>
         <label class="field span-2"><span class="label">Description</span><textarea class="textarea" name="description" rows="2" maxlength="500">${p.description ?? ''}</textarea></label>
-        <div class="field span-2"><span class="label">Photo</span>
-          <div class="row"><div id="preview">${photoPath ? html`<img class="thumb" src="${photoUrl(photoPath)}" alt="">` : html`<div class="thumb-empty">None</div>`}</div>
-            <input type="file" id="photo" accept="image/jpeg,image/png,image/webp"></div>
-          <span class="hint">JPG, PNG or WebP, up to 5 MB.</span></div>
-        <label class="check"><input type="checkbox" name="in_stock" ${p.in_stock ? 'checked' : ''}> In stock</label>
-        <label class="check"><input type="checkbox" name="is_active" ${p.is_active ? 'checked' : ''}> Listed in catalogue</label>
         ${cities.length > 1 ? html`<div class="field span-2"><span class="label">Listed in these cities</span>
           <div class="row-wrap">${cities.map((c) => html`<label class="check"><input type="checkbox" data-city="${c.id}" ${listedIn(c.id) ? 'checked' : ''}> ${c.name}</label>`)}</div>
-          <span class="hint">Untick a city to hide the product there (customers in that city cannot see or order it).</span></div>` : ''}
+          <span class="hint">Untick a city to hide the product there (customers in that city cannot see or order it).</span></div>` : ''}`;
+
+  const { el, close } = openModal(html`
+    <form id="product-form" class="stack" novalidate>
+      <div class="form-grid">
+        ${essentials}
+        ${simplePricing
+          ? html`<details class="more" id="more-details"><summary>More details (HSN, pack size, grade, origin, pack sizes, loose weight…)</summary><div class="form-grid">${details}</div></details>`
+          : details}
       </div>
       <p class="form-error" id="form-error" role="alert"></p>
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save product</button></div>
@@ -151,7 +172,9 @@ function productForm(product, { categories, cities, availability, hsnCodes, prod
     try {
       await withBusy($('button[type="submit"]', form), async () => {
         const saved = await saveProduct({
-          ...v, id: product?.id, photo_path: photoPath, price_source: p.price_source,
+          ...v, id: product?.id, photo_path: photoPath,
+          // Simple pricing: whatever was typed is the price (a hand price from now on).
+          price_source: simplePricing ? 'manual' : p.price_source,
           in_stock: form.elements.in_stock.checked, is_active: form.elements.is_active.checked,
           sold_by_weight: form.elements.sold_by_weight.checked,
           parent_product_id: form.elements.parent_product_id.disabled ? p.parent_product_id : v.parent_product_id,

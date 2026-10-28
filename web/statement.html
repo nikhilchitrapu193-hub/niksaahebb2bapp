@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Statement — Fresh Supply</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <style>
+    /* Statement-only layout; prints cleanly on A4 (same frame as invoice.html). */
+    .statement { max-width: 860px; margin: var(--space-5) auto; background: var(--surface); padding: var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+    .statement-head { display: flex; justify-content: space-between; gap: var(--space-5); flex-wrap: wrap; margin-bottom: var(--space-5); }
+    .statement h1 { font-size: var(--text-xl); }
+    .parties { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin: var(--space-5) 0; }
+    .parties h3 { color: var(--ink-muted); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: var(--space-1); }
+    .statement-note { margin-top: var(--space-5); color: var(--ink-muted); font-size: var(--text-sm); }
+    .print-bar { max-width: 860px; margin: var(--space-4) auto 0; display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+    tr.opening td, tr.closing td { font-weight: 700; background: var(--surface-sunk); }
+    @media print {
+      body { background: #fff; }
+      .print-bar { display: none; }
+      .statement { border: 0; margin: 0; padding: 0; max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-bar">
+    <form id="range" class="row" style="align-items:center">
+      <input class="input small" type="date" name="from" aria-label="From"><span class="muted small">to</span><input class="input small" type="date" name="to" aria-label="To">
+      <button class="btn small" type="submit">Show</button>
+    </form>
+    <button class="btn" onclick="history.back()">Back</button><button class="btn primary" onclick="print()">Print / Save as PDF</button>
+  </div>
+  <main class="statement" id="statement"><div class="loading"><span class="spinner"></span> Loading…</div></main>
+  <script src="vendor/supabase.js"></script>
+  <script type="module" src="js/pages/statement.js"></script>
+</body>
+</html>

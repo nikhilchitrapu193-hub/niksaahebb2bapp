@@ -8,19 +8,23 @@ Two things decide what a login can do:
    which rows they see. `NULL` = all cities / all warehouses.
 
 The database enforces all of it (`has_permission()`, `in_my_scope()`, RLS policies, migration 006).
-The browser only hides buttons and menu items (`web/js/core/permissions.js`).
+The browser only hides buttons and menu items (`web/js/core/permissions.js`). On top of the matrix, Settings → Launch
+(migration 014) can hide whole modules — Pricing in simple pricing mode, Inventory and Procurement in simple stock mode
+(`web/js/core/launch.js`); a hidden module is not granted by being switched on again.
 
 ## Customers and drivers
 
 | Capability | Customer (`restaurant`) | Driver (`delivery`) |
 |---|:-:|:-:|
 | Browse products listed in their city | ✅ (once signed in) | – |
-| Place order (approved, has a warehouse, meets sector terms) | ✅ | – |
+| Place order (approved, has a warehouse, sector live, meets sector terms and credit rules) | ✅ | – |
 | See orders | own | assigned to them |
 | Cancel order | own, while `placed` | – |
 | Dispatch / deliver | – | assigned orders |
 | Edit own details, city and pin code | ✅ | – |
+| Resend their own confirmation email from the sign-in page | ✅ (logged out) | – |
 | View / print GST invoice | own orders | – |
+| See own receivables, receipts, credit notes; print a statement; pay online (when Razorpay is set up) | ✅ | – |
 
 Logged-out visitors can browse the public catalogue, read the city and sector lists, and check a pin code.
 
@@ -35,7 +39,7 @@ Logged-out visitors can browse the public catalogue, read the city and sector li
 | `dispatcher` | Builds and dispatches trips; reads the pick list (fulfilment: view, edit; orders: view, edit). |
 | `logistics_partner` | A third-party delivery partner: sees fulfilment for its own city only (fulfilment: view, edit). |
 | `pricing_manager` | Sets and approves prices (pricing: view, edit, approve, export). |
-| `finance` | Payments, credit, invoices. |
+| `finance` | Payments, credit, invoices: records and voids receipts, raises debit notes, reads the ageing report and statements (payments: view, edit, approve, export). |
 | `sales` | Signs up and approves customers, sets their terms. |
 | `support` | Edits and cancels orders. |
 | `dispatcher` | Assigns drivers, dispatches. |
@@ -60,10 +64,10 @@ Where each permission is checked:
 | `orders:export` | download the order list as CSV |
 | `products:view` / `products:edit` | see / change products (details, pack sizes, loose weight), the category tree, photos, per-city listing, CSV upload |
 | `inventory:view` / `inventory:edit` / `inventory:export` | see stock, suppliers and receipts / receive goods (GRN, against a PO or not), adjust, write off / export |
-| `customers:view` / `customers:edit` / `customers:approve` / `customers:export` | see / change sector, area, terms / approve or suspend / export |
-| `payments:edit` | mark orders paid or unpaid |
+| `customers:view` / `customers:edit` / `customers:approve` / `customers:export` | see customers and their login state (email confirmed?) / change sector, area, terms / approve or suspend, and **Access**: confirm a stuck customer's email, resend it, hand over a password link or set a temporary password (customer-access Edge Function, 016) / export |
+| `payments:view` / `payments:edit` / `payments:approve` / `payments:export` | open Payments (receivables, ageing, receipts, a customer's account and statement) / record receipts, apply them, raise debit notes / void a receipt (also settle driver cash) / export |
 | `team:view` / `team:edit` | list the team / invite, change roles and scope |
-| `settings:view` / `settings:edit` | see / change company details, cities, warehouses, pin codes, sector terms |
+| `settings:view` / `settings:edit` | see / change company details, Launch switches (live sectors, pricing mode, stock mode), cities, warehouses, pin codes, sector terms, delivery slots |
 | `audit:view` / `audit:export` | read / export the audit log |
 | `reports:*` | reserved for the reports batch |
 | `pricing:view` / `pricing:edit` / `pricing:approve` / `pricing:export` | open the price board, rules, benchmarks, history, price lists / enter benchmarks and quotes, change rules, overrides and price lists / publish, schedule and cancel prices / export |

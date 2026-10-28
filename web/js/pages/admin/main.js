@@ -1,20 +1,24 @@
 // =============================================================================
 // main.js — admin app entry. Routes:
 //   #dashboard (default) · #orders · #products · #inventory · #customers · #team
-//   #settings (company) · #locations · #sectors · #roles · #audit
+//   #settings (company) · #launch · #locations · #sectors · #roles · #audit
 //   #pricing (price board) · #pricing-rules · #benchmarks · #price-lists
 //   #procurement (buying list) · #purchase-orders · #receipts · #rate-cards
+//   #payments (receivables) · #payments-receipts
 //
 // The menu shows only the modules the signed-in team member may VIEW
-// (web/js/core/permissions.js). Opening a route by hand without permission
-// shows a friendly "no access" page; the database refuses the data anyway.
+// (web/js/core/permissions.js) AND that are switched on under Settings → Launch
+// (web/js/core/launch.js: simple pricing hides Pricing; simple stock hides
+// Inventory and Procurement). Opening a route by hand without permission shows
+// a friendly "no access" page; the database refuses the data anyway.
 // =============================================================================
 
 import { requireRole } from '../../core/auth.js';
 import { renderShell, startRouter } from '../../core/shell.js';
 import { $, html, mount } from '../../core/ui.js';
-import { getDashboardStats } from '../../core/api.js';
+import { getDashboardStats, getCompanySettings } from '../../core/api.js';
 import { can, visibleNav } from '../../core/permissions.js';
+import { hiddenModules } from '../../core/launch.js';
 import { renderDashboard } from './dashboard.js';
 import { renderOrders } from './orders.js';
 import { renderProducts } from './products.js';
@@ -22,6 +26,7 @@ import { renderCustomers } from './customers.js';
 import { renderTeam } from './team.js';
 import { renderInventory } from './inventory.js';
 import { renderSettings } from './settings.js';
+import { renderLaunch } from './launch.js';
 import { renderLocations } from './locations.js';
 import { renderSectors } from './sectors.js';
 import { renderRoles } from './roles.js';
@@ -40,27 +45,37 @@ import { renderDriverCash } from './driver-cash.js';
 import { renderDeliveryCharges } from './delivery-charges.js';
 import { renderSlots } from './slots.js';
 import { renderIssues } from './issues.js';
+import { renderReceivables, renderPaymentReceipts } from './payments.js';
 
 /** Sub-pages keep their parent menu item highlighted. */
-const PARENT_OF = { '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
+const PARENT_OF = { '#launch': '#settings', '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
                     '#pricing-rules': '#pricing', '#benchmarks': '#pricing', '#price-lists': '#pricing',
                     '#purchase-orders': '#procurement', '#receipts': '#procurement', '#rate-cards': '#procurement',
                     '#trips': '#fulfilment', '#driver-cash': '#fulfilment', '#delivery-charges': '#fulfilment',
-                    '#slots': '#settings', '#issues': '#orders' };
+                    '#slots': '#settings', '#issues': '#orders', '#payments-receipts': '#payments' };
 
 const me = await requireRole('admin');
 if (me) {
-  const shell = renderShell({ me, subtitle: 'Admin', links: visibleNav(me) });
+  // Launch modes (migration 014) decide which modules the menu shows. If the
+  // read fails the full menu shows; the database still enforces every rule.
+  const settings = await getCompanySettings().catch(() => ({}));
+  const hidden = hiddenModules(settings);
+  const shell = renderShell({ me, subtitle: 'Admin', links: visibleNav(me, hidden) });
 
   // Show the number of customers waiting for approval on the Customers tab.
   if (can(me, 'customers', 'view')) {
     getDashboardStats().then((s) => shell.setBadge('#customers', s.pending_restaurants)).catch(() => {});
   }
 
-  /** Wrap a screen so it only renders when `me` may view `module`. */
+  /** Wrap a screen so it only renders when `me` may view `module` and the module is switched on. */
   const guard = (module, render) => (container) => {
     if (!can(me, module, 'view')) {
       mount(container, html`<div class="empty"><strong>No access</strong>Your team role does not include ${module}. Ask a super admin.</div>`);
+      return;
+    }
+    if (hidden.has(module)) {
+      mount(container, html`<div class="empty"><strong>Switched off</strong>${module} is hidden by the current launch mode.
+        ${can(me, 'settings', 'edit') ? html`Turn it on under <a href="#launch">Settings → Launch</a>.` : 'Ask an admin to change it under Settings → Launch.'}</div>`);
       return;
     }
     return render(container);
@@ -68,16 +83,17 @@ if (me) {
 
   startRouter({
     container: $('#view'),
-    fallback: can(me, 'dashboard', 'view') ? '#dashboard' : (visibleNav(me)[0]?.href ?? '#dashboard'),
+    fallback: can(me, 'dashboard', 'view') ? '#dashboard' : (visibleNav(me, hidden)[0]?.href ?? '#dashboard'),
     onRoute: (key) => shell.setActive(PARENT_OF[key] ?? key),
     routes: {
-      '#dashboard': guard('dashboard', renderDashboard),
+      '#dashboard': guard('dashboard', (c) => renderDashboard(c, me, settings)),
       '#orders':    guard('orders', (c) => renderOrders(c, me)),
-      '#products':  guard('products', (c) => renderProducts(c, me)),
+      '#products':  guard('products', (c) => renderProducts(c, me, settings)),
       '#inventory': guard('inventory', (c) => renderInventory(c, me)),
       '#customers': guard('customers', (c) => renderCustomers(c, me, (count) => shell.setBadge('#customers', count))),
       '#team':      guard('team', (c) => renderTeam(c, me)),
       '#settings':  guard('settings', (c) => renderSettings(c, me)),
+      '#launch':    guard('settings', (c) => renderLaunch(c, me)),
       '#locations': guard('settings', (c) => renderLocations(c, me)),
       '#sectors':   guard('settings', (c) => renderSectors(c, me)),
       '#roles':     guard('team', (c) => renderRoles(c, me)),
@@ -96,6 +112,8 @@ if (me) {
       '#delivery-charges': guard('fulfilment', (c) => renderDeliveryCharges(c, me)),
       '#slots': guard('settings', (c) => renderSlots(c, me)),
       '#issues': guard('orders', (c) => renderIssues(c, me)),
+      '#payments': guard('payments', (c) => renderReceivables(c, me)),
+      '#payments-receipts': guard('payments', (c) => renderPaymentReceipts(c, me)),
     },
   });
 }

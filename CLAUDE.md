@@ -18,6 +18,10 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 | Cities, sectors, roles, audit (migration 006) | `docs/modules/foundation.md` |
 | Prices, benchmarks, HSN, margin guard (migration 009) | `docs/modules/pricing.md` |
 | Category tree, pack sizes, loose weight, price lists (migration 010) | `docs/modules/catalogue.md` |
+| Launch switches: live sectors, simple / advanced pricing, simple / counted stock (migration 014) | `docs/modules/launch-control.md` |
+| Receipts, allocation, credit limits, ageing, statements, Razorpay (migration 015) | `docs/modules/payments.md` |
+| A customer stuck at the confirmation email: resend, confirm, link, temporary password (migration 016) | `docs/runbook.md` → "When a customer cannot sign in", ADR 0020 |
+| Customer self-edit / cancel window per sector (migration 017) | `sectors.customer_edit_window_minutes`, ADR 0021 |
 | Running, deploying, first admin | `docs/runbook.md`, `docs/deployment.md` |
 | Tests | `docs/testing.md` |
 
@@ -62,16 +66,24 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
     (`grn.js` `receiveForm`) opened from Purchase orders, Receipts and Inventory. A purchase order is a
     plan: it never writes stock. The buying-list arithmetic is `buying_list()` ↔ `suggestedBuy()`
     (`web/js/core/procurement.js`), shared test numbers T45 ↔ `tests/unit.test.js`.
+18. **Money is open items.** A delivered order is the invoice; receipts and credit notes reach it only through
+    `payment_allocations`, written by `record_payment()` / `allocate_payment()` / the allocator (migration 015). Never
+    `update orders set payment_status`: `sync_order_payment_status()` derives it, and every paid order has a receipt.
+    Voiding is a flag, never a DELETE. The cart's oldest-due-first preview (`fifoAllocate`) mirrors `allocate_customer_credits()`.
+19. **Launch modes hide, they never grant.** Settings → Launch (`company_settings.pricing_mode` / `stock_mode`,
+    `sectors.is_active`) decides what the admin menu shows (`web/js/core/launch.js`) and what the database enforces
+    (a sector that is off cannot order; simple stock never reserves). The permission matrix still applies on top. New
+    screens for pricing / inventory / procurement must sit under those modules so the switches reach them.
 
 ## Where things live
 ```
 web/index.html                 public landing page
 web/<role>/login.html          per-role login (shared module web/js/pages/login.js)
 web/<role>/index.html          app shell; routes in web/js/pages/<role>/main.js
-web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, csv-import, pricing, catalogue, procurement, fulfilment
-web/js/pages/<role>/*.js       one module per screen (admin: …006/009/010; buying-list, purchase-orders, grn, rate-cards in 011; fulfilment, trips, driver-cash, delivery-charges, slots, issues in 012/013; restaurant: product page, order edit/cancel/issue; delivery: POD completion); web/js/pages/po.js + web/po.html print a PO
+web/js/core/                   config, supabase client, auth, api, ui, shell/router, permissions, csv, csv-import, pricing, catalogue, procurement, fulfilment, launch, receivables
+web/js/pages/<role>/*.js       one module per screen (admin: …006/009/010; buying-list, purchase-orders, grn, rate-cards in 011; fulfilment, trips, driver-cash, delivery-charges, slots, issues in 012/013; launch in 014; payments in 015; restaurant: product page, order edit/cancel/issue, payments; delivery: POD completion); web/js/pages/po.js + web/po.html print a PO; statement.js + statement.html print an account statement
 web/css/                       base.css (tokens), components.css, landing.css
-supabase/migrations/           schema → … → procurement (011) → fulfilment (012) → orders + (013), in order
+supabase/migrations/           schema → … → procurement (011) → fulfilment (012) → orders + (013) → launch control (014) → payments & credit (015) → customer access (016) → customer edit window (017), in order
 supabase/seed.sql              sample catalogue
 supabase/tests/security_test.sql   paste into Supabase SQL editor; every line must PASS
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres

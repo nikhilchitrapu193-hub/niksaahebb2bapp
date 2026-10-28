@@ -1,6 +1,7 @@
 // =============================================================================
 // orders.js — all orders in the caller's scope: filter by status, city and
-// sector; open detail; advance status; assign driver; record payment; export.
+// sector; open detail; advance status; assign driver; record a receipt against a
+// delivered order (payments.js receiptDialog, migration 015); export.
 // The allowed transitions are enforced by the database (set_order_status);
 // NEXT_STATUS below only decides which button to show, and the permission
 // checks only hide buttons the database would refuse anyway.
@@ -8,8 +9,9 @@
 
 import { html, mount, on, $, formatINR, formatQty, withBusy, formatDateTime, formatDate, statusBadge, openModal,
          confirmDialog, reportError, toast, STATUS_LABELS } from '../../core/ui.js';
-import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers, setOrderPayment, listCities, listSectors, setPackedQuantities,
+import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers, listCities, listSectors, setPackedQuantities,
          placeOrderFor, listRestaurants, listProducts } from '../../core/api.js';
+import { receiptDialog } from './payments.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, webRoot } from '../../core/config.js';
 import { can } from '../../core/permissions.js';
 import { downloadCsv } from '../../core/csv.js';
@@ -89,6 +91,7 @@ export async function renderOrders(container, me) {
     { key: 'status', label: 'Status' },
     { key: 'payment_method', label: 'Payment' },
     { key: 'payment_status', label: 'Paid?' },
+    { key: 'due_date', label: 'Due date' },
     { key: 'subtotal', label: 'Subtotal' },
     { key: 'tax_amount', label: 'GST' },
     { key: 'delivery_fee', label: 'Delivery fee' },
@@ -168,8 +171,10 @@ async function showOrder(order, drivers, me, refresh) {
         <dt>Phone</dt><dd>${order.contact_phone || '—'}</dd>
         <dt>Delivery</dt><dd>${DELIVERY_SLOTS[order.delivery_slot]?.label ?? '—'} (${DELIVERY_SLOTS[order.delivery_slot]?.time ?? ''}), ${formatDate(order.delivery_date)}</dd>
         <dt>Payment</dt><dd>${PAYMENT_METHODS[order.payment_method]?.label ?? '—'} ·
-          ${order.payment_status === 'paid' ? html`Paid ${formatDateTime(order.paid_at)}` : html`<strong>Unpaid</strong>`}
-          ${canPay ? html`<button class="btn ${order.payment_status === 'paid' ? 'ghost' : ''} small" data-pay="${order.payment_status === 'paid' ? 'unpaid' : 'paid'}">${order.payment_status === 'paid' ? 'Mark unpaid' : 'Mark paid'}</button>` : ''}</dd>
+          ${order.payment_status === 'paid' ? html`Paid ${formatDateTime(order.paid_at)}` : html`<strong>Unpaid</strong>${order.due_date ? html` · due ${formatDate(order.due_date)}` : ''}`}
+          ${canPay && order.payment_status !== 'paid' ? (order.status === 'delivered'
+            ? html`<button class="btn small" data-pay>Record payment</button>`
+            : html`<span class="muted tiny">(receipts are recorded once delivered; see <a href="#payments">Payments</a>)</span>`) : ''}</dd>
         ${order.po_reference ? html`<dt>PO / indent</dt><dd>${order.po_reference}</dd>` : ''}
         ${order.notes ? html`<dt>Notes</dt><dd>${order.notes}</dd>` : ''}
       </dl>
@@ -211,7 +216,8 @@ async function showOrder(order, drivers, me, refresh) {
       if (!driverSelect.value) return;
       assignDelivery(order.id, driverSelect.value).then(() => { order.assigned_to = driverSelect.value; toast('Driver assigned', 'success'); }).catch(reportError);
     };
-    on(el, 'click', '[data-pay]', (_e, b) => run(() => setOrderPayment(order.id, b.dataset.pay), b.dataset.pay === 'paid' ? 'Marked as paid' : 'Marked as unpaid'));
+    on(el, 'click', '[data-pay]', () => receiptDialog({ restaurantId: order.restaurant_id, restaurantName: order.restaurant_name,
+      prefill: { amount: order.total_amount, orderId: order.id } }, me, () => { close(); refresh(); }));
     on(el, 'click', '[data-save-packed]', (_e, b) => {
       const lines = [...el.querySelectorAll('[data-packed]')]
         .filter((input) => input.value !== '' && Number(input.value) !== Number(order.order_items.find((i) => i.id === input.dataset.packed)?.quantity))

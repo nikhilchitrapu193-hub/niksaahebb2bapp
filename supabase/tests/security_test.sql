@@ -2,8 +2,8 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 205
--- rules (174 + 31 for fulfilment and orders+), then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
+-- psql). It creates throw-away users, impersonates each role, checks 248
+-- rules (205 + 34 for launch control and payments & credit + 3 for customer access + 6 for the edit window), then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
 -- Run this after ANY change to RLS policies or the functions in migrations.
@@ -13,7 +13,8 @@
 -- Roles simulated: admin (super admin), restaurant A (approved), restaurant B
 -- (pending), delivery driver, a sign-up attempting to inject role=admin, and
 -- from T20 on: a city manager of another city, a picker, and a defence unit;
--- from T30 on (migration 009): a pricing manager; from T40 on (migration 010): price lists and packing; from T44 on (migration 011): a buyer, POs and receipts; from T49 on (012/013): a dispatcher, trips, deliveries, slots, edits and credit notes.
+-- from T30 on (migration 009): a pricing manager; from T40 on (migration 010): price lists and packing; from T44 on (migration 011): a buyer, POs and receipts; from T49 on (012/013): a dispatcher, trips, deliveries, slots, edits and credit notes;
+-- from T57 on (014/015): the launch switches, receipts, allocation, credit limits, ageing and the webhook path.
 -- =============================================================================
 
 do $$
@@ -39,6 +40,8 @@ declare
   -- Migration 012 (fulfilment) and 013 (orders +)
   v_rc uuid := gen_random_uuid(); v_drv2 uuid := gen_random_uuid(); v_disp uuid := gen_random_uuid();
   v_trip jsonb; v_veh uuid; v_otp text; v_iss jsonb; v_oc jsonb; v_od jsonb; v_oe jsonb; v_of jsonb; v_ddate date; v_later date := (now() at time zone 'Asia/Kolkata')::date + 3;
+  -- Migration 014 (launch control) and 015 (payments & credit)
+  v_rcid uuid; v_og jsonb; v_oh jsonb; v_pay jsonb; v_bal jsonb; v_stockc numeric; v_today date := (now() at time zone 'Asia/Kolkata')::date;
 begin
   select id into v_city from public.cities where name = 'Visakhapatnam';
   select id into v_wh from public.warehouses where city_id = v_city and is_default;
@@ -274,9 +277,12 @@ begin
   exception when others then
     v_res := v_res || jsonb_build_array('PASS T12k negative stock rejected');
   end;
-  perform public.set_order_payment((v_o1 ->> 'id')::uuid, 'paid');
+  -- Migration 015: "mark paid" became a receipt. The order is still out for delivery, so the
+  -- cash stays unapplied (an advance) until an open item exists; the order itself is not paid yet.
+  v_json := public.record_payment((select id from public.restaurants where owner_id = v_ra), 1293, 'cash', null, null, 'advance for ' || (v_o1 ->> 'order_number'));
   select payment_status::text into v_txt from public.orders where id = (v_o1 ->> 'id')::uuid;
-  v_res := v_res || jsonb_build_array(case when v_txt = 'paid' then 'PASS T12l admin marked order paid' else 'FAIL T12l payment ' || v_txt end);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'receipt_number') like 'RCT-%' and (v_json ->> 'unallocated')::numeric = 1293 and v_txt = 'unpaid'
+    then 'PASS T12l admin records a cash receipt ' || (v_json ->> 'receipt_number') || '; an undelivered order is not an open item, so it stays unapplied' else 'FAIL T12l ' || v_json::text || ' ' || v_txt end);
   update public.company_settings set gstin = '36TEST0000A1Z5';
   get diagnostics v_n = row_count;
   v_res := v_res || jsonb_build_array(case when v_n = 1 then 'PASS T12m admin can edit company settings' else 'FAIL T12m rows ' || v_n end);
@@ -480,7 +486,7 @@ begin
   select status::text into v_txt from public.orders where id = (v_o3 ->> 'id')::uuid;
   v_res := v_res || jsonb_build_array(case when v_txt = 'confirmed' then 'PASS T25a picker can move an order (orders:edit)' else 'FAIL T25a status ' || v_txt end);
   begin
-    perform public.set_order_payment((v_o3 ->> 'id')::uuid, 'paid');
+    perform public.record_payment((select restaurant_id from public.orders where id = (v_o3 ->> 'id')::uuid), 100, 'cash');
     v_res := v_res || jsonb_build_array('FAIL T25b picker recorded a payment');
   exception when others then
     v_res := v_res || jsonb_build_array('PASS T25b picker cannot record payments (payments:edit)');
@@ -1323,6 +1329,384 @@ begin
   set local role authenticated;
   select count(*) into v_n from public.credit_notes;
   v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T56d another customer sees none of these credit notes' else 'FAIL T56d sees ' || v_n end);
+  reset role;
+
+  -- ===========================================================================
+  -- Migration 014: launch control (lite mode)
+  -- ===========================================================================
+  v_rcid := (select id from public.restaurants where owner_id = v_rc);
+
+  -- T57 the three switches
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.sectors set is_active = false where code = 'restaurant';   -- settings:edit
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod');
+    v_res := v_res || jsonb_build_array('FAIL T57a a customer of a switched-off sector placed an order');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T57a a sector that is off takes no orders: ' || sqlerrm);
+  end;
+  v_json := public.my_order_terms();
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'sector_active')::boolean = false and v_json ->> 'sector_code' = 'restaurant'
+    then 'PASS T57b my_order_terms tells the customer app the sector is off' else 'FAIL T57b ' || v_json::text end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.sectors set is_active = true where code = 'restaurant';
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.company_settings set pricing_mode = 'simple' where id = true;
+  get diagnostics v_n = row_count;
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T57c a picker cannot flip the pricing mode (settings:edit)' else 'FAIL T57c rows ' || v_n end);
+  begin
+    perform public.launch_status();
+    v_res := v_res || jsonb_build_array('FAIL T57d picker read launch_status');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T57d launch_status needs settings:view');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.launch_status();
+  v_res := v_res || jsonb_build_array(case when v_json ->> 'pricing_mode' = 'advanced' and v_json ->> 'stock_mode' = 'counted'
+      and jsonb_array_length(v_json -> 'sectors') = (select count(*) from public.sectors)
+      and (select (x ->> 'customers')::int from jsonb_array_elements(v_json -> 'sectors') x where x ->> 'code' = 'restaurant') >= 3
+    then 'PASS T57e launch_status lists every sector with customer counts and the two modes' else 'FAIL T57e ' || v_json::text end);
+  -- Simple stock mode: quantities are ignored and the ledger is never touched.
+  update public.company_settings set stock_mode = 'simple' where id = true;
+  select qty into v_stockc from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_og := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', v_stockc + 1000)), null, null, 'morning', 'cod');
+  reset role;   -- warehouse_stock is staff-only: read the count as the database owner
+  select qty into v_num from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when (v_og ->> 'id') is not null and v_num = v_stockc
+      and not exists (select 1 from public.stock_movements where order_id = (v_og ->> 'id')::uuid)
+      and not (select stock_reserved from public.orders where id = (v_og ->> 'id')::uuid)
+    then 'PASS T57f simple stock mode: an order beyond the count is accepted and reserves nothing (stock_reserved = false)' else 'FAIL T57f stock ' || coalesce(v_num::text, 'null') || ' vs ' || coalesce(v_stockc::text, 'null') end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.cancel_order((v_og ->> 'id')::uuid, 'test');
+  reset role;
+  select qty into v_num from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = v_stockc and not exists (select 1 from public.stock_movements where order_id = (v_og ->> 'id')::uuid)
+    then 'PASS T57g cancelling it returns nothing: an order only returns what it took' else 'FAIL T57g stock ' || coalesce(v_num::text, 'null') end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  -- v_oe (T55a) was placed and cancelled in counted mode; v_of likewise. Place one more in counted mode
+  -- later (T57j) — here: an order placed in COUNTED mode and cancelled in SIMPLE mode still returns its stock.
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p3, 'quantity', 5)), null, null, 'morning', 'cod');
+    v_res := v_res || jsonb_build_array('FAIL T57h an out-of-stock product was ordered in simple mode');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T57h the in-stock flag still rules in simple mode: ' || sqlerrm);
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.company_settings set stock_mode = 'counted' where id = true;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', v_stockc + 1000)), null, null, 'morning', 'cod');
+    v_res := v_res || jsonb_build_array('FAIL T57i counted mode accepted an order beyond stock');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T57i back in counted mode the stock check is on again: ' || sqlerrm);
+  end;
+  -- Flip mid-order: reserve 10 in counted mode, switch to simple, cancel → the 10 come back (the order keeps its mode).
+  v_og := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod');
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.company_settings set stock_mode = 'simple' where id = true;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.cancel_order((v_og ->> 'id')::uuid, 'flip test');
+  reset role;
+  select qty into v_num from public.warehouse_stock where warehouse_id = v_wh and product_id = v_p1;
+  v_res := v_res || jsonb_build_array(case when v_num = v_stockc and (select stock_reserved from public.orders where id = (v_og ->> 'id')::uuid)
+      and (select count(*) from public.stock_movements where order_id = (v_og ->> 'id')::uuid) = 2
+    then 'PASS T57j an order placed in counted mode and cancelled in simple mode returns its stock (orders.stock_reserved)' else 'FAIL T57j stock ' || coalesce(v_num::text, 'null') || ' vs ' || coalesce(v_stockc::text, 'null') end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.company_settings set stock_mode = 'counted' where id = true;
+  reset role;
+
+  -- ===========================================================================
+  -- Migration 015: payments & credit
+  -- ===========================================================================
+
+  -- T58 receipts and allocation
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*), coalesce(sum(a.amount), 0) into v_n, v_num
+  from public.payments p join public.payment_allocations a on a.payment_id = p.id
+  where p.restaurant_id = v_rcid and a.order_id = (v_oc ->> 'id')::uuid and p.method = 'cash';
+  v_res := v_res || jsonb_build_array(case when v_n = 1 and v_num = 251
+    then 'PASS T58a the COD order delivered in T51 got its cash receipt automatically (251)' else 'FAIL T58a ' || v_n || ' receipts, ' || v_num end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_og := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'credit');
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.set_order_status((v_og ->> 'id')::uuid, 'confirmed');
+  perform public.set_order_status((v_og ->> 'id')::uuid, 'packed');
+  perform public.assign_delivery((v_og ->> 'id')::uuid, v_drv2);
+  perform public.set_order_status((v_og ->> 'id')::uuid, 'out_for_delivery');
+  perform public.set_order_status((v_og ->> 'id')::uuid, 'delivered');
+  select due_date::text || '/' || payment_status::text || '/' || coalesce(delivered_at::text, 'none') into v_txt from public.orders where id = (v_og ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when (select due_date from public.orders where id = (v_og ->> 'id')::uuid) = v_today + 7
+      and (select payment_status from public.orders where id = (v_og ->> 'id')::uuid) = 'unpaid'
+      and (select delivered_at from public.orders where id = (v_og ->> 'id')::uuid) is not null
+    then 'PASS T58b a delivered pay-later order gets a due date (today + 7 credit days) and stays unpaid' else 'FAIL T58b ' || v_txt end);
+  v_json := public.customer_receivables(v_rcid);
+  select (i ->> 'balance')::numeric into v_num from jsonb_array_elements(v_json -> 'open_items') i where i ->> 'id' = v_og ->> 'id';
+  v_res := v_res || jsonb_build_array(case when v_num = 239 and (v_json ->> 'outstanding')::numeric = 239
+    then 'PASS T58c the T56 credit note (50) applied itself to the first pay-later invoice: 289 → 239 open' else 'FAIL T58c ' || v_json::text end);
+  v_pay := public.record_payment(v_rcid, 239, 'upi', 'UTR0001', v_today, 'GPay');
+  select payment_status::text into v_txt from public.orders where id = (v_og ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when (v_pay ->> 'receipt_number') like 'RCT-%' and (v_pay ->> 'unallocated')::numeric = 0 and v_txt = 'paid'
+    then 'PASS T58d a UPI receipt of 239 settles the invoice oldest-due-first: order paid, ' || (v_pay ->> 'receipt_number') else 'FAIL T58d ' || v_pay::text || ' ' || v_txt end);
+  begin
+    perform public.record_payment(v_rcid, 10, 'upi', null);
+    v_res := v_res || jsonb_build_array('FAIL T58e a UPI receipt without a reference was accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T58e UPI / bank / cheque receipts need a reference');
+  end;
+  perform public.void_payment((v_pay ->> 'id')::uuid, 'typed the wrong customer');
+  select payment_status::text into v_txt from public.orders where id = (v_og ->> 'id')::uuid;
+  v_json := public.customer_receivables(v_rcid);
+  v_res := v_res || jsonb_build_array(case when v_txt = 'unpaid' and (v_json ->> 'outstanding')::numeric = 239
+    then 'PASS T58f voiding the receipt reopens the invoice (nothing deleted)' else 'FAIL T58f ' || v_txt || ' ' || v_json::text end);
+  v_pay := public.record_payment(v_rcid, 300, 'cash', null, v_today, null,
+                                 jsonb_build_array(jsonb_build_object('order_id', v_og ->> 'id', 'amount', 239)));
+  select payment_status::text into v_txt from public.orders where id = (v_og ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'paid' and (v_pay ->> 'unallocated')::numeric = 61
+    then 'PASS T58g a receipt allocated by hand: 239 to the invoice, 61 left on account' else 'FAIL T58g ' || v_txt || ' ' || v_pay::text end);
+  begin
+    perform public.allocate_payment((v_pay ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('order_id', v_og ->> 'id', 'amount', 1)));
+    v_res := v_res || jsonb_build_array('FAIL T58h allocated more than the invoice balance');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T58h cannot allocate past an invoice balance: ' || sqlerrm);
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.void_payment((v_pay ->> 'id')::uuid, 'x');
+    v_res := v_res || jsonb_build_array('FAIL T58i picker voided a receipt');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T58i voiding needs payments:approve');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.customer_statement(v_rcid, v_today - 30, v_today);
+  select count(*) into v_n from public.payments;   -- RLS: only own receipts
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'closing_balance')::numeric = -61 and jsonb_array_length(v_json -> 'lines') >= 5
+      and v_n = (select count(*) from public.payments where restaurant_id = v_rcid)
+    then 'PASS T58j the customer reads their own statement (closing −61 = 61 on account) and sees only their own receipts' else 'FAIL T58j ' || v_json::text || ' receipts ' || v_n end);
+  begin
+    perform public.customer_receivables((select id from public.restaurants where owner_id = v_ra));
+    v_res := v_res || jsonb_build_array('FAIL T58k a customer read another customer''s receivables');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T58k a customer cannot read another customer''s receivables');
+  end;
+  begin
+    perform public.receivables_summary();
+    v_res := v_res || jsonb_build_array('FAIL T58l a customer read the receivables report');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T58l receivables_summary needs payments:view');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  -- Restaurant A's COD order v_o1 was delivered from the Orders screen (set_order_status, T14): at delivery it
+  -- became cash in the driver's hand and paid, with its own receipt; the 1293 advance from T12l is still on account.
+  select count(*) into v_n from public.receivables_summary() r where r ->> 'restaurant_id' = (select id::text from public.restaurants where owner_id = v_ra) and (r ->> 'unapplied_credit')::numeric = 1293;
+  select payment_status::text into v_txt from public.orders where id = (v_o1 ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_n = 1 and v_txt = 'paid'
+      and exists (select 1 from public.driver_cash where order_id = (v_o1 ->> 'id')::uuid and driver_id = v_del)
+      and exists (select 1 from public.payments p join public.payment_allocations a on a.payment_id = p.id where a.order_id = (v_o1 ->> 'id')::uuid and p.method = 'cash' and p.received_by = v_del)
+    then 'PASS T58m a COD order delivered from the Orders screen is cash in the driver''s hand: paid, driver cash, receipt; the advance stays on account' else 'FAIL T58m rows ' || v_n || ' ' || v_txt end);
+  -- No cash was in fact collected: void the cash receipt, then apply the advance by hand.
+  perform public.void_payment((select p.id from public.payments p join public.payment_allocations a on a.payment_id = p.id where a.order_id = (v_o1 ->> 'id')::uuid and p.method = 'cash'), 'driver collected nothing: prepaid');
+  v_json := public.allocate_payment((select id from public.payments where restaurant_id = (select id from public.restaurants where owner_id = v_ra) and method = 'cash' and voided_at is null and note like 'advance%' limit 1),
+                                    jsonb_build_array(jsonb_build_object('order_id', v_o1 ->> 'id', 'amount', 1293)));
+  select payment_status::text into v_txt from public.orders where id = (v_o1 ->> 'id')::uuid;
+  v_res := v_res || jsonb_build_array(case when v_txt = 'paid' and (v_json ->> 'unallocated')::numeric = 0
+    then 'PASS T58n void the uncollected cash receipt, apply the advance by hand: order paid, nothing on account' else 'FAIL T58n ' || v_txt || ' ' || v_json::text end);
+  v_stats := public.admin_dashboard_stats();
+  v_res := v_res || jsonb_build_array(case when (v_stats ? 'receivables_open') and (v_stats ? 'receivables_overdue')
+    then 'PASS T58o the dashboard carries open and overdue receivables' else 'FAIL T58o ' || v_stats::text end);
+  reset role;
+
+  -- T59 credit limit and overdue block
+  update public.restaurants set credit_limit = 100 where id = v_rcid;   -- as postgres: the Customers screen does this with customers:edit
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'credit');
+    v_res := v_res || jsonb_build_array('FAIL T59a a pay-later order above the credit limit was accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T59a a pay-later order above the credit limit is refused: ' || sqlerrm);
+  end;
+  v_json := public.my_order_terms();
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'credit_limit')::numeric = 100 and (v_json ->> 'credit_available')::numeric = 161 and v_json ->> 'credit_blocked_reason' is null
+    then 'PASS T59b my_order_terms shows the limit (100) and what is available (161: the 61 on account counts)' else 'FAIL T59b ' || v_json::text end);
+  v_oh := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod');
+  v_res := v_res || jsonb_build_array(case when (v_oh ->> 'id') is not null then 'PASS T59c cash on delivery is still open to them' else 'FAIL T59c' end);
+  perform public.cancel_order((v_oh ->> 'id')::uuid, 'test');
+  reset role;
+  update public.restaurants set credit_limit = null where id = v_rcid;
+  -- Make the paid-by-hand invoice overdue and open again: void its receipt, back-date the due date.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.void_payment((v_pay ->> 'id')::uuid, 'bounced');
+  reset role;
+  update public.orders set due_date = v_today - 1 where id = (v_og ->> 'id')::uuid;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.my_order_terms();
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'credit');
+    v_res := v_res || jsonb_build_array('FAIL T59d a customer with an overdue invoice ordered on credit');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when (v_json ->> 'overdue')::numeric = 239 and v_json ->> 'credit_blocked_reason' like 'You have overdue invoices%'
+      then 'PASS T59d an overdue invoice (239) blocks pay-later orders and the cart is told why' else 'FAIL T59d ' || v_json::text end);
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.sectors set block_credit_when_overdue = false where code = 'restaurant';
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_oh := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'credit');
+  v_res := v_res || jsonb_build_array(case when (v_oh ->> 'id') is not null then 'PASS T59e with the sector''s overdue block off, the order goes through' else 'FAIL T59e' end);
+  perform public.cancel_order((v_oh ->> 'id')::uuid, 'test');
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.sectors set block_credit_when_overdue = true where code = 'restaurant';
+  select count(*) into v_n from public.receivables_summary() r where r ->> 'restaurant_id' = v_rcid::text and (r ->> 'd1_30')::numeric = 239 and (r ->> 'overdue')::numeric = 239;
+  v_res := v_res || jsonb_build_array(case when v_n = 1 then 'PASS T59f the ageing report puts the 239 in the 1–30 days bucket' else 'FAIL T59f rows ' || v_n end);
+  reset role;
+
+  -- T60 debit notes and online receipts (webhook path)
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.raise_debit_note(v_rcid, 40, 'crate not returned', (v_og ->> 'id')::uuid, null);
+  v_bal := public.customer_receivables(v_rcid);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'debit_note_number') like 'DN-%' and (v_bal ->> 'outstanding')::numeric = 279
+    then 'PASS T60a a debit note of 40 is an open item: outstanding 239 + 40 = 279' else 'FAIL T60a ' || v_bal::text end);
+  reset role;
+  set local role service_role;
+  v_json := public.record_online_payment(v_rcid, 279, 'razorpay', 'pay_TEST001', v_today, 'webhook');
+  v_pay  := public.record_online_payment(v_rcid, 279, 'razorpay', 'pay_TEST001', v_today, 'webhook retry');
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_bal := public.customer_receivables(v_rcid);
+  select count(*) into v_n from public.payments where gateway_ref = 'pay_TEST001';
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'duplicate')::boolean = false and (v_pay ->> 'duplicate')::boolean = true and v_n = 1
+      and (v_bal ->> 'outstanding')::numeric = 0 and (select payment_status from public.orders where id = (v_og ->> 'id')::uuid) = 'paid'
+    then 'PASS T60b an online receipt settles the invoice and the debit note; a webhook retry is ignored' else 'FAIL T60b ' || v_json::text || ' ' || v_pay::text || ' ' || v_bal::text end);
+  begin
+    perform public.record_online_payment(v_rcid, 1, 'razorpay', 'pay_TEST002');
+    v_res := v_res || jsonb_build_array('FAIL T60c a signed-in admin called the webhook-only function');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T60c record_online_payment is service-role only');
+  end;
+  reset role;
+
+  -- T61 customer logins (migration 016): staff see confirmation state in scope; customers / pickers do not
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*), count(*) filter (where not email_confirmed) into v_n, v_num from public.admin_customer_logins();
+  v_res := v_res || jsonb_build_array(case when v_n >= 4 and v_num >= 0
+    then 'PASS T61a admin_customer_logins lists every customer with email + confirmed flag (' || v_n || ' rows)' else 'FAIL T61a ' || v_n end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.admin_customer_logins();
+    v_res := v_res || jsonb_build_array('FAIL T61b picker read customer logins');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T61b admin_customer_logins needs customers:view');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_cm, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.admin_customer_logins();
+  v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T61c a manager of another city sees no customer logins (scope)' else 'FAIL T61c sees ' || v_n end);
+  reset role;
+
+  -- T62 customer edit / cancel window (migration 017)
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.sectors set customer_edit_window_minutes = 15 where code = 'restaurant';
+  update public.sectors set customer_edit_window_minutes = 0  where code = 'defence';
+  reset role;
+  -- v_rc is a restaurant-sector customer. Place a fresh order; backdate it to simulate the window passing.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_og := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod');
+  perform public.edit_order((v_og ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 12)));
+  v_res := v_res || jsonb_build_array(case when (select quantity from public.order_items where order_id = (v_og ->> 'id')::uuid) = 12
+    then 'PASS T62a a customer edits their own placed order inside the 15-minute window' else 'FAIL T62a' end);
+  reset role;
+  update public.orders set created_at = created_at - interval '20 minutes' where id = (v_og ->> 'id')::uuid;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.edit_order((v_og ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 8)));
+    v_res := v_res || jsonb_build_array('FAIL T62b edited past the window');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when sqlerrm like '%15-minute window%passed%' then 'PASS T62b past the window the customer cannot edit: ' || sqlerrm else 'FAIL T62b ' || sqlerrm end);
+  end;
+  begin
+    perform public.cancel_order((v_og ->> 'id')::uuid, 'too late');
+    v_res := v_res || jsonb_build_array('FAIL T62c cancelled past the window');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when sqlerrm like '%15-minute window%passed%' then 'PASS T62c past the window the customer cannot cancel' else 'FAIL T62c ' || sqlerrm end);
+  end;
+  reset role;
+  -- Staff still can:
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.edit_order((v_og ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 7)));
+  v_res := v_res || jsonb_build_array(case when (select quantity from public.order_items where order_id = (v_og ->> 'id')::uuid) = 7
+    then 'PASS T62d staff can still edit the order past the window' else 'FAIL T62d' end);
+  -- window 0 = no self-edit. Give v_rc a defence sector-code via a fresh order on a defence customer? Simpler:
+  -- flip the restaurant sector to 0 for one assertion.
+  update public.sectors set customer_edit_window_minutes = 0 where code = 'restaurant';
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_oh := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod');
+  begin
+    perform public.edit_order((v_oh ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 11)));
+    v_res := v_res || jsonb_build_array('FAIL T62e window 0 allowed self-edit');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when sqlerrm like '%through our team%' then 'PASS T62e window 0: self-edit refused with "call us"' else 'FAIL T62e ' || sqlerrm end);
+  end;
+  v_json := public.my_order_terms();
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'customer_edit_window_minutes')::int = 0
+    then 'PASS T62f my_order_terms carries the window to the customer app' else 'FAIL T62f ' || v_json::text end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  update public.sectors set customer_edit_window_minutes = 15 where code = 'restaurant';
   reset role;
 
   -- Abort on purpose so no test data is ever saved. The message IS the report.

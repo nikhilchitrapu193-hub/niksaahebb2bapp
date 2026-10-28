@@ -1,6 +1,6 @@
 # API reference
 
-All write operations are Postgres functions (migrations 003, 004, 005, 006, 009, 010, 011, 012 and 013 in `supabase/migrations/`),
+All write operations are Postgres functions (migrations 003, 004, 005, 006, 009, 010, 011, 012, 013, 014, 015 and 016 in `supabase/migrations/`),
 called via `supabase.rpc(name, args)` and wrapped in `web/js/core/api.js`.
 All require a signed-in user; each re-checks the role and raises `42501` (permission denied) otherwise.
 Since migration 006, admin-app functions check a **permission** (`has_permission(module, action)`, see
@@ -11,7 +11,7 @@ Since migration 006, admin-app functions check a **permission** (`has_permission
 | Function | Who | Arguments | Returns |
 |---|---|---|---|
 | `place_order` | approved customer with a warehouse | `p_items jsonb` `[{product_id, quantity}]`, `p_notes`, `p_delivery_date date`, `p_delivery_slot` (morning/afternoon/evening/express), `p_payment_method` (cod/credit), `p_po_reference text` | `{id, order_number, total_amount, delivery_fee}` |
-| `my_order_terms` | customer | – | `{min_order_value, delivery_fee_below_mov, credit_days, needs_po_reference, sector_name, delivers}` |
+| `my_order_terms` | customer | – | `{min_order_value, delivery_fee_below_mov, credit_days, needs_po_reference, sector_name, sector_code, sector_active, delivers, credit_limit, credit_available, outstanding, overdue, credit_blocked_reason, customer_edit_window_minutes}` (014/015/017) |
 | `update_my_delivery_area` | customer | `p_city_id`, `p_pincode` | `{delivers}` — warehouse re-assigned from the pin code |
 | `set_order_status` | orders:edit (in scope), customer (cancel own), driver (assigned) | `p_order_id uuid`, `p_new order_status`, `p_note text` | – |
 | `assign_delivery` | orders:edit (in scope) | `p_order_id`, `p_delivery_user uuid` | – |
@@ -27,8 +27,18 @@ Since migration 006, admin-app functions check a **permission** (`has_permission
 | `admin_dashboard_stats` | dashboard:view | – | `{orders_today, revenue_today, revenue_7d, pending_restaurants, open_orders_by_status, top_products_30d}` — limited to the caller's scope |
 | `receive_stock` | inventory:edit (warehouse in scope) | `p_items jsonb` `[{product_id, quantity, unit_cost}]`, `p_supplier_id`, `p_note`, `p_warehouse_id` | – (older; kept for compatibility — the app now calls `receive_goods`) |
 | `adjust_stock` | inventory:edit (warehouse in scope) | `p_product_id`, `p_new_qty`, `p_reason` (adjustment/wastage/returned), `p_note`, `p_warehouse_id` | – (sets that warehouse's exact count) |
-| `set_order_payment` | payments:edit (in scope) | `p_order_id`, `p_status` (paid/unpaid) | – |
-| `admin_outstanding_balances` | customers:view | – | rows: restaurant_id, outstanding, unpaid_orders (in scope) |
+| `set_order_payment` | — | — | retired by migration 015 (kept as `set_order_payment_legacy`, no grant): a paid flag without a receipt. Use `record_payment`. |
+| `admin_outstanding_balances` | customers:view or payments:view | – | rows: restaurant_id, outstanding (open items minus credit on account), unpaid_orders (= open items), in scope |
+| `launch_status` | settings:view | – | `{pricing_mode, stock_mode, products_listed, products_in_stock, sectors: [{code, name, is_active, can_self_register, customers, customers_approved, customers_pending, orders_30d}]}` (014) |
+| `admin_customer_logins` | customers:view | – | rows per customer in scope: restaurant_id, owner_id, email, email_confirmed, confirmation_sent_at, last_sign_in_at, user_created_at (016) |
+| `record_payment` | payments:edit (customer in scope) | `p_restaurant_id`, `p_amount`, `p_method` (cash/upi/bank_transfer/cheque/online/other), `p_reference`, `p_received_on date`, `p_note`, `p_allocations jsonb` `[{order_id\|debit_note_id, amount}]` (null = oldest due first) | `{id, receipt_number, amount, unallocated}` — UPI / bank / cheque need a reference |
+| `allocate_payment` | payments:edit | `p_payment_id`, `p_allocations` | `{id, receipt_number, unallocated}` — apply an unapplied receipt by hand (also to a cash-on-delivery invoice) |
+| `void_payment` | payments:approve | `p_payment_id`, `p_reason` | – (receipt marked void, its invoices reopen; nothing deleted) |
+| `raise_debit_note` | payments:edit | `p_restaurant_id`, `p_amount`, `p_reason`, `p_order_id`, `p_due_date` | `{id, debit_note_number}` |
+| `record_online_payment` | **service_role only** (the Razorpay webhook) | `p_restaurant_id`, `p_amount`, `p_gateway`, `p_gateway_ref`, `p_received_on`, `p_note` | `{id, receipt_number, duplicate}` — a repeated gateway_ref is ignored |
+| `customer_receivables` | the customer (own) or payments/customers:view in scope | `p_restaurant_id` | `{outstanding, overdue, open_items[], unapplied[], unapplied_credit, exposure, pending_credit_orders, credit_limit, credit_available, oldest_due}` |
+| `receivables_summary` | payments:view | – | rows of jsonb per customer in scope: `outstanding, open_items, current_due, d1_30, d31_60, d61_90, d90_plus, overdue, oldest_due, unapplied_credit, credit_limit, credit_days` |
+| `customer_statement` | the customer (own) or payments:view in scope | `p_restaurant_id`, `p_from`, `p_to` | `{opening_balance, lines: [{date, kind, number, description, debit, credit, balance}], closing_balance, …}` |
 | `claim_first_admin` | any signed-in user | – | `true` if the caller became the first admin; `false` once any admin exists |
 | `price_board` | pricing:view | `p_category_id` (null = all) | rows of jsonb: every input of the formula (merged rule, costs, benchmark) + `cost_basis, landed_cost, suggested_price, capped, margin_amount, margin_pct, markup_effective_pct, flags` per active product |
 | `compute_price` | pricing:view | `p_product_id`, `p_on date` | the same object for one product |
@@ -62,7 +72,9 @@ keeps `products.stock_qty` (the total across warehouses) in step, and leaves a r
 * Rejects empty carts and more than 100 lines; merges duplicate products.
 * Rejects inactive or out-of-stock products, and quantities below `min_order_qty` or above 10,000.
 * Prices and GST rates come from the database, never from the client; the order snapshots name, unit, price and GST rate.
-* Quantity must not exceed `stock_qty`; the product row is locked while checking, and the stock is reserved (movement `order`). Cancelling returns it (`order_cancelled`).
+* Quantity must not exceed the warehouse stock; the row is locked while checking, and the stock is reserved (movement `order`). Cancelling returns it (`order_cancelled`). **Simple stock mode** (Settings → Launch, migration 014) skips the quantity check and the reservation; the in-stock flag still applies, and an order only ever returns what it took (`apply_stock_movement`).
+* A sector switched off under Settings → Launch (`sectors.is_active = false`) cannot order (migration 014).
+* **Credit rules** (migration 015, pay-later orders only): refused while an invoice is overdue when the sector has `block_credit_when_overdue`; refused when open invoices + pay-later orders on the way + this order would exceed the credit limit (customer override, else the sector's; NULL = no limit).
 * Express slot = delivered today; other slots need a date from tomorrow up to 7 days ahead.
 * `subtotal`, `tax_amount` (sum of line taxes, rounded per line) and `total_amount` are stored on the order.
 * Everything happens in one transaction: either the whole order is created or nothing is.
@@ -81,17 +93,20 @@ See the diagram in [architecture.md](architecture.md#order-lifecycle).
 `order_line_costs`, views `v_product_cost` / `v_product_benchmark`, `price_lists`, `price_list_items` (pricing:view) ·
 `supplier_products` (procurement:view) · `purchase_orders`, `purchase_order_items`, `goods_receipts`, `goods_receipt_items` (procurement:view or inventory:view, within scope) ·
 `stock_batches` (inventory/fulfilment view) · `vehicles`, `trips`, `trip_orders`, `delivery_returns`, `driver_cash`, `cash_settlements` (fulfilment view, in scope; a driver sees their own trip and cash) · `delivery_charge_rules` (fulfilment/pricing view) ·
-`slot_config` (any signed-in) · `order_issues`, `credit_notes` (the customer sees their own; staff with orders/payments/customers view).
+`slot_config` (any signed-in) · `order_issues`, `credit_notes` (the customer sees their own; staff with orders/payments/customers view) ·
+`payments`, `debit_notes`, `payment_allocations` (the customer sees their own; payments:view or customers:view in scope — migration 015).
+`company_settings` carries `pricing_mode` and `stock_mode` (014); `sectors` and `restaurants` carry `credit_limit`, sectors also `block_credit_when_overdue` and `customer_edit_window_minutes` (017); `orders` carry `due_date` (015).
 `categories` now carry `parent_id` (two levels); `products` carry grade, origin, veg_type, shelf_life_days, storage_note,
 parent_product_id / variant_label (pack sizes), sold_by_weight / weight_tolerance_pct.
 Logged-out visitors (`anon`) may read `categories`, listed `products`, `cities` and `sectors`, and call `check_pincode`.
 
 Direct writes from the browser, all gated by the permission matrix: `products`, `categories`, `product_city_availability`
 (products:edit) · `suppliers` (inventory:edit) · `restaurants` non-status columns (customers:edit; status goes through
-`set_customer_status`) · `company_settings`, `cities`, `warehouses`, `service_zones`, `sectors` terms (settings:edit) ·
+`set_customer_status`) · `company_settings`, `cities`, `warehouses`, `service_zones`, `sectors` terms incl. edit window (settings:edit) ·
 `role_permissions` (super admin only) · `hsn_codes`, `pricing_rules`, `product_pricing`, `benchmark_sources`, `benchmark_prices`
 (pricing:edit; `benchmark_prices.entered_by` is filled in by the database) · `price_lists`, `price_list_items` (pricing:edit) · `supplier_products` (procurement:edit). `audit_log`, `warehouse_stock`, `stock_movements`,
-`orders`, `profiles`, `price_history`, `scheduled_prices`, `order_line_costs`, `purchase_orders`, `purchase_order_items`, `goods_receipts`, `goods_receipt_items` are never written directly.
+`orders`, `profiles`, `price_history`, `scheduled_prices`, `order_line_costs`, `purchase_orders`, `purchase_order_items`, `goods_receipts`, `goods_receipt_items`,
+`payments`, `debit_notes`, `payment_allocations` are never written directly.
 
 ## Pricing engine (migration 009)
 
@@ -123,12 +138,27 @@ Slot cut-offs, order editing, order-on-behalf, cancellation and issues → credi
 `place_order_for`, `edit_order`, `cancel_order`, `report_issue`, `resolve_issue`. Wrappers are in the "Orders +"
 section of `web/js/core/api.js`.
 
+## Launch control (migration 014)
+
+Settings → Launch: live sectors (`sectors.is_active`), pricing mode and stock mode (`company_settings`). Described in
+[modules/launch-control.md](modules/launch-control.md). Browser wrappers: `getLaunchStatus`, `setSectorLive`,
+`saveLaunchModes` in `web/js/core/api.js`; the "what to hide" rules are `web/js/core/launch.js`.
+
+## Payments & credit (migration 015)
+
+Receipts, allocation, credit limits, ageing and statements are described in [modules/payments.md](modules/payments.md).
+Key functions: `record_payment`, `allocate_payment`, `void_payment`, `raise_debit_note`, `record_online_payment`,
+`customer_receivables`, `receivables_summary`, `customer_statement`; internal: `customer_balance`,
+`allocate_customer_credits`, `sync_order_payment_status`, the `orders_before_delivered` / `orders_after_delivered` /
+`orders_paid_receipt` / `credit_notes_apply` triggers. Wrappers are in the "Payments & credit" section of `web/js/core/api.js`.
+
 ## Audit log
 
 `audit_log` gets one row per insert / update / delete on products (price, listing, HSN and pack columns), orders, restaurants,
 profiles, role_permissions, sectors, cities, warehouses, service_zones, company_settings, pricing_rules, product_pricing,
 benchmark_sources, hsn_codes, categories, price_lists, price_list_items, suppliers, supplier_products, purchase_orders,
-purchase_order_items, goods_receipts, vehicles, trips, delivery_charge_rules, cash_settlements, slot_config, order_issues and credit_notes, written by the
+purchase_order_items, goods_receipts, vehicles, trips, delivery_charge_rules, cash_settlements, slot_config, order_issues, credit_notes,
+payments, debit_notes and payment_allocations, written by the
 `write_audit_log()` trigger with `changed_by = auth.uid()`. For updates `changes` holds only the changed columns:
 `{"price": {"old": 32, "new": 33}}`. Stock has its own ledger (`stock_movements`) and is not duplicated here.
 
@@ -137,6 +167,9 @@ purchase_order_items, goods_receipts, vehicles, trips, delivery_charge_rules, ca
 | Function | Who | Body | Does |
 |---|---|---|---|
 | `invite-staff` | admin (JWT checked server-side) | `{ email, role: 'admin'\|'delivery', full_name, team_role, redirect_to }` | Sends a Supabase invite email and sets the new profile's role and team role (only a super admin may invite a super admin). Source: `supabase/functions/invite-staff/index.ts`. |
+| `customer-access` | admin with customers:approve, in scope (JWT checked server-side) | `{ action: 'confirm_email'\|'resend_confirmation'\|'password_link'\|'set_password', restaurant_id, password?, redirect_to? }` | Gets a stuck customer signing in: confirms the email, resends the confirmation, returns a one-time recovery `link`, or sets a temporary password (the last three also confirm). Writes an `audit_log` row per action. Source: `supabase/functions/customer-access/index.ts`. |
+| `razorpay-order` | approved customer (JWT checked) | `{ amount }` (rupees) | Creates a Razorpay order with the gateway secret and returns `{ order_id, amount, currency, key_id }` for the checkout. Needs secrets `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`. |
+| `razorpay-webhook` | Razorpay (HMAC signature, no JWT) | Razorpay `payment.captured` event | Verifies `x-razorpay-signature` with `RAZORPAY_WEBHOOK_SECRET`, then `record_online_payment()` (idempotent on the payment id). Deploy with `--no-verify-jwt`. |
 
 ## Storage
 

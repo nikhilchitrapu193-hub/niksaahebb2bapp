@@ -9,10 +9,15 @@
 // An account that signs in on the wrong page is signed out again with a hint,
 // so a restaurant cannot wander into the admin area even by accident. (The
 // database enforces the real restriction; this is just a clear message.)
+//
+// Nobody gets stuck on the confirmation email: after registering, and whenever
+// sign-in fails with "email not confirmed", a Resend button sends it again, and
+// the text says to call us — staff can confirm the account from their side
+// (Customers → Access, migration 016).
 // =============================================================================
 
 import { html, mount, $, on, withBusy } from '../core/ui.js';
-import { signIn, signUpRestaurant, signUpStaff, requestPasswordReset, loadCurrentUser, homeFor, loginFor } from '../core/auth.js';
+import { signIn, signUpRestaurant, signUpStaff, requestPasswordReset, resendConfirmation, loadCurrentUser, homeFor, loginFor } from '../core/auth.js';
 import { claimFirstAdmin, listCities, listSectors } from '../core/api.js';
 import { supabase } from '../core/supabase.js';
 import { ROLE_LABELS, webRoot } from '../core/config.js';
@@ -28,6 +33,9 @@ let mode = (canRegister && location.hash === '#register') ? 'register' : 'signin
 // Sectors) is offered; the hint under the dropdown shows what the sector gets.
 let cities = [];
 let sectors = [];
+let lastEmail = '';     // the address typed last, for "Resend confirmation email"
+
+const stuckHelp = html`<p class="muted small">Check your spam folder too. Still nothing after a few minutes? Call us — we can activate your account from our side.</p>`;
 
 const brand = html`<div class="brand"><span class="brand-mark">F</span><span>Fresh Supply</span><span class="brand-sub">${ROLE_LABELS[ROLE]}</span></div>`;
 
@@ -113,6 +121,7 @@ function view() {
       <button class="btn primary block large" type="submit">Sign in</button>
       <button class="btn ghost block" type="button" data-mode="forgot">Forgot password?</button>
       <p class="form-error" id="error" role="alert"></p>
+      <div id="not-confirmed" hidden>${stuckHelp}<button class="btn block" type="button" data-resend>Resend the confirmation email</button></div>
     </form>
     ${canRegister ? '' : html`<p class="muted small center">Staff accounts are created by an administrator.${canSetup ? html` <a href="#" data-mode="setup">First time here? Set up the first admin.</a>` : ''}</p>`}
     ${otherLogins}`;
@@ -131,6 +140,7 @@ on(root, 'submit', '#form', async (event, form) => {
   event.preventDefault();
   const values = Object.fromEntries(new FormData(form));
   const button = $('button[type="submit"]', form);
+  lastEmail = values.email || lastEmail;
   showError('');
   if (!form.checkValidity()) { showError('Please fill in all required fields correctly.'); return; }
 
@@ -150,8 +160,11 @@ on(root, 'submit', '#form', async (event, form) => {
       } else if (mode === 'register') {
         const { needsEmailConfirmation } = await signUpRestaurant(values);
         if (needsEmailConfirmation) {
-          mount(root, html`${brand}<div class="banner info">Account created. Check your email to confirm your address, then sign in.</div>
-            <button class="btn block" data-mode="signin">Go to sign in</button>`);
+          lastEmail = values.email;
+          mount(root, html`${brand}<div class="banner info">Account created. Check your email (${values.email}) to confirm your address, then sign in.</div>
+            ${stuckHelp}
+            <button class="btn block" data-resend>Didn't get it? Resend the confirmation email</button>
+            <button class="btn ghost block" data-mode="signin">Go to sign in</button>`);
         } else {
           await redirectHome();
         }
@@ -163,14 +176,38 @@ on(root, 'submit', '#form', async (event, form) => {
     });
   } catch (error) {
     showError(friendly(error.message));
+    // The one failure a customer can fix themselves: the confirmation email never arrived.
+    if (/email not confirmed/i.test(error.message)) { const box = $('#not-confirmed', root); if (box) box.hidden = false; }
   }
 });
+
+on(root, 'click', '[data-resend]', async (e, button) => {
+  e.preventDefault();
+  if (!lastEmail) { showError('Type your email above first.'); return; }
+  try {
+    await withBusy(button, () => resendConfirmation(lastEmail));
+    button.replaceWith(mountNotice(`Sent again to ${lastEmail}. Give it a few minutes and check spam.`));
+  } catch (error) {
+    // Supabase allows only a few emails an hour per address; say what to do instead.
+    button.replaceWith(mountNotice(/rate limit|too many|seconds/i.test(error.message)
+      ? 'Too many emails in a short time. Wait a few minutes, or call us and we will activate your account.'
+      : error.message));
+  }
+});
+
+/** A small inline notice that takes the place of a button once it has done its job. */
+function mountNotice(text) {
+  const p = document.createElement('p');
+  p.className = 'banner info';
+  p.textContent = text;
+  return p;
+}
 
 /** Replace cryptic auth messages with plain language. */
 function friendly(message) {
   if (/invalid login credentials/i.test(message)) return 'Incorrect email or password.';
   if (/already registered/i.test(message)) return 'An account with this email already exists. Try signing in.';
-  if (/email not confirmed/i.test(message)) return 'Please confirm your email first (check your inbox).';
+  if (/email not confirmed/i.test(message)) return 'Your email is not confirmed yet. Use the link we emailed you, or resend it below.';
   return message;
 }
 
@@ -197,7 +234,9 @@ async function redirectHome() {
   } catch (error) { console.error(error); }
   if (canRegister) {
     // Lists are public; if they fail the form still works (the database falls back to the first city).
-    try { [cities, sectors] = await Promise.all([listCities(), listSectors().then((all) => all.filter((x) => x.can_self_register))]); } catch (error) { console.error(error); }
+    // Two named rules (both under Settings): the sector is live (is_active, Settings → Launch)
+    // and allows self sign-up (can_self_register, Settings → Sectors). The database applies the same two.
+    try { [cities, sectors] = await Promise.all([listCities(), listSectors().then((all) => all.filter((x) => x.is_active && x.can_self_register))]); } catch (error) { console.error(error); }
   }
   render();
 })();

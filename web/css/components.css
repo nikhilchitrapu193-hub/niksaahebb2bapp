@@ -342,3 +342,21 @@
 .product-price.large { font-size: var(--text-2xl); }
 .rule-card.sub { background: #fbfaf6; }
 @media (max-width: 720px) { .product-page { grid-template-columns: 1fr; } }
+
+/* ---------- Launch control (launch.js) and simple product form ---------------- */
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; vertical-align: middle; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: background .15s; cursor: pointer; }
+.switch .slider::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: var(--shadow-sm); }
+.switch input:checked + .slider { background: var(--brand); }
+.switch input:checked + .slider::before { transform: translateX(20px); }
+.switch input:focus-visible + .slider { outline: 2px solid var(--brand-strong); outline-offset: 2px; }
+details.more { grid-column: 1 / -1; border: 1px dashed var(--line); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
+details.more summary { cursor: pointer; font-weight: 600; color: var(--ink-muted); }
+details.more[open] summary { margin-bottom: var(--space-3); }
+details.more .form-grid { margin-top: var(--space-2); }
+
+/* ---------- Receivables (payments.js, restaurant payments.js) ---------------- */
+.aging td.bucket { font-variant-numeric: tabular-nums; }
+.aging td.overdue { color: var(--danger); font-weight: 600; }
+.money.negative { color: var(--brand-strong); }

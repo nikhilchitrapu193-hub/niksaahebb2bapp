@@ -56,12 +56,14 @@ export function createFake({ tables = {}, rpc = {}, session = null } = {}) {
       getSession: async () => ({ data: { session: state.session }, error: null }),
       signInWithPassword: async ({ email }) => {
         if (email === 'bad@example.com') return { data: null, error: { message: 'Invalid login credentials' } };
+        if (email === 'unconfirmed@example.com') return { data: null, error: { message: 'Email not confirmed' } };
         state.session = { user: { id: 'u-' + email, email } };
         return { data: { session: state.session }, error: null };
       },
       signUp: async (payload) => { calls.push({ type: 'signUp', payload }); return { data: { session: null }, error: null }; },
       signOut: async () => { state.session = null; return { error: null }; },
       resetPasswordForEmail: async () => ({ data: {}, error: null }),
+      resend: async (payload) => { calls.push({ type: 'resend', payload }); return { data: {}, error: null }; },
       updateUser: async () => ({ data: {}, error: null }),
     },
     functions: {

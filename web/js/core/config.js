@@ -27,6 +27,11 @@ export const config = Object.freeze({
 
   // How often the delivery screen refreshes its list, in milliseconds
   deliveryPollMs: 30_000,
+
+  // Razorpay "key id" (public, safe in the browser). Empty = the customer app
+  // shows no "Pay online" button. The secret stays in the Edge Functions
+  // (supabase/functions/razorpay-order, razorpay-webhook) — see docs/deployment.md.
+  razorpayKeyId: '',
 });
 
 /**
@@ -68,11 +73,35 @@ export const PAYMENT_METHODS = Object.freeze({
   credit: { label: 'Credit (pay later)', hint: 'Added to your account balance; settle with us' },
 });
 
+/** How a receipt came in (payments.method, migration 015). `needsReference` = the UTR / cheque number is required. */
+export const RECEIPT_METHODS = Object.freeze({
+  cash:          { label: 'Cash', needsReference: false },
+  upi:           { label: 'UPI', needsReference: true },
+  bank_transfer: { label: 'Bank transfer (NEFT / IMPS / RTGS)', needsReference: true },
+  cheque:        { label: 'Cheque', needsReference: true },
+  online:        { label: 'Online (Razorpay)', needsReference: false },
+  other:         { label: 'Other / adjustment', needsReference: false },
+});
+
+/**
+ * Launch control (migration 014): the two company-wide switches an admin flips
+ * under Settings → Launch. Keys match the check constraints on company_settings.
+ */
+export const LAUNCH_PRICING_MODES = Object.freeze({
+  simple:   { label: 'Simple', hint: 'Type each product\'s price on the product form. Price board, rules, benchmarks and price lists stay hidden.' },
+  advanced: { label: 'Advanced', hint: 'Prices come from the pricing engine: cost + markup rules, benchmarks, margin guard, scheduled changes, price lists.' },
+});
+export const STOCK_MODES = Object.freeze({
+  simple:  { label: 'Simple', hint: 'No quantities. A product is "in stock" or "out of stock" (the toggle on the Products list). Orders never reserve stock. Inventory and Procurement stay hidden.' },
+  counted: { label: 'Counted', hint: 'The stock ledger: receive goods (GRN), per-warehouse counts, reservations per order, batches and expiry, purchase orders.' },
+});
+
 /**
  * Admin-app modules and the actions a team role can be granted in each.
- * MUST match the check constraints on role_permissions (migrations 006, 009, 011).
+ * MUST match the check constraints on role_permissions (migrations 006, 009, 011, 012).
  * `nav` is the admin route that opens the module; modules without one are
- * permission groups only (reports arrive in a later batch).
+ * permission groups only (reports arrive in a later batch). Settings → Launch
+ * can hide pricing / inventory / procurement (web/js/core/launch.js).
  */
 export const MODULES = Object.freeze({
   dashboard: { label: 'Dashboard', nav: '#dashboard' },
@@ -80,7 +109,7 @@ export const MODULES = Object.freeze({
   products:  { label: 'Products', nav: '#products' },
   inventory: { label: 'Inventory', nav: '#inventory' },
   customers: { label: 'Customers', nav: '#customers' },
-  payments:  { label: 'Payments', nav: null },
+  payments:  { label: 'Payments', nav: '#payments' },
   team:      { label: 'Team', nav: '#team' },
   settings:  { label: 'Settings', nav: '#settings' },
   audit:     { label: 'Audit log', nav: '#audit' },

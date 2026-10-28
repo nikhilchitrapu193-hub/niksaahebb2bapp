@@ -1,5 +1,9 @@
 // =============================================================================
 // orders.js — a restaurant's order history, order detail, cancel and reorder.
+// A placed order can be edited or cancelled by the customer only within their
+// sector's edit window (my_order_terms.customer_edit_window_minutes, migration
+// 017). After that the slot stays open to staff; the customer sees how many
+// minutes are left, then "Call us to make changes." The database re-checks.
 // =============================================================================
 
 import { html, mount, on, $, formatINR, formatQty, formatDateTime, formatDate, statusBadge, openModal,
@@ -7,6 +11,20 @@ import { html, mount, on, $, formatINR, formatQty, formatDateTime, formatDate, s
 import { listOrders, getOrderHistory, cancelOrder, editOrder, reportIssue } from '../../core/api.js';
 import { setQty, getQty } from './cart.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, ISSUE_KINDS, webRoot } from '../../core/config.js';
+
+/** True while the customer may still change / cancel their own placed order (migration 017). */
+export function canCustomerChange(order, terms) {
+  if (order.status !== 'placed') return false;
+  const windowMin = Number(terms?.customer_edit_window_minutes ?? 15);
+  if (windowMin <= 0) return false;
+  return Date.now() - new Date(order.created_at).getTime() < windowMin * 60_000;
+}
+/** Whole minutes left in that window (0 once spent). */
+export function minutesLeftToChange(order, terms) {
+  const windowMin = Number(terms?.customer_edit_window_minutes ?? 15);
+  const left = Math.ceil((windowMin * 60_000 - (Date.now() - new Date(order.created_at).getTime())) / 60_000);
+  return left > 0 ? left : 0;
+}
 import { isUnavailable } from './catalogue.js';
 
 export async function renderOrders(container, state) {
@@ -38,6 +56,19 @@ export async function renderOrders(container, state) {
   });
 }
 
+/** The one-line notice above the buttons: time left, "call us" when spent, or "no self-edit" when the sector is 0. */
+function windowNotice(order, terms) {
+  const windowMin = Number(terms?.customer_edit_window_minutes ?? 15);
+  if (windowMin <= 0) {
+    return html`<p class="muted small" style="text-align:right">Changes and cancellations go through our team — please call us.</p>`;
+  }
+  const left = minutesLeftToChange(order, terms);
+  if (left === 0) {
+    return html`<p class="muted small" style="text-align:right">Your ${windowMin}-minute window to change this order has passed. Call us to make changes.</p>`;
+  }
+  return html`<p class="muted small" style="text-align:right">You can still edit or cancel this order for about ${left} more minute${left === 1 ? '' : 's'}.</p>`;
+}
+
 async function showOrder(order, state, refresh) {
   const { el, close } = openModal(html`<div class="loading"><span class="spinner"></span></div>`,
     { title: order.order_number, wide: true });
@@ -57,15 +88,16 @@ async function showOrder(order, state, refresh) {
       </table></div>
       <dl class="kv">
         <dt>Delivery</dt><dd>${DELIVERY_SLOTS[order.delivery_slot]?.label ?? '—'}, ${formatDate(order.delivery_date)}</dd>
-        <dt>Payment</dt><dd>${PAYMENT_METHODS[order.payment_method]?.label ?? '—'} · ${order.payment_status === 'paid' ? 'Paid' : 'Unpaid'}</dd>
+        <dt>Payment</dt><dd>${PAYMENT_METHODS[order.payment_method]?.label ?? '—'} · ${order.payment_status === 'paid' ? 'Paid' : html`Unpaid${order.due_date ? html` · due ${formatDate(order.due_date)}` : ''}${order.status === 'delivered' ? html` · <a href="#payments">Payments</a>` : ''}`}</dd>
         ${order.notes ? html`<dt>Notes</dt><dd>${order.notes}</dd>` : ''}
       </dl>
       <h3 style="margin:var(--space-4) 0 var(--space-3)">Progress</h3>
       <ul class="timeline">${history.map((h) => html`<li><strong>${STATUS_LABELS[h.to_status]}</strong>
         <span class="muted"> · ${formatDateTime(h.created_at)}</span>${h.note ? html`<div class="muted">${h.note}</div>` : ''}</li>`)}</ul>
-      <div class="row" style="justify-content:flex-end;margin-top:var(--space-5);flex-wrap:wrap">
-        ${order.status === 'placed' ? html`<button class="btn" data-edit>Edit order</button>` : ''}
-        ${order.status === 'placed' ? html`<button class="btn danger" data-cancel>Cancel order</button>` : ''}
+      ${order.status === 'placed' ? windowNotice(order, state.terms) : ''}
+      <div class="row" style="justify-content:flex-end;margin-top:var(--space-2);flex-wrap:wrap">
+        ${canCustomerChange(order, state.terms) ? html`<button class="btn" data-edit>Edit order</button>` : ''}
+        ${canCustomerChange(order, state.terms) ? html`<button class="btn danger" data-cancel>Cancel order</button>` : ''}
         ${order.status === 'delivered' ? html`<button class="btn" data-issue>Report an issue</button>` : ''}
         <a class="btn" target="_blank" rel="noopener" href="${webRoot}invoice.html?order=${order.id}">Invoice</a>
         <button class="btn primary" data-reorder>Order again</button>

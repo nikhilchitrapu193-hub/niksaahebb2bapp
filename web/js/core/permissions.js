@@ -16,10 +16,13 @@ export function can(me, module, action) {
   return me.permissions?.has(`${module}:${action}`) ?? false;
 }
 
-/** Admin nav links for the modules `me` may view, in MODULES order. */
-export function visibleNav(me) {
+/**
+ * Admin nav links for the modules `me` may view, in MODULES order.
+ * `hidden` = modules switched off under Settings → Launch (launch.js hiddenModules).
+ */
+export function visibleNav(me, hidden = new Set()) {
   return Object.entries(MODULES)
-    .filter(([code, m]) => m.nav && can(me, code, 'view'))
+    .filter(([code, m]) => m.nav && can(me, code, 'view') && !hidden.has(code))
     .map(([, m]) => ({ href: m.nav, label: m.label }));
 }
 

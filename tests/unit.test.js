@@ -87,7 +87,10 @@ test('can: super admin may do everything, others only what the matrix allows, cu
   assert.equal(can(customer, 'orders', 'view'), false);
   assert.equal(can(null, 'orders', 'view'), false);
   assert.deepEqual(visibleNav(picker), [{ href: '#orders', label: 'Orders' }]);
-  assert.equal(visibleNav(superAdmin).length, 11, 'every module with a nav entry (pricing 009, procurement 011, fulfilment 012)');
+  assert.equal(visibleNav(superAdmin).length, 12, 'every module with a nav entry (pricing 009, procurement 011, fulfilment 012, payments 015)');
+  // Launch modes (014) hide modules on top of the matrix.
+  assert.equal(visibleNav(superAdmin, new Set(['pricing', 'inventory', 'procurement'])).length, 9);
+  assert.deepEqual(visibleNav(picker, new Set(['orders'])), [], 'hidden beats granted');
 });
 
 test('orderPreview: below the minimum the delivery fee applies; with no fee the order is blocked', () => {
@@ -416,4 +419,78 @@ test('buildReturns: a return must be >0 and strictly below the billed quantity',
   assert.match(buildReturns(items, new Map([['i1', '-1']])).error, /negative/);
   assert.match(buildReturns(items, new Map([['x', '1']])).error, /Unknown line/);
   assert.deepEqual(buildReturns(items, new Map()), { lines: [] });
+});
+
+// ---------- Launch control (migration 014) ------------------------------------
+const launch = await import('../web/js/core/launch.js');
+
+test('launch: the two modes decide which admin modules hide; the full app hides nothing', () => {
+  assert.deepEqual([...launch.hiddenModules({ pricing_mode: 'advanced', stock_mode: 'counted' })], []);
+  assert.deepEqual([...launch.hiddenModules({ pricing_mode: 'simple', stock_mode: 'counted' })], ['pricing']);
+  assert.deepEqual([...launch.hiddenModules({ pricing_mode: 'advanced', stock_mode: 'simple' })], ['inventory', 'procurement']);
+  assert.deepEqual([...launch.hiddenModules({ pricing_mode: 'simple', stock_mode: 'simple' })], ['pricing', 'inventory', 'procurement']);
+  assert.deepEqual([...launch.hiddenModules(undefined)], [], 'no settings read = full menu; the database still enforces');
+  assert.equal(launch.isLite({ pricing_mode: 'simple', stock_mode: 'simple' }), true);
+  assert.equal(launch.isLite({ pricing_mode: 'simple', stock_mode: 'counted' }), false);
+});
+
+test('launch: the dashboard summary names what is off and says nothing when everything is on', () => {
+  const sectors = [{ name: 'Restaurants', is_active: false }, { name: 'Army cantonments', is_active: true }];
+  assert.deepEqual(launch.launchSummary({ pricing_mode: 'simple', stock_mode: 'simple' }, sectors), [
+    'Live for Army cantonments · not yet: Restaurants',
+    'Simple pricing: prices are typed on the product form',
+    'Simple stock: in stock / out of stock only, no quantities',
+  ]);
+  assert.deepEqual(launch.launchSummary({ pricing_mode: 'advanced', stock_mode: 'counted' }, [{ name: 'Restaurants', is_active: true }]), []);
+});
+
+// ---------- Payments & credit (migration 015) ---------------------------------
+const recv = await import('../web/js/core/receivables.js');
+
+test('fifoAllocate: oldest due first, each item up to its balance, the rest on account (mirrors allocate_customer_credits)', () => {
+  const items = [
+    { id: 'b', kind: 'order', number: 'ORD-2', balance: 100, due_date: '2026-10-20', item_date: '2026-10-13' },
+    { id: 'a', kind: 'order', number: 'ORD-1', balance: 239, due_date: '2026-10-19', item_date: '2026-10-12' },
+    { id: 'c', kind: 'debit_note', number: 'DN-1', balance: 40, due_date: null, item_date: '2026-10-14' },
+    { id: 'paid', kind: 'order', number: 'ORD-0', balance: 0, due_date: '2026-10-01', item_date: '2026-09-24' },
+  ];
+  assert.deepEqual(recv.fifoAllocate(300, items), { lines: [{ id: 'a', kind: 'order', number: 'ORD-1', amount: 239 }, { id: 'b', kind: 'order', number: 'ORD-2', amount: 61 }], leftover: 0 });
+  assert.deepEqual(recv.fifoAllocate(400, items).leftover, 21);
+  assert.deepEqual(recv.fifoAllocate(400, items).lines.map((l) => l.id), ['a', 'b', 'c'], 'a null due date sorts last');
+  assert.deepEqual(recv.fifoAllocate(0, items), { lines: [], leftover: 0 });
+});
+
+test('agingTotals, daysOverdue and agingBucket match the report columns', () => {
+  const totals = recv.agingTotals([
+    { outstanding: 239, current_due: 0, d1_30: 239, d31_60: 0, d61_90: 0, d90_plus: 0, overdue: 239, unapplied_credit: 0 },
+    { outstanding: -61, current_due: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90_plus: 0, overdue: 0, unapplied_credit: 61 },
+  ]);
+  assert.equal(totals.outstanding, 178); assert.equal(totals.d1_30, 239); assert.equal(totals.unapplied_credit, 61);
+  assert.equal(recv.daysOverdue('2026-10-19', '2026-10-20'), 1);
+  assert.equal(recv.daysOverdue('2026-10-21', '2026-10-20'), 0);
+  assert.equal(recv.daysOverdue(null, '2026-10-20'), 0);
+  assert.deepEqual([0, 1, 30, 31, 60, 61, 90, 91].map(recv.agingBucket), ['current', '1–30', '1–30', '31–60', '31–60', '61–90', '61–90', '90+']);
+});
+
+
+// ---------- Customer edit window (migration 017) ------------------------------
+const custOrders = await import('../web/js/pages/restaurant/orders.js');
+
+test('canCustomerChange: inside window = true, past window = false, status not placed = false, window 0 = never', () => {
+  const terms = { customer_edit_window_minutes: 15 };
+  const fresh = { status: 'placed', created_at: new Date(Date.now() - 5 * 60_000).toISOString() };
+  const stale = { status: 'placed', created_at: new Date(Date.now() - 20 * 60_000).toISOString() };
+  assert.equal(custOrders.canCustomerChange(fresh, terms), true);
+  assert.equal(custOrders.canCustomerChange(stale, terms), false);
+  assert.equal(custOrders.canCustomerChange({ ...fresh, status: 'confirmed' }, terms), false);
+  assert.equal(custOrders.canCustomerChange(fresh, { customer_edit_window_minutes: 0 }), false);
+  assert.equal(custOrders.canCustomerChange(fresh, undefined), true, 'default window is 15');
+});
+
+test('minutesLeftToChange rounds up and bottoms out at 0', () => {
+  const terms = { customer_edit_window_minutes: 15 };
+  const t = (minutesAgo) => ({ created_at: new Date(Date.now() - minutesAgo * 60_000).toISOString() });
+  assert.ok([3, 4].includes(custOrders.minutesLeftToChange(t(11), terms)), 'about 4 min left');
+  assert.equal(custOrders.minutesLeftToChange(t(20), terms), 0);
+  assert.ok([14, 15].includes(custOrders.minutesLeftToChange(t(0.5), terms)), 'nearly a full window');
 });

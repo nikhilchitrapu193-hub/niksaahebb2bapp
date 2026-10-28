@@ -27,13 +27,13 @@ we could identify, then maps each one to our build: **Built**, **Built (simplifi
 | Catalogue: categories, sub-categories, brands, search, filters, sort | **Built** — categories, brands, search; sort/filters roadmap |
 | Product page: unit, pack size, rating, market price vs best rate, stock limits for bulk | **Built** — unit, min order qty, market price, live stock check at order time |
 | Cart split by delivery slot, scheduled delivery, subscriptions | **Built (simplified)** — one slot per order; subscriptions roadmap |
-| Checkout: delivery date, slot, payment method (pay now / pay later credit / wallet), voice instructions | **Built** — date, slot, Cash on delivery or Credit (pay later); notes field. Wallet/online payment and voice notes roadmap |
+| Checkout: delivery date, slot, payment method (pay now / pay later credit / wallet), voice instructions | **Built** — date, slot, Cash on delivery or Credit (pay later, blocked when overdue / over the limit); notes field. Online payment via Razorpay (switch on with keys). Wallet and voice notes roadmap |
 | Coupons corner, offers, loyalty, referrals | Roadmap |
 | Order tracking (placed → confirmed → packed → out for delivery → delivered) | **Built** |
 | Reorder from past orders | **Built** |
 | GST invoice per order | **Built** — printable invoice page with company and buyer GSTIN, per-line GST |
 | Returns / refunds, ratings, chat support | **Built** (batch 6) — report an issue → credit note; doorstep returns (batch 5). Ratings / chat are roadmap |
-| Credit terms and interest on overdue dues | **Built (simplified)** — credit orders, outstanding balance per restaurant, mark-as-paid. Interest roadmap |
+| Credit terms and interest on overdue dues | **Built** — credit days + credit limit per sector / customer, due dates, overdue block, receipts, credit / debit notes, ageing, statements, customer Payments page. Interest roadmap |
 
 ## 3. Operations / warehouse (what Hyperpure runs internally)
 
@@ -54,10 +54,12 @@ we could identify, then maps each one to our build: **Built**, **Built (simplifi
 | Need | Fresh Supply |
 |---|---|
 | Dashboard: orders, revenue, pending approvals, top products | **Built** |
-| Orders: filter, detail, status, driver, invoice, mark paid | **Built** |
+| Orders: filter, detail, status, driver, invoice, record payment | **Built** |
 | Products: CRUD, photos, brand, GST rate, market price, stock | **Built** |
 | Inventory: receive, adjust, ledger, suppliers | **Built** |
-| Customers: approve/suspend, outstanding credit | **Built** |
+| Customers: approve/suspend, outstanding credit, credit limit | **Built** |
+| Receivables: ageing, receipts, void, statements | **Built** — Payments (migration 015) |
+| Launch control: which sectors are live, simple vs advanced pricing and stock | **Built** — Settings → Launch (migration 014) |
 | Team: roles and deactivation | **Built** |
 | Company settings (name, address, GSTIN, FSSAI, phone for invoices) | **Built** |
 | Reports/exports (CSV) | Roadmap |

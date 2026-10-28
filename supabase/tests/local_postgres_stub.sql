@@ -12,13 +12,15 @@
 
 do $$ begin if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if; end $$;
 do $$ begin if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if; end $$;
-grant usage on schema public to anon, authenticated;
+do $$ begin if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin; end if; end $$;  -- migration 015 grants to it
+grant usage on schema public to anon, authenticated, service_role;
 
 create schema if not exists auth;
 create table if not exists auth.users (
   id uuid primary key,
   aud text, role text, email text, email_confirmed_at timestamptz,
   raw_user_meta_data jsonb default '{}'::jsonb,
+  confirmation_sent_at timestamptz, last_sign_in_at timestamptz,   -- read by admin_customer_logins (016)
   created_at timestamptz default now(), updated_at timestamptz default now()
 );
 -- Supabase's auth.uid() reads the JWT "sub" claim from a session setting.

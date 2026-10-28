@@ -66,6 +66,15 @@ export async function signOut(role) {
   location.href = role ? loginFor(role) : webRoot;
 }
 
+/**
+ * Send the sign-up confirmation email again (the first one went to spam, or
+ * never arrived). Public: Supabase rate-limits it per address. Returns nothing;
+ * the message to the person is the same whether or not the address exists.
+ */
+export async function resendConfirmation(email) {
+  check(await supabase.auth.resend({ type: 'signup', email: email.trim(), options: { emailRedirectTo: `${webRoot}restaurant/login.html` } }));
+}
+
 /** Send a password-reset email that returns to reset.html. */
 export async function requestPasswordReset(email) {
   check(await supabase.auth.resetPasswordForEmail(email.trim(), {

@@ -88,10 +88,6 @@ export async function getOrder(orderId) {
   return unwrap(await supabase.from('orders').select(ORDER_SELECT).eq('id', orderId).maybeSingle());
 }
 
-export async function setOrderPayment(orderId, status) {
-  unwrap(await supabase.rpc('set_order_payment', { p_order_id: orderId, p_status: status }));
-}
-
 export async function setOrderStatus(orderId, status, note) {
   unwrap(await supabase.rpc('set_order_status', { p_order_id: orderId, p_new: status, p_note: note || null }));
 }
@@ -167,17 +163,37 @@ export async function listSectors() {
   return unwrap(await supabase.from('sectors').select('*').order('sort_order'));
 }
 
-/** Only the editable terms; code and name are fixed. */
+/** Only the editable terms; code and name are fixed. credit_limit '' / null = no limit (migration 015). */
 export async function saveSectorTerms(code, terms) {
   unwrap(await supabase.from('sectors').update({
     min_order_value: Number(terms.min_order_value) || 0,
     delivery_fee_below_mov: Number(terms.delivery_fee_below_mov) || 0,
     credit_days: Number(terms.credit_days) || 0,
+    credit_limit: terms.credit_limit === '' || terms.credit_limit == null ? null : Number(terms.credit_limit),
+    block_credit_when_overdue: terms.block_credit_when_overdue ?? true,
+    customer_edit_window_minutes: terms.customer_edit_window_minutes === '' || terms.customer_edit_window_minutes == null ? 15 : Math.max(0, Math.min(1440, Number(terms.customer_edit_window_minutes))),
     needs_po_reference: Boolean(terms.needs_po_reference),
     needs_order_approval: Boolean(terms.needs_order_approval),
     can_self_register: Boolean(terms.can_self_register),
     is_active: terms.is_active ?? true,
   }).eq('code', code));
+}
+
+// ---------- Launch control (migration 014) -----------------------------------
+
+/** Switch a sector live (true) or off (false): off = no sign-up, no orders. settings:edit. */
+export async function setSectorLive(code, live) {
+  unwrap(await supabase.from('sectors').update({ is_active: Boolean(live) }).eq('code', code));
+}
+
+/** The two company-wide modes. settings:edit (company_settings policy). */
+export async function saveLaunchModes({ pricingMode, stockMode }) {
+  unwrap(await supabase.from('company_settings').update({ pricing_mode: pricingMode, stock_mode: stockMode }).eq('id', true));
+}
+
+/** What the Launch screen shows: modes, product counts and per-sector customer / order counts. settings:view. */
+export async function getLaunchStatus() {
+  return unwrap(await supabase.rpc('launch_status'));
 }
 
 // ---------- Team roles & permission matrix -----------------------------------
@@ -271,8 +287,10 @@ export async function saveProduct(product) {
     weight_tolerance_pct: Number(product.weight_tolerance_pct) >= 0 ? Number(product.weight_tolerance_pct) : 10,
   };
   // A price published from the board stays as the board set it; the form only
-  // changes it when the product is priced by hand.
+  // changes it when the product is priced by hand. In simple pricing (Settings →
+  // Launch) the form passes 'manual' and the typed price wins from now on.
   if (product.price_source === 'rule' && product.id) { delete row.price; delete row.market_price; }
+  if (product.price_source === 'manual' && product.id) row.price_source = 'manual';
   const query = product.id
     ? supabase.from('products').update(row).eq('id', product.id).select().single()
     : supabase.from('products').insert(row).select().single();
@@ -379,10 +397,11 @@ export async function saveCustomerTerms(id, terms) {
     min_order_value: orNull(terms.min_order_value),
     delivery_fee_below_mov: orNull(terms.delivery_fee_below_mov),
     credit_days: orNull(terms.credit_days),
+    credit_limit: orNull(terms.credit_limit),
   }).eq('id', id));
 }
 
-/** Unpaid credit per restaurant: [{ restaurant_id, outstanding, unpaid_orders }]. */
+/** Open position per customer: [{ restaurant_id, outstanding, unpaid_orders }] (open items minus credit on account, migration 015). */
 export async function listOutstandingBalances() {
   return unwrap(await supabase.rpc('admin_outstanding_balances'));
 }
@@ -401,6 +420,32 @@ export async function inviteStaff({ email, role, fullName, teamRole }) {
   });
   if (error) {
     // The function returns a readable message in the JSON body; surface it.
+    let message = error.message;
+    try { message = (await error.context?.json())?.error ?? message; } catch { /* keep default */ }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+/**
+ * Login state per customer (migration 016): [{ restaurant_id, owner_id, email, email_confirmed,
+ * confirmation_sent_at, last_sign_in_at, user_created_at }]. customers:view, in scope.
+ */
+export async function listCustomerLogins() {
+  return unwrap(await supabase.rpc('admin_customer_logins'));
+}
+
+/**
+ * The customer-access Edge Function (customers:approve): get a stuck customer signing in.
+ *   action: 'confirm_email' | 'resend_confirmation' | 'password_link' | 'set_password'
+ * Returns the function's JSON ({ ok, action, email, link?, … }); throws its error message.
+ */
+export async function customerAccess(action, restaurantId, { password } = {}) {
+  const { data, error } = await supabase.functions.invoke('customer-access', {
+    body: { action, restaurant_id: restaurantId, password: password || undefined, redirect_to: `${webRoot}reset.html?role=restaurant` },
+  });
+  if (error) {
     let message = error.message;
     try { message = (await error.context?.json())?.error ?? message; } catch { /* keep default */ }
     throw new Error(message);
@@ -904,4 +949,91 @@ export async function saveSlotConfig(c) {
 }
 export async function deleteSlotConfig(id) {
   unwrap(await supabase.from('slot_config').delete().eq('id', id));
+}
+
+// ---------- Payments & credit (migration 015) --------------------------------
+// Open-item receivables: a delivered order (or a debit note) is paid off by
+// receipts and credit notes through allocations. Writes are functions needing
+// payments:edit (void: payments:approve); reads need payments:view or
+// customers:view in scope, and a customer may read their own.
+
+/** Every customer in scope with a position: outstanding, overdue, ageing buckets, credit limit. payments:view. */
+export async function getReceivablesSummary() {
+  return unwrap(await supabase.rpc('receivables_summary'));
+}
+
+/** One customer: outstanding, overdue, credit limit / available, open items, unapplied receipts & credit notes. */
+export async function getCustomerReceivables(restaurantId) {
+  return unwrap(await supabase.rpc('customer_receivables', { p_restaurant_id: restaurantId }));
+}
+
+/** Statement between two dates (YYYY-MM-DD): opening balance, lines with running balance, closing balance. */
+export async function getCustomerStatement(restaurantId, from, to) {
+  return unwrap(await supabase.rpc('customer_statement', { p_restaurant_id: restaurantId, p_from: from, p_to: to }));
+}
+
+/**
+ * Record a receipt. allocations = [{ order_id, amount }] / [{ debit_note_id, amount }] to apply
+ * by hand; omit for oldest-due-first. Returns { id, receipt_number, amount, unallocated }.
+ */
+export async function recordPayment(restaurantId, { amount, method, reference, receivedOn, note, allocations }) {
+  return unwrap(await supabase.rpc('record_payment', {
+    p_restaurant_id: restaurantId, p_amount: Number(amount), p_method: method, p_reference: reference || null,
+    p_received_on: receivedOn || null, p_note: note || null, p_allocations: allocations?.length ? allocations : null,
+  }));
+}
+
+/** Apply (part of) an unapplied receipt to chosen open items. Returns { id, receipt_number, unallocated }. */
+export async function allocatePayment(paymentId, allocations) {
+  return unwrap(await supabase.rpc('allocate_payment', { p_payment_id: paymentId, p_allocations: allocations }));
+}
+
+/** Reverse a receipt (bounced cheque, mistake). payments:approve. Nothing is deleted. */
+export async function voidPayment(paymentId, reason) {
+  unwrap(await supabase.rpc('void_payment', { p_payment_id: paymentId, p_reason: reason }));
+}
+
+/** An extra charge to a customer. Returns { id, debit_note_number }. */
+export async function raiseDebitNote(restaurantId, { amount, reason, orderId, dueDate }) {
+  return unwrap(await supabase.rpc('raise_debit_note', {
+    p_restaurant_id: restaurantId, p_amount: Number(amount), p_reason: reason, p_order_id: orderId || null, p_due_date: dueDate || null,
+  }));
+}
+
+/** Receipts, newest first. filters: { restaurantId, limit }. RLS: own, or payments/customers:view in scope. */
+export async function listPayments({ restaurantId, limit = 200 } = {}) {
+  let query = supabase.from('payments').select('*, restaurants(name)').order('received_on', { ascending: false }).order('created_at', { ascending: false }).limit(limit);
+  if (restaurantId) query = query.eq('restaurant_id', restaurantId);
+  return unwrap(await query);
+}
+
+export async function listDebitNotes({ restaurantId, limit = 200 } = {}) {
+  let query = supabase.from('debit_notes').select('*, restaurants(name), orders(order_number)').order('created_at', { ascending: false }).limit(limit);
+  if (restaurantId) query = query.eq('restaurant_id', restaurantId);
+  return unwrap(await query);
+}
+
+/** Which invoices / debit notes a receipt or credit note was applied to. */
+export async function listPaymentAllocations({ paymentId, creditNoteId, orderId } = {}) {
+  let query = supabase.from('payment_allocations').select('*, orders(order_number), debit_notes(debit_note_number)').order('created_at');
+  if (paymentId) query = query.eq('payment_id', paymentId);
+  if (creditNoteId) query = query.eq('credit_note_id', creditNoteId);
+  if (orderId) query = query.eq('order_id', orderId);
+  return unwrap(await query);
+}
+
+/**
+ * Online payment (Razorpay). Step 1: the razorpay-order Edge Function creates a
+ * gateway order for the signed-in customer and returns { order_id, amount, currency, key_id }.
+ * Step 2 happens in the gateway's checkout; step 3 is the webhook (record_online_payment).
+ */
+export async function createOnlinePaymentOrder(amount) {
+  const { data, error } = await supabase.functions.invoke('razorpay-order', { body: { amount: Number(amount) } });
+  if (error) {
+    let message = error.message;
+    try { message = (await error.context?.json())?.error ?? message; } catch { /* keep default */ }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
 }

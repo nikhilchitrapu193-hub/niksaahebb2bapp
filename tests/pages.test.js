@@ -27,9 +27,9 @@ const CITY = { id: 'city-vz', name: 'Visakhapatnam', state_code: '37', is_active
 const WAREHOUSE = { id: 'wh-1', city_id: 'city-vz', name: 'Vizag main warehouse', address: '', is_default: true, is_active: true };
 const ZONE = { id: 'z1', warehouse_id: 'wh-1', pincode: '530001', area_name: 'GPO', is_active: true };
 const SECTORS = [
-  { code: 'restaurant', name: 'Restaurants & cloud kitchens', description: '', min_order_value: 2000, delivery_fee_below_mov: 99, credit_days: 7, needs_po_reference: false, needs_order_approval: false, can_self_register: true, is_active: true, sort_order: 10 },
-  { code: 'defence', name: 'Army cantonments & unit messes', description: 'Contract rates, PO on every order', min_order_value: 0, delivery_fee_below_mov: 0, credit_days: 60, needs_po_reference: true, needs_order_approval: true, can_self_register: true, is_active: true, sort_order: 40 },
-  { code: 'retail', name: 'Small retailers & kiranas', description: 'Smaller packs, pay now', min_order_value: 500, delivery_fee_below_mov: 49, credit_days: 0, needs_po_reference: false, needs_order_approval: false, can_self_register: false, is_active: true, sort_order: 50 },
+  { code: 'restaurant', name: 'Restaurants & cloud kitchens', description: '', min_order_value: 2000, delivery_fee_below_mov: 99, credit_days: 7, customer_edit_window_minutes: 15, needs_po_reference: false, needs_order_approval: false, can_self_register: true, is_active: true, sort_order: 10 },
+  { code: 'defence', name: 'Army cantonments & unit messes', description: 'Contract rates, PO on every order', min_order_value: 0, delivery_fee_below_mov: 0, credit_days: 60, customer_edit_window_minutes: 0, needs_po_reference: true, needs_order_approval: true, can_self_register: true, is_active: true, sort_order: 40 },
+  { code: 'retail', name: 'Small retailers & kiranas', description: 'Smaller packs, pay now', min_order_value: 500, delivery_fee_below_mov: 49, credit_days: 0, customer_edit_window_minutes: 15, needs_po_reference: false, needs_order_approval: false, can_self_register: false, is_active: true, sort_order: 50 },
 ];
 const TEAM_ROLES = [
   { code: 'super_admin', name: 'Super admin', description: '', sort_order: 10 },
@@ -229,7 +229,7 @@ test('admin: dashboard shows stats from the stats function', async () => {
   const text = document.body.textContent.replace(/\s/g, '');
   assert.match(text, /₹12,500\.00/);
   assert.match(text, /Tomato/);
-  assert.match(document.body.textContent, /2 restaurants waiting for approval/);
+  assert.match(document.body.textContent, /2 customers waiting for approval/);
 });
 
 test('admin: orders list opens detail and advances status via set_order_status', async () => {
@@ -263,19 +263,32 @@ test('delivery: shows only active assignments with map and call links', async ()
   assert.equal(document.querySelector('a[href="tel:999"]') !== null, true);
 });
 
-test('admin: orders detail can mark a credit order paid', async () => {
+test('admin: a delivered credit order offers "Record payment", pre-ticked to that invoice (record_payment)', async () => {
+  const delivered = { ...ORDER, status: 'delivered', due_date: '2026-10-13', restaurant_id: 'r1' };
   const { document, location, fake } = setup({
     session: { user: { id: 'u-admin', email: 'a@x.com' } },
     profile: ADMIN,
-    tables: { orders: [ORDER], order_status_history: [] },
-    rpc: { admin_dashboard_stats: () => ({ pending_restaurants: 0 }), admin_list_users: () => [], set_order_payment: () => null },
+    tables: { orders: [delivered], order_status_history: [] },
+    rpc: { admin_dashboard_stats: () => ({ pending_restaurants: 0 }), admin_list_users: () => [],
+      customer_receivables: () => ({ name: 'Spice Hut', outstanding: 160, overdue: 0, unapplied_credit: 0, exposure: 160, credit_limit: null,
+        open_items: [{ kind: 'order', id: 'o1', number: 'ORD-1001', item_date: '2026-10-06', due_date: '2026-10-13', amount: 160, allocated: 0, balance: 160, method: 'credit', days_overdue: 0 }], unapplied: [] }),
+      record_payment: () => ({ receipt_number: 'RCT-1000', unallocated: 0 }) },
   });
   location.hash = '#orders';
   await importFresh('web/js/pages/admin/main.js');
   (await waitFor(() => document.querySelector('[data-order="o1"]'))).click();
-  (await waitFor(() => document.querySelector('[data-pay="paid"]'))).click();
-  await waitFor(() => fake.calls.some((c) => c.name === 'set_order_payment'));
-  assert.deepEqual(fake.calls.find((c) => c.name === 'set_order_payment').args, { p_order_id: 'o1', p_status: 'paid' });
+  const pay = await waitFor(() => document.querySelector('[data-pay]'));
+  assert.match(pay.closest('dd').textContent, /due 13 Oct/);
+  pay.click();
+  const form = await waitFor(() => document.querySelector('#receipt'));
+  assert.equal(form.elements.amount.value, '160');
+  assert.equal(form.querySelector('[data-item="o1"]').checked, true, 'the invoice is pre-ticked');
+  form.elements.method.value = 'upi'; form.elements.reference.value = 'UTR42';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'record_payment'));
+  const call = fake.calls.find((c) => c.name === 'record_payment').args;
+  assert.equal(call.p_restaurant_id, 'r1'); assert.equal(call.p_amount, 160); assert.equal(call.p_method, 'upi'); assert.equal(call.p_reference, 'UTR42');
+  assert.deepEqual(call.p_allocations, [{ order_id: 'o1', amount: 160 }]);
 });
 
 test('admin: inventory lists stock levels and receives stock via receive_goods (shared GRN form)', async () => {
@@ -1323,13 +1336,14 @@ test('delivery: driver completes a delivery with the OTP and a doorstep return',
   assert.deepEqual(call.p_returns, [{ order_item_id: 'oi1', qty: 2 }]);
 });
 
-test('customer: edit a placed order changes the lines through edit_order', async () => {
+test('customer: within the 15-minute window the buttons show with "X min left"; edit calls edit_order', async () => {
   const order = { ...ORDER, id: 'mo1', order_number: 'ORD-2003', status: 'placed', restaurant_id: 'r1',
+    created_at: new Date(Date.now() - 2 * 60_000).toISOString(),   // placed 2 min ago
     order_items: [{ id: 'oi1', product_id: 'p1', product_name: 'Tomato', unit: 'kg', unit_price: 32, quantity: 10, ordered_quantity: 10, line_total: 320 }] };
   const { document, location, fake } = setup({
     session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
     tables: { products: PRODUCTS, restaurants: [RESTAURANT], orders: [order] },
-    rpc: { my_order_terms: () => ({ delivers: true }), my_price_list: () => [], edit_order: () => ({ order_number: 'ORD-2003', total_amount: 484, delivery_fee: 99 }), get_order_history: () => [] },
+    rpc: { my_order_terms: () => ({ delivers: true, customer_edit_window_minutes: 15 }), my_price_list: () => [], edit_order: () => ({ order_number: 'ORD-2003', total_amount: 484, delivery_fee: 99 }), get_order_history: () => [] },
   });
   location.hash = '#orders';
   await importFresh('web/js/pages/restaurant/main.js');
@@ -1343,6 +1357,57 @@ test('customer: edit a placed order changes the lines through edit_order', async
   form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => fake.calls.some((c) => c.name === 'edit_order'));
   assert.deepEqual(fake.calls.find((c) => c.name === 'edit_order').args.p_items, [{ product_id: 'p1', quantity: 15 }]);
+  assert.match(document.body.textContent, /more minute/);
+});
+
+test('customer: past the window the buttons are gone and the detail says to call us', async () => {
+  const order = { ...ORDER, id: 'old1', order_number: 'ORD-2010', status: 'placed', restaurant_id: 'r1',
+    created_at: new Date(Date.now() - 40 * 60_000).toISOString() };   // 40 min ago
+  const { document, location } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { products: PRODUCTS, restaurants: [RESTAURANT], orders: [order] },
+    rpc: { my_order_terms: () => ({ delivers: true, customer_edit_window_minutes: 15 }), my_price_list: () => [], get_order_history: () => [] },
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/restaurant/main.js');
+  (await waitFor(() => document.querySelector('[data-order="old1"]'))).click();
+  await waitFor(() => document.querySelector('[data-reorder]'));
+  assert.equal(document.querySelector('[data-edit]'), null);
+  assert.equal(document.querySelector('[data-cancel]'), null);
+  assert.match(document.querySelector('.modal-body').textContent, /15-minute window.*passed.*Call us/);
+});
+
+test('customer: a defence sector with window 0 shows no buttons and the "call us" notice straight away', async () => {
+  const order = { ...ORDER, id: 'df1', order_number: 'ORD-2011', status: 'placed', restaurant_id: 'r1',
+    created_at: new Date(Date.now() - 30_000).toISOString() };   // 30 seconds ago
+  const { document, location } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { products: PRODUCTS, restaurants: [{ ...RESTAURANT, sector_code: 'defence' }], orders: [order] },
+    rpc: { my_order_terms: () => ({ delivers: true, customer_edit_window_minutes: 0 }), my_price_list: () => [], get_order_history: () => [] },
+  });
+  location.hash = '#orders';
+  await importFresh('web/js/pages/restaurant/main.js');
+  (await waitFor(() => document.querySelector('[data-order="df1"]'))).click();
+  await waitFor(() => document.querySelector('[data-reorder]'));
+  assert.equal(document.querySelector('[data-edit]'), null);
+  assert.equal(document.querySelector('[data-cancel]'), null);
+  assert.match(document.querySelector('.modal-body').textContent, /Changes and cancellations go through our team/);
+});
+
+test('admin: Sectors screen saves the edit window; blank saves as the default', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#sectors';
+  await importFresh('web/js/pages/admin/main.js');
+  const row = await waitFor(() => document.querySelector('tr[data-code="defence"]'));
+  const field = row.querySelector('[name=customer_edit_window_minutes]');
+  assert.ok(field, 'the Edit window column exists');
+  field.value = '0';
+  row.querySelector('[data-save]').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'sectors'));
+  assert.equal(fake.calls.find((c) => c.type === 'update' && c.table === 'sectors').payload.customer_edit_window_minutes, 0);
 });
 
 test('customer: report an issue on a delivered order', async () => {
@@ -1388,4 +1453,271 @@ test('admin: place an order on behalf of a customer (place_order_for)', async ()
   const call = fake.calls.find((c) => c.name === 'place_order_for').args;
   assert.equal(call.p_restaurant_id, 'r1');
   assert.deepEqual(call.p_items, [{ product_id: 'p1', quantity: 10 }]);
+});
+
+// ---------- Launch control (migration 014) ------------------------------------
+const LAUNCH = {
+  pricing_mode: 'advanced', stock_mode: 'counted', products_listed: 3, products_in_stock: 2,
+  sectors: SECTORS.map((s) => ({ code: s.code, name: s.name, description: s.description, is_active: s.is_active, can_self_register: s.can_self_register, sort_order: s.sort_order,
+    customers: s.code === 'restaurant' ? 4 : 0, customers_approved: s.code === 'restaurant' ? 3 : 0, customers_pending: s.code === 'restaurant' ? 1 : 0, orders_30d: s.code === 'restaurant' ? 12 : 0 })),
+};
+
+test('admin: Launch screen lists every sector with counts; switching one off asks first and writes is_active', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    rpc: { ...ADMIN_RPC, launch_status: () => LAUNCH },
+  });
+  location.hash = '#launch';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-live="restaurant"]'));
+  const rows = [...document.querySelectorAll('[data-sector]')];
+  assert.equal(rows.length, 3, 'every sector in the table');
+  assert.match(rows[0].textContent, /4/); assert.match(rows[0].textContent, /1 waiting/); assert.match(rows[0].textContent, /12/);
+  const box = document.querySelector('[data-live="restaurant"]');
+  box.checked = false; box.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  (await waitFor(() => document.querySelector('[data-yes]'))).click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'sectors'));
+  const call = fake.calls.find((c) => c.type === 'update' && c.table === 'sectors');
+  assert.deepEqual(call.payload, { is_active: false }); assert.deepEqual(call.filters, [['code', 'restaurant']]);
+  // Modes: pick simple pricing + simple stock and save → one update on company_settings.
+  document.querySelector('[name=pricing_mode][value=simple]').checked = true;
+  document.querySelector('[name=stock_mode][value=simple]').checked = true;
+  document.querySelector('#modes').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'company_settings'));
+  assert.deepEqual(fake.calls.find((c) => c.type === 'update' && c.table === 'company_settings').payload, { pricing_mode: 'simple', stock_mode: 'simple' });
+});
+
+test('admin: in lite mode the menu drops Pricing, Inventory and Procurement, #pricing says "Switched off", and the product form folds the details', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { company_settings: [{ ...COMPANY, pricing_mode: 'simple', stock_mode: 'simple' }], products: PRODUCTS },
+    rpc: ADMIN_RPC,
+  });
+  location.hash = '#pricing';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.nav-link'));
+  const labels = [...document.querySelectorAll('.nav-link')].map((a) => a.firstChild.textContent.trim());
+  assert.deepEqual(labels, ['Dashboard', 'Orders', 'Products', 'Customers', 'Payments', 'Team', 'Settings', 'Audit log', 'Fulfilment']);
+  assert.match((await waitFor(() => document.querySelector('.empty'))).textContent, /Switched off/);
+  // Products: no "On hand" column; the form shows the essentials and a details fold; saving marks the price a hand price.
+  location.hash = '#products';
+  document.defaultView.dispatchEvent(new document.defaultView.Event('hashchange'));
+  await waitFor(() => document.querySelector('#new'));
+  assert.equal([...document.querySelectorAll('th')].some((th) => th.textContent === 'On hand'), false);
+  document.querySelector('[data-edit="p1"]').click();
+  const form = await waitFor(() => document.querySelector('#product-form'));
+  assert.ok(form.querySelector('details.more'), 'details are folded');
+  assert.equal(form.querySelector('[name=price]').hasAttribute('readonly'), false);
+  assert.equal(form.querySelector('[name=low_stock_threshold]').type, 'hidden', 'no stock alert field in simple stock');
+  form.elements.price.value = '35';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'products'));
+  const saved = fake.calls.find((c) => c.type === 'update' && c.table === 'products').payload;
+  assert.equal(saved.price, 35); assert.equal(saved.price_source, 'manual');
+});
+
+test('customer: a sector that is switched off sees why it cannot order; the credit option is disabled with the reason', async () => {
+  const { document } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, orders: [] },
+    rpc: { my_order_terms: () => ({ ...TERMS, sector_active: false, credit_blocked_reason: 'You have overdue invoices of 239.00. Settle them to order on credit again.', overdue: 239 }) },
+  });
+  localStorage.clear();
+  const cart = await import('../web/js/pages/restaurant/cart.js');
+  cart._reset();
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('[data-add="p1"]'));
+  assert.match(document.querySelector('.banner').textContent, /not taking orders from Restaurants & cloud kitchens yet/);
+  document.querySelector('[data-add="p1"]').click();
+  document.querySelector('#open-cart').click();
+  const credit = await waitFor(() => document.querySelector('[name="pay"][value="credit"]'));
+  assert.equal(credit.disabled, true);
+  assert.match(credit.closest('label').textContent, /overdue invoices/);
+  assert.equal(document.querySelector('#place').disabled, true, 'ordering is closed for the sector');
+});
+
+test('login: a sector that is not live is not offered on the sign-up form', async () => {
+  const { document } = setup({ body: '<div id="auth-root" data-role="restaurant"></div>',
+    tables: { sectors: SECTORS.map((s) => (s.code === 'defence' ? { ...s, is_active: false } : s)) } });
+  await importFresh('web/js/pages/login.js');
+  await waitFor(() => document.querySelector('[data-mode="register"]')).then((b) => b.click());
+  await waitFor(() => document.querySelector('[name=restaurantName]'));
+  assert.equal(document.querySelector('[name=sectorCode]'), null, 'only one sector is live, so there is nothing to choose');
+});
+
+test('admin: sectors screen saves the credit limit and the overdue block; the customer terms form sends credit_limit', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { restaurants: [RESTAURANT] }, rpc: { ...ADMIN_RPC, admin_outstanding_balances: () => [] },
+  });
+  location.hash = '#sectors';
+  await importFresh('web/js/pages/admin/main.js');
+  const row = await waitFor(() => document.querySelector('tr[data-code="restaurant"]'));
+  row.querySelector('[name=credit_limit]').value = '50000';
+  row.querySelector('[name=block_credit_when_overdue]').checked = false;
+  row.querySelector('[data-save]').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'sectors'));
+  const sector = fake.calls.find((c) => c.type === 'update' && c.table === 'sectors').payload;
+  assert.equal(sector.credit_limit, 50000); assert.equal(sector.block_credit_when_overdue, false);
+  location.hash = '#customers';
+  document.defaultView.dispatchEvent(new document.defaultView.Event('hashchange'));
+  (await waitFor(() => document.querySelector('[data-terms="r1"]'))).click();
+  const form = await waitFor(() => document.querySelector('#terms-form'));
+  form.elements.credit_limit.value = '25000';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'restaurants'));
+  assert.equal(fake.calls.find((c) => c.type === 'update' && c.table === 'restaurants').payload.credit_limit, 25000);
+});
+
+// ---------- Payments & credit (migration 015) ---------------------------------
+const SUMMARY_ROW = { restaurant_id: 'r1', name: 'Spice Hut', sector_code: 'restaurant', city_id: 'city-vz', phone: '999', outstanding: 239, open_items: 1,
+  current_due: 0, d1_30: 239, d31_60: 0, d61_90: 0, d90_plus: 0, overdue: 239, oldest_due: '2026-10-19', unapplied_credit: 0, credit_limit: null, credit_days: 7 };
+const ACCOUNT = { restaurant_id: 'r1', name: 'Spice Hut', outstanding: 239, overdue: 239, open_items: 1, unapplied_credit: 0, pending_credit_orders: 0, exposure: 239, oldest_due: '2026-10-19',
+  credit_limit: 1000, credit_available: 761,
+  open_items: [{ kind: 'order', id: 'o1', number: 'ORD-1001', item_date: '2026-10-12', due_date: '2026-10-19', amount: 289, allocated: 50, balance: 239, method: 'credit', days_overdue: 1 }],
+  unapplied: [] };
+const RECEIPT = { id: 'pay1', receipt_number: 'RCT-1000', restaurant_id: 'r1', amount: 239, method: 'upi', reference: 'UTR1', received_on: '2026-10-20', note: null, voided_at: null, restaurants: { name: 'Spice Hut' } };
+
+test('admin: receivables shows the ageing table with totals, opens the account and records a receipt (oldest-due preview)', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { payments: [RECEIPT] },
+    rpc: { ...ADMIN_RPC, receivables_summary: () => [SUMMARY_ROW], customer_receivables: () => ACCOUNT, record_payment: () => ({ receipt_number: 'RCT-1001', unallocated: 0 }) },
+  });
+  location.hash = '#payments';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-open="r1"]'));
+  const text = document.body.textContent.replace(/\s/g, '');
+  assert.match(text, /₹239\.00outstanding·₹239\.00overdue/);
+  assert.match(document.querySelector('tfoot').textContent.replace(/\s/g, ''), /Total₹239\.00/);
+  document.querySelector('[data-open="r1"]').click();
+  const modal = await waitFor(() => document.querySelector('.modal-body h2'));
+  assert.equal(modal.textContent, 'Spice Hut');
+  const body = document.querySelector('.modal-body').textContent.replace(/\s+/g, ' ');
+  assert.match(body, /1 day overdue/); assert.match(body, /RCT-1000/); assert.match(body, /₹761\.00 available/);
+  document.querySelector('[data-receipt]').click();
+  const form = await waitFor(() => document.querySelector('#receipt'));
+  form.elements.amount.value = '100'; form.elements.amount.dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  assert.match(document.querySelector('#apply-hint').textContent, /ORD-1001 ₹100\.00/, 'preview mirrors oldest-due-first');
+  form.elements.method.value = 'cash';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'record_payment'));
+  const call = fake.calls.find((c) => c.name === 'record_payment').args;
+  assert.equal(call.p_amount, 100); assert.equal(call.p_method, 'cash'); assert.equal(call.p_allocations, null, 'nothing ticked → the database allocates');
+});
+
+test('admin: receipts tab lists receipts and voids one with a reason (void_payment)', async () => {
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { payments: [RECEIPT] }, rpc: { ...ADMIN_RPC, void_payment: () => null },
+  });
+  location.hash = '#payments-receipts';
+  await importFresh('web/js/pages/admin/main.js');
+  (await waitFor(() => document.querySelector('[data-void="pay1"]'))).click();
+  const form = await waitFor(() => document.querySelector('#void'));
+  form.elements.reason.value = 'bounced';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.some((c) => c.name === 'void_payment'));
+  assert.deepEqual(fake.calls.find((c) => c.name === 'void_payment').args, { p_payment_id: 'pay1', p_reason: 'bounced' });
+});
+
+test('admin: a picker has no Payments menu and sees "No access" on #payments', async () => {
+  const { document, location } = setup({ session: { user: { id: 'u-pick', email: 'p@x.com' } }, profile: PICKER, rpc: ADMIN_RPC });
+  location.hash = '#payments';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('.nav-link'));
+  assert.equal([...document.querySelectorAll('.nav-link')].some((a) => a.textContent.includes('Payments')), false);
+  assert.match((await waitFor(() => document.querySelector('.empty'))).textContent, /No access/);
+});
+
+test('customer: the Payments page shows what is owed, open invoices and receipts, and opens a monthly statement', async () => {
+  const { document, location } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    tables: { restaurants: [RESTAURANT], products: PRODUCTS, payments: [RECEIPT], credit_notes: [{ id: 'cn1', credit_note_number: 'CN-1000', restaurant_id: 'r1', amount: 50, reason: 'bruised', created_at: '2026-10-15T05:00:00Z', orders: { order_number: 'ORD-1000' } }] },
+    rpc: { my_order_terms: () => TERMS, customer_receivables: () => ACCOUNT },
+  });
+  location.hash = '#payments';
+  await importFresh('web/js/pages/restaurant/main.js');
+  await waitFor(() => document.querySelector('#statement'));
+  const text = document.body.textContent.replace(/\s+/g, '');
+  assert.match(text, /Youowe₹239\.00/); assert.match(text, /Overdue₹239\.00/); assert.match(text, /₹761\.00available/);
+  assert.match(text, /ORD-1001/); assert.match(text, /RCT-1000/); assert.match(text, /CN-1000/);
+  assert.equal(document.querySelector('#pay-online'), null, 'no Razorpay key in config → no Pay online button');
+  let opened = null;
+  document.defaultView.open = (url) => { opened = url; };
+  document.querySelector('#statement [name=month]').value = '2026-09';
+  document.querySelector('#statement').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  assert.match(opened, /statement\.html\?customer=r1&from=2026-09-01&to=2026-09-30$/);
+});
+
+test('statement: renders opening balance, lines with running balance and closing balance', async () => {
+  const { document } = setup({
+    session: { user: { id: 'u-r', email: 'r@x.com' } }, profile: RESTAURANT_USER,
+    body: '<div class="print-bar"><form id="range"><input type="date" name="from"><input type="date" name="to"></form></div><main id="statement"></main>',
+    tables: { restaurants: [RESTAURANT] },
+    rpc: { customer_statement: () => ({ name: 'Spice Hut', address: '12 MG Road', gstin: '', from: '2026-10-01', to: '2026-10-31', opening_balance: 0, closing_balance: -61,
+      lines: [{ date: '2026-10-12', kind: 'invoice', number: 'ORD-1001', description: 'Order ORD-1001 (pay later, due 19 Oct)', debit: 289, credit: 0, balance: 289 },
+              { date: '2026-10-15', kind: 'credit_note', number: 'CN-1000', description: 'Credit note: bruised', debit: 0, credit: 50, balance: 239 },
+              { date: '2026-10-20', kind: 'payment', number: 'RCT-1001', description: 'Receipt (cash)', debit: 0, credit: 300, balance: -61 }] }) },
+  });
+  location.search = '?customer=r1&from=2026-10-01&to=2026-10-31';
+  await importFresh('web/js/pages/statement.js');
+  await waitFor(() => document.querySelector('tr.closing'));
+  const rows = [...document.querySelectorAll('tbody tr')].map((r) => [...r.children].map((c) => c.textContent.trim()));
+  assert.equal(rows.length, 5, 'opening + 3 lines + closing');
+  assert.deepEqual(rows[1].slice(1, 3), ['Invoice', 'ORD-1001']); assert.deepEqual(rows[1].slice(4), ['₹289.00', '', '₹289.00']);
+  assert.deepEqual(rows[3].slice(4), ['', '₹300.00', '-₹61.00']);
+  assert.deepEqual(rows[4].slice(2), ['₹289.00', '₹350.00', '-₹61.00']);
+});
+
+// ---------- Customer access (migration 016) -----------------------------------
+test('login: "email not confirmed" offers to resend the confirmation (auth.resend) and so does the register screen', async () => {
+  const { document, fake } = setup({});
+  await importFresh('web/js/pages/login.js');
+  await waitFor(() => document.querySelector('#form'));
+  document.querySelector('[name=email]').value = 'unconfirmed@example.com';
+  document.querySelector('[name=password]').value = 'whatever1';
+  document.querySelector('#form').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => document.querySelector('#error').textContent);
+  assert.match(document.querySelector('#error').textContent, /not confirmed yet/);
+  const box = document.querySelector('#not-confirmed');
+  assert.equal(box.hidden, false, 'the resend box shows');
+  assert.match(box.textContent, /Call us/);
+  box.querySelector('[data-resend]').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'resend'));
+  const call = fake.calls.find((c) => c.type === 'resend').payload;
+  assert.equal(call.type, 'signup'); assert.equal(call.email, 'unconfirmed@example.com');
+  await waitFor(() => /Sent again/.test(document.body.textContent));
+});
+
+test('admin: Customers shows who cannot sign in yet and Access confirms the email / gets a password link (customer-access function)', async () => {
+  const logins = [{ restaurant_id: 'r1', owner_id: 'u-r', email: 'mess1@army.in', email_confirmed: false, confirmation_sent_at: '2026-10-21T08:36:15Z', last_sign_in_at: null, user_created_at: '2026-10-21T08:36:12Z' }];
+  const { document, location, fake } = setup({
+    session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ADMIN,
+    tables: { restaurants: [{ ...RESTAURANT, status: 'pending', phone: '+91 99000 11111' }] },
+    rpc: { ...ADMIN_RPC, admin_outstanding_balances: () => [], admin_customer_logins: () => logins,
+      'customer-access': (body) => (body.action === 'password_link' ? { ok: true, action: 'password_link', email: 'mess1@army.in', link: 'https://x.supabase.co/auth/v1/verify?token=abc' } : { ok: true, action: body.action, email: 'mess1@army.in' }) },
+  });
+  location.hash = '#customers';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('[data-access="r1"]'));
+  assert.match(document.querySelector('#unconfirmed-banner').textContent, /1 customer cannot sign in yet/);
+  assert.match(document.querySelector('[data-row="r1"]').textContent, /email not confirmed/);
+  document.querySelector('[data-access="r1"]').click();
+  const dialog = await waitFor(() => document.querySelector('#access'));
+  dialog.querySelector('[data-act="confirm_email"]').click();
+  await waitFor(() => fake.calls.some((c) => c.type === 'function' && c.name === 'customer-access'));
+  const first = fake.calls.find((c) => c.type === 'function' && c.name === 'customer-access').body;
+  assert.equal(first.action, 'confirm_email'); assert.equal(first.restaurant_id, 'r1');
+  await waitFor(() => /is confirmed/.test(dialog.textContent));
+  assert.equal(dialog.querySelector('[data-act="confirm_email"]').disabled, true);
+  dialog.querySelector('[data-act="password_link"]').click();
+  await waitFor(() => document.querySelector('#access-link'));
+  assert.equal(document.querySelector('#access-link').value, 'https://x.supabase.co/auth/v1/verify?token=abc');
+  assert.match(document.querySelector('a[href^="https://wa.me/919900011111"]').href, /token%3Dabc/);
+  const form = dialog.querySelector('#set-pass');
+  form.elements.password.value = 'mess12345';
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => fake.calls.filter((c) => c.name === 'customer-access').length === 3);
+  assert.equal(fake.calls.filter((c) => c.name === 'customer-access')[2].body.password, 'mess12345');
 });

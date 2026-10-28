@@ -40,7 +40,7 @@ async function render() {
         <div><strong>${order.order_number}</strong></div>
         <div class="muted small">Order date ${formatDate(order.created_at)}</div>
         <div class="muted small">Delivery ${formatDate(order.delivery_date)} · ${DELIVERY_SLOTS[order.delivery_slot]?.label ?? ''}</div>
-        <div class="small">${order.payment_status === 'paid' ? html`<span class="badge approved">Paid</span> ${formatDate(order.paid_at)}` : html`<span class="badge pending">Unpaid · ${PAYMENT_METHODS[order.payment_method]?.label ?? ''}</span>`}</div></div>
+        <div class="small">${order.payment_status === 'paid' ? html`<span class="badge approved">Paid</span> ${formatDate(order.paid_at)}` : html`<span class="badge pending">Unpaid · ${PAYMENT_METHODS[order.payment_method]?.label ?? ''}</span>${order.due_date ? html` due ${formatDate(order.due_date)}` : ''}`}</div></div>
     </div>
 
     <div class="parties">

@@ -48,6 +48,24 @@ for this project), and your site URL (e.g. `http://localhost:3000/**`) must be i
 Authentication → URL configuration → Redirect URLs, or the emailed link will not land on `reset.html`.
 Supabase's built-in mailer allows only a few emails per hour on the free tier; set up custom SMTP before launch.
 
+## When a customer cannot sign in (the confirmation email never came)
+Every new customer must confirm their email once before signing in. The built-in Supabase mailer is slow, rate-limited
+and often lands in spam, so the app has backups at every step:
+* **Customer side:** after registering, and on the sign-in page when it says "email not confirmed", a **Resend the
+  confirmation email** button sends it again (a few per hour per address). The text tells them to check spam and call us.
+* **Staff side:** Admin → **Customers** shows each customer's email and *confirmed / not confirmed*; a banner counts
+  those who cannot sign in. Click **Access** (needs `customers: approve`) and pick the lightest fix that works:
+  1. **Resend confirmation** — ask them to check spam.
+  2. **Confirm email** — you have them on the phone and the address is right; they sign in at once with their password.
+  3. **Password link** — a one-time link (valid about an hour) that confirms the email and lets them choose a password;
+     **Send on WhatsApp** opens a message to the number on file, or copy it. Use when they forgot the password too.
+  4. **Temporary password** — set one and tell them by phone; they can change it later with *Forgot password*.
+  Each action is written to the Audit log (who, which customer, which action — never the link or password).
+* **Approval is separate.** Confirm gets them signing in; **Approve** on the Customers list lets them order. Do both.
+* **Fix the cause:** set a custom SMTP sender in Supabase (Authentication → SMTP; Resend or Brevo have free tiers) —
+  or switch *Confirm email* off under Authentication → Providers → Email, since approval is already the gate. Steps in
+  `docs/deployment.md`.
+
 ## Approve a customer
 Admin → **Customers** → *Approve*. Until then they can browse but not order. Approval is refused while the
 customer has **no warehouse** (their pin code is not in any zone): open **Terms**, pick the warehouse (or add
@@ -161,15 +179,44 @@ always open and uncapped. Express closes at the cut-off the same day; scheduled 
 the cut-off the day before.
 
 ## Edit, cancel, order for a customer, issues
-* A customer can **edit** or **cancel** a placed order before its cut-off (My orders → open the order). Staff can
-  edit until it is packed and cancel any order that is not delivered.
+* A customer can **edit** or **cancel** their own placed order within the sector's **edit window** (Settings →
+  Sectors & terms → *Edit window (min)*; default 15, 0 = none). The customer sees "X minutes left" on the order; when
+  the window has passed the buttons go and the detail says "Call us to make changes." Staff can edit until the order is
+  packed and cancel any order that is not delivered — the window is only for self-service.
 * **New order for a customer** (Orders → the button) places an order on someone's behalf (`orders:edit`); it may
   go in past the cut-off.
 * A customer **reports an issue** on a delivered order. Admin → Orders → **Issues & credits**: resolve it and,
   if due, raise a **credit note** (applied to the balance in the payments batch).
 
-## Collect payment
-Admin → Orders → open an order → **Mark paid** (needs `payments:edit`). Customers shows the total each customer still owes on credit.
+## Launch switches (Settings → Launch)
+Three switches decide who can order and how much of the app the team sees (`docs/modules/launch-control.md`):
+* **Live sectors** — one switch per customer type. Off = no sign-up, no orders; their customers see "not taking orders
+  yet". The table shows customers, approvals and orders in 30 days per sector, so you can see when one is ready.
+* **Pricing: Simple / Advanced.** Simple = type each price on the product form (the Pricing menu is hidden).
+* **Stock: Simple / Counted.** Simple = a product is in stock or out of stock (the toggle on Products); no quantities,
+  no reservations; Inventory and Procurement are hidden.
+First launch: army cantonments on, the rest off, Simple + Simple. Saving the modes reloads the page.
+
+## Money: receipts, credit, statements (Payments)
+* **Receivables** (Payments): every customer with money open or on account, aged current / 1–30 / 31–60 / 61–90 / 90+
+  days past due. An invoice is a *delivered* order; it falls due after the customer's credit days (cash on delivery:
+  the delivery day). Open a customer to see open invoices, credit on account and recent receipts.
+* **Record receipt** (`payments:edit`): amount, method (cash / UPI / bank / cheque / other — UPI, bank and cheque need
+  the UTR or cheque number), date. Tick invoices to apply by hand; tick nothing and it applies oldest-due-first to
+  pay-later invoices (the preview under the amount shows which). Also from Orders → a delivered order → **Record payment**.
+* **Cash on delivery** needs nothing from you: when the order is delivered (driver's app or the Orders screen) the
+  cash is booked to the driver and the receipt is written automatically (`RCT-…`, method cash, in the driver's name).
+  The cash itself is settled under Fulfilment → Driver cash. If the driver collected nothing (a prepaid customer),
+  **void** that receipt — the invoice reopens — then **Apply** the credit on account to it (Open the customer → On
+  account → Apply).
+* **Void** a receipt (`payments:approve`) with a reason: its invoices reopen; nothing is deleted.
+* **Debit note**: an extra charge (crate not returned, late fee) — an open item like an invoice.
+* **Credit notes** (Orders → Issues & credits) apply themselves to the customer's oldest pay-later invoice.
+* **Credit limit and days**: per sector (Settings → Sectors & terms) with a per-customer override (Customers → Terms).
+  A pay-later order is refused while an invoice is overdue (if the sector's *Block credit when overdue* is ticked) or when
+  it would take the account over the limit; the customer's cart says why and offers cash on delivery instead.
+* **Statement**: open a customer → **Statement** (printable, any date range). Customers print their own under Payments.
+* **Online payments** (Razorpay): off until the keys are set — `docs/modules/payments.md`.
 
 ## Who changed what
 Admin → **Audit log**: every change to prices, orders, payments, customers, team members, permissions and
@@ -184,10 +231,16 @@ settings, with the person and the old and new values. Filter by table or person;
 | "You do not have permission to publish prices" | The team role lacks `pricing:approve`; tick it under Settings → Roles & permissions. |
 | "Packed … is more than 10 % away from the ordered …" | The weighed quantity is outside the product's tolerance: raise it under Products → Edit, or split the difference with the customer. |
 | Customer says the cart price differs from the catalogue | Both come from `my_price_list()`; reload the page — a price list changed while they were browsing. |
-| "Invalid login credentials" | Wrong password, or email not confirmed. |
+| "Invalid login credentials" | Wrong password. |
+| "Your email is not confirmed yet" | The confirmation email was not used: the customer resends it from that page, or staff open Customers → **Access** (confirm, link or temporary password). |
+| Access says "The email service is rate-limited" | Supabase's built-in mailer allows a few emails an hour. Use Confirm email or Password link now; set up custom SMTP for good. |
 | Reset link goes to the wrong place | Fix *Site URL / Redirect URLs* in Supabase. |
 | User signs in but is bounced to login | Account deactivated (`is_active = false`). |
-| Customer cannot order | Status is `pending`/`suspended`, no delivery address, **no warehouse** (pin code not served), or below the minimum order with no delivery fee. |
+| Customer cannot order | Status is `pending`/`suspended`, no delivery address, **no warehouse** (pin code not served), below the minimum order with no delivery fee, **their sector is switched off** (Settings → Launch), or — pay later only — an overdue invoice / the credit limit (Payments). |
+| Order fails with "Only 0 kg available" but you do not count stock | Stock mode is *Counted* (Settings → Launch). Switch to *Simple* to sell on the in-stock flag alone, or receive stock under Inventory. |
+| A module is missing from the menu | Hidden by the launch mode (Settings → Launch) or not granted to the team role (Settings → Roles). |
+| "Enter the UTR / transaction or cheque number" | UPI, bank transfer and cheque receipts need a reference; cash and other do not. |
+| A COD order shows unpaid after delivery | Its cash receipt was voided; record the cash under Payments → Record receipt (tick the invoice), or apply credit on account. |
 | Cannot approve a customer | They have no warehouse yet: set one under Customers → Terms. |
 | Team member sees "No access" | Their team role lacks `view` on that module (Settings → Roles), or the rows are outside their city / warehouse scope. |
 | "Choose a warehouse" when receiving stock | The person has no warehouse scope and the city has no default warehouse; pick one in the GRN form or mark a warehouse default. |

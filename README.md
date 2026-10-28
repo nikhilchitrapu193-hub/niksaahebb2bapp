@@ -28,8 +28,8 @@ Then open http://localhost:3000 (the public site), click **Register your restaur
 | Area | Login page | App | Can do |
 |---|---|---|---|
 | Public | — | `/` | Landing page, live catalogue preview, FAQ, links to every login |
-| Customer | `/restaurant/login.html` | `/restaurant/` | Catalogue for their city (sub-categories, sort & filters, pack sizes, product pages, their price list), cart with minimum-order / delivery-fee / PO rules, delivery slot + COD/credit checkout, track/cancel/reorder, GST invoices, account (city, pin code) |
-| Admin | `/admin/login.html` | `/admin/` | Dashboard, orders (filters, status, driver, payment, invoice, export), products (photos, GST, HSN, pack sizes, grade / origin, loose weight, category tree, CSV upload, per-city listing), **inventory per warehouse** (receive, adjust, wastage, ledger, suppliers), customers (sector, terms, approve), team (team roles, city / warehouse scope), settings (company, cities & warehouses & pin codes, sectors & terms, roles & permissions), audit log, **pricing** (price board with margin guard and scheduled changes, rules per category, benchmarks by hand or CSV, price history, price lists per city / sector) |
+| Customer | `/restaurant/login.html` | `/restaurant/` | Catalogue for their city (sub-categories, sort & filters, pack sizes, product pages, their price list), cart with minimum-order / delivery-fee / PO / credit-limit rules, delivery slot + COD/credit checkout, track/edit/cancel/reorder, report an issue, GST invoices, **payments** (what is owed, overdue, receipts, credit notes, printable statement, pay online when enabled), account (city, pin code) |
+| Admin | `/admin/login.html` | `/admin/` | Dashboard, orders (filters, status, driver, payment, invoice, export), products (photos, GST, HSN, pack sizes, grade / origin, loose weight, category tree, CSV upload, per-city listing), **inventory per warehouse** (receive, adjust, wastage, ledger, suppliers), customers (sector, terms, approve), team (team roles, city / warehouse scope), settings (company, **launch switches**, cities & warehouses & pin codes, sectors & terms, delivery slots, roles & permissions), audit log, **pricing** (price board with margin guard and scheduled changes, rules per category, benchmarks by hand or CSV, price history, price lists per city / sector), **procurement**, **fulfilment**, **payments** (receivables with ageing, receipts, void, debit notes, statements) |
 | Delivery | `/delivery/login.html` | `/delivery/` | Assigned orders by slot, map/call, cash to collect, start and complete deliveries |
 
 Only customers can self-register; staff logins are created by invitation and get a team role
@@ -50,7 +50,7 @@ web/
 supabase/
   migrations/                   the database, in order (schema → security → functions → inventory → foundation → pricing → catalogue → procurement → fulfilment → orders +)
   seed.sql                      sample categories and products
-  tests/security_test.sql       role/permission regression test (205 checks)
+  tests/security_test.sql       role/permission regression test (248 checks)
   tests/local_postgres_stub.sql run the same test on a plain local Postgres
 scripts/dev-server.js           zero-dependency local server
 tests/                          Node tests (unit + page smoke tests + static checks)
@@ -72,7 +72,8 @@ docs/                           architecture, ADRs, API, roles, deployment, runb
 
 ## Roadmap
 
-Batches 1–6 of Phase 1 (foundation; pricing; catalogue +; procurement; fulfilment & delivery; orders +) are in. Next:
-procurement, fulfilment, payments and credit, notifications, reports — see
+Batches 1–8 of Phase 1 (foundation; pricing; catalogue +; procurement; fulfilment & delivery; orders +; launch control
+("lite mode": start with one sector, simple pricing and stock, open the rest with a switch); payments & credit) are in. Next:
+notifications & support, reports — see
 [docs/build-roadmap.md](docs/build-roadmap.md). AI stays out of the product by design
 ([docs/contributing.md](docs/contributing.md#adding-ai-later)).

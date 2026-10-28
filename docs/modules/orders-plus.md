@@ -50,9 +50,12 @@ v5 is kept as `place_order_v5_legacy` (house rule: no DROP in migrations).
 |---|---|
 | a slot with no config is always open and uncapped (ordering behaves as before until an admin sets cut-offs) | `slot_open()` |
 | customers obey the cut-off / capacity; staff (`place_order_for`) may place late | `place_order_core(p_enforce_slot)` |
-| an order can be edited until it is packed; a customer only while placed and before the cut-off | `edit_order()` |
+| an order can be edited until it is packed; a customer only while placed and within the sector's edit window (migration 017) — the slot cut-off remains a hard ceiling after | `edit_order()`, `cancel_order()` |
 | a credit note cannot exceed the order total | `resolve_issue()` |
 | editing returns the old reservations and makes new ones (two honest ledger rows) | `rebuild_order_lines()` |
+
+## Not in this batch
+The per-sector edit window is set on **Settings → Sectors & terms** (migration 017: `sectors.customer_edit_window_minutes`); the customer app reads it from `my_order_terms` and the database re-checks every call.
 
 ## Not in this batch
 Substitutions when editing (Phase 2), standing / recurring orders (Phase 2), and applying a credit note to the

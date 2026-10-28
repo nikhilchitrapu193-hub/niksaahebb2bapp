@@ -1,6 +1,9 @@
 // =============================================================================
 // main.js — restaurant app entry: auth guard, header, routes, cart drawer.
-// Routes: #catalogue (default) · #product/<id> · #orders · #account
+// Routes: #catalogue (default) · #product/<id> · #orders · #payments · #account
+// The cart obeys the credit rules from my_order_terms (migration 015): pay later
+// is offered only while nothing is overdue and the limit has room; and a sector
+// switched off under Settings → Launch (migration 014) cannot order.
 // =============================================================================
 
 import { html, mount, $, on, formatINR, reportError, toast, withBusy } from '../../core/ui.js';
@@ -12,6 +15,7 @@ import { renderProduct } from './product.js';
 import { renderCatalogue } from './catalogue.js';
 import { renderOrders } from './orders.js';
 import { renderAccount } from './account.js';
+import { renderPayments } from './payments.js';
 import { cartEntries, cartCount, cartTotal, setQty, clearCart, toOrderItems, onCartChange, orderPreview } from './cart.js';
 import { isUnavailable } from './catalogue.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, config } from '../../core/config.js';
@@ -29,7 +33,7 @@ async function start() {
   // terms: MOV, delivery fee, PO rule and whether we deliver (my_order_terms).
   // settings: company_settings (show_prices_incl_gst decides how the catalogue shows prices).
   const state = { me, products: [], categories: [], byId: {}, terms: null, settings: null };
-  const canOrder = () => state.me.restaurant?.status === 'approved' && state.terms?.delivers !== false;
+  const canOrder = () => state.me.restaurant?.status === 'approved' && state.terms?.delivers !== false && state.terms?.sector_active !== false;
 
   const shell = renderShell({
     me,
@@ -37,6 +41,7 @@ async function start() {
     links: [
       { href: '#catalogue', label: 'Catalogue' },
       { href: '#orders', label: 'My orders' },
+      { href: '#payments', label: 'Payments' },
       { href: '#account', label: 'Account' },
     ],
     extra: html`<button class="btn primary small" id="open-cart">Cart <span id="cart-count">0</span></button>`,
@@ -60,7 +65,9 @@ async function start() {
     const status = state.me.restaurant?.status;
     if (status === 'suspended') return html`<div class="banner warn">Your account is suspended. Please contact us to place orders.</div>`;
     if (status !== 'approved') return html`<div class="banner warn">Your account is awaiting approval. You can browse the catalogue now and order as soon as we approve you.</div>`;
+    if (state.terms && state.terms.sector_active === false) return html`<div class="banner warn">We are not taking orders from ${state.terms.sector_name ?? 'your sector'} yet. You can browse the catalogue; we will let you know when ordering opens.</div>`;
     if (state.terms && !state.terms.delivers) return html`<div class="banner warn">We do not deliver to your pin code yet. Update it under <a href="#account">Account</a> or contact us.</div>`;
+    if (state.terms && Number(state.terms.overdue) > 0) return html`<div class="banner warn">You have overdue invoices of ${formatINR(state.terms.overdue)}. See <a href="#payments">Payments</a> to settle them.</div>`;
     return '';
   }
 
@@ -93,6 +100,8 @@ async function start() {
     // Checkout choices survive re-renders of the drawer.
     const checkout = { slot: 'morning', date: isoDate(1), payment: 'cod', notes: '', poReference: '' };
     const needsPo = Boolean(state.terms?.needs_po_reference);
+    // Pay later is blocked while an invoice is overdue or the limit is used up (place_order enforces it too).
+    const creditBlocked = state.terms?.credit_blocked_reason ?? null;
 
     function draw() {
       const entries = cartEntries().filter((e) => state.byId[e.productId]);
@@ -127,9 +136,11 @@ async function start() {
               </div>
               <h3 style="margin:var(--space-5) 0 var(--space-3)">Payment</h3>
               ${Object.entries(PAYMENT_METHODS).map(([k, v]) => html`
-                <label class="check" style="margin-bottom:var(--space-2);align-items:flex-start">
-                  <input type="radio" name="pay" value="${k}" ${k === checkout.payment ? 'checked' : ''}>
-                  <span><strong>${v.label}</strong><br><span class="muted small">${v.hint}</span></span></label>`)}
+                <label class="check" style="margin-bottom:var(--space-2);align-items:flex-start${k === 'credit' && creditBlocked ? ';opacity:.6' : ''}">
+                  <input type="radio" name="pay" value="${k}" ${k === checkout.payment ? 'checked' : ''} ${k === 'credit' && creditBlocked ? 'disabled' : ''}>
+                  <span><strong>${v.label}</strong><br><span class="muted small">${k === 'credit' && creditBlocked ? creditBlocked
+                    : k === 'credit' && state.terms?.credit_limit != null ? `${v.hint} · ${formatINR(state.terms.credit_available)} of your ${formatINR(state.terms.credit_limit)} limit available`
+                    : v.hint}</span></span></label>`)}
               ${needsPo ? html`<label class="field" style="margin-top:var(--space-4)"><span class="label">Purchase order / indent number</span>
                 <input class="input" id="po" maxlength="60" value="${checkout.poReference}" placeholder="PO/2026/0042" required>
                 <span class="hint">Required for ${state.terms.sector_name}; printed on the invoice.</span></label>` : ''}
@@ -190,6 +201,7 @@ async function start() {
       '#catalogue': withBanner((c) => renderCatalogue(c, state)),
       '#product/': withBanner((c, id) => renderProduct(c, state, id)),
       '#orders': withBanner((c) => renderOrders(c, state)),
+      '#payments': withBanner((c) => renderPayments(c, state)),
       '#account': withBanner((c) => renderAccount(c, state)),
     },
   });

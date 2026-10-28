@@ -21,3 +21,7 @@ Short notes on *why* we chose something. Add a new numbered file for each signif
 | [0015](0015-procurement-po-grn-buying-list.md) | One receipt path (GRN), purchase orders as the plan, buying list planned forward |
 | [0016](0016-fulfilment-batches-trips-pod.md) | Batches are an expiry overlay, trips carry the POD, cash is tracked per driver |
 | [0017](0017-order-edit-slots-credit-notes.md) | One order core for place / edit / on-behalf; slots gate ordering; issues raise credit notes |
+| [0018](0018-launch-control-lite-mode.md) | Launch control: lite mode is three switches over one codebase, not a second app |
+| [0019](0019-open-item-receivables.md) | Receivables are open items computed from receipts and allocations; every paid order has a receipt |
+| [0020](0020-customer-access-never-stuck.md) | A sign-up never dead-ends on an email: self-service resend plus staff-side backups |
+| [0021](0021-customer-edit-window.md) | A short, per-sector window for customer self-edit and cancel |
