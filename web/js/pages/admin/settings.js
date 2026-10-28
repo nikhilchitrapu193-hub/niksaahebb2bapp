@@ -1,25 +1,26 @@
 // =============================================================================
-// settings.js — company details printed on every invoice, plus the tab strip
-// that leads to the other settings screens (launch, locations, sectors, slots,
-// notifications, help centre, roles).
+// settings.js — company details + settings tab strip. P2-2 adds the Coupons
+// tab so that admins can manage discount codes from Settings.
 // =============================================================================
 
 import { html, mount, on, $, withBusy, toast, reportError } from '../../core/ui.js';
 import { getCompanySettings, saveCompanySettings } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
+import { renderCoupons } from './coupons.js';   // P2-2
 
 /** Shared tab strip for every settings screen. `active` is the route, e.g. '#locations'. */
 export function settingsTabs(me, active) {
   const tabs = [
-    { href: '#settings', label: 'Company', show: true },
-    { href: '#launch', label: 'Launch', show: true },
-    { href: '#locations', label: 'Cities & warehouses', show: true },
-    { href: '#sectors', label: 'Sectors & terms', show: true },
-    { href: '#slots', label: 'Delivery slots', show: true },
-    { href: '#notifications', label: 'Notifications', show: true },
-    { href: '#help-centre', label: 'Help centre', show: true },
-    { href: '#website', label: 'Website', show: true },
-    { href: '#roles', label: 'Roles & permissions', show: can(me, 'team', 'view') },
+    { href: '#settings',      label: 'Company',              show: true },
+    { href: '#launch',        label: 'Launch',               show: true },
+    { href: '#locations',     label: 'Cities & warehouses',  show: true },
+    { href: '#sectors',       label: 'Sectors & terms',      show: true },
+    { href: '#slots',         label: 'Delivery slots',       show: true },
+    { href: '#notifications', label: 'Notifications',        show: true },
+    { href: '#help-centre',   label: 'Help centre',          show: true },
+    { href: '#website',       label: 'Website',              show: true },
+    { href: '#roles',         label: 'Roles & permissions',  show: can(me, 'team', 'view') },
+    { href: '#coupons',       label: 'Coupons',              show: can(me, 'orders', 'edit') },  // P2-2
   ];
   return html`<div class="tabs" role="tablist">
     ${tabs.filter((t) => t.show).map((t) => html`<a role="tab" href="${t.href}" aria-selected="${String(t.href === active)}">${t.label}</a>`)}
@@ -57,3 +58,7 @@ export async function renderSettings(container, me) {
     } catch (error) { reportError(error); }
   });
 }
+
+// P2-2: /settings → #coupons sub-page. This is a thin passthrough so main.js
+// can mount coupons under the settings route guard without duplicating logic.
+export { renderCoupons };

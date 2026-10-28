@@ -1,97 +1,160 @@
 // =============================================================================
-// reports.js — Reports (migration 019): sales by day / city / sector / customer /
-// product / category for a date range, and the receivables trend by week.
-// Needs reports:view; the CSV button needs reports:export. A city manager sees
-// only their city (in_my_scope inside sales_report); the city filter narrows
-// further for people who see several.
+// reports.js — Admin: Finance & operations reports (P2-6 update)
+// Route: #reports
+//
+// Tabs: Revenue · Category mix · Sector breakdown · Day-by-day
+// All data comes from P2-6 Postgres functions (finance_summary, category_mix,
+// revenue_by_sector, revenue_by_day).
 // =============================================================================
 
-import { html, mount, on, $, formatINR, reportError } from '../../core/ui.js';
-import { getSalesReport, getReceivablesTrend, listCities } from '../../core/api.js';
+import { html, mount, on, reportError, formatINR } from '../../core/ui.js';
+import { getFinanceSummary, getCategoryMix, getSupabase } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
-import { REPORT_GROUPINGS } from '../../core/config.js';
-import { reportTotals, reportColumns, barHeights, lastNDays, shortDate } from '../../core/reports.js';
-import { downloadCsv } from '../../core/csv.js';
 
 export async function renderReports(container, me) {
-  const cities = await listCities().catch(() => []);
-  const scopedCity = me.profile?.city_id ?? null;
-  const state = { tab: 'sales', groupBy: 'day', cityId: scopedCity, weeks: 12, ...lastNDays(30), rows: [], trend: [] };
-
-  async function load() {
-    if (state.tab === 'sales') state.rows = await getSalesReport({ from: state.from, to: state.to, groupBy: state.groupBy, cityId: state.cityId });
-    else state.trend = await getReceivablesTrend(state.weeks, state.cityId);
-    draw();
+  if (!can(me, 'reports', 'view')) {
+    mount(container, html`<div class="empty"><strong>No access</strong>Your role does not include reports.</div>`);
+    return;
   }
 
-  function cityFilter() {
-    if (scopedCity || cities.length < 2) return '';
-    return html`<select class="select" data-f="cityId" aria-label="City"><option value="">All cities</option>
-      ${cities.map((c) => html`<option value="${c.id}" ${c.id === state.cityId ? 'selected' : ''}>${c.name}</option>`)}</select>`;
-  }
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+  const today = now.toISOString().slice(0,10);
 
-  function sales() {
-    const cols = reportColumns(state.groupBy);
-    const totals = reportTotals(state.rows);
-    return html`
-      <div class="toolbar">
-        <label class="field"><span class="label">From</span><input class="input" type="date" data-f="from" value="${state.from}"></label>
-        <label class="field"><span class="label">To</span><input class="input" type="date" data-f="to" value="${state.to}"></label>
-        <label class="field"><span class="label">Group</span><select class="select" data-f="groupBy">${Object.entries(REPORT_GROUPINGS).map(([k, v]) => html`<option value="${k}" ${k === state.groupBy ? 'selected' : ''}>${v.label}</option>`)}</select></label>
-        ${cityFilter()}
-        <span class="muted small">${state.rows.length} rows · ${totals.orders} orders · ${formatINR(totals.total)}</span>
-      </div>
-      <div class="card"><div class="table-wrap"><table class="table">
-        <thead><tr>${cols.map((c) => html`<th class="${c.numeric ? 'right' : ''}">${c.label}</th>`)}</tr></thead>
-        <tbody>${state.rows.length === 0 ? html`<tr><td colspan="${cols.length}"><div class="empty">No orders in this range.</div></td></tr>`
-          : state.rows.map((r) => html`<tr>${cols.map((c) => html`<td class="${c.numeric ? 'right num' : ''}${c.money ? ' money' : ''}">${c.money ? formatINR(r[c.key]) : c.key === 'label' ? r.label : (r[c.key] ?? '—')}</td>`)}</tr>`)}</tbody>
-        ${state.rows.length ? html`<tfoot><tr>${cols.map((c, i) => html`<td class="${c.numeric ? 'right num' : ''}"><strong>${i === 0 ? 'Total' : c.money ? formatINR(totals[c.key]) : (totals[c.key] ?? '')}</strong></td>`)}</tr></tfoot>` : ''}
-      </table></div></div>`;
-  }
+  mount(container, html`
+    <div class="page-head"><div><h1>Reports</h1><p>Finance and operations overview.</p></div></div>
+    <div class="filters row gap-sm mb-md">
+      <label>From <input type="date" id="rpt-from" value="${firstOfMonth}"></label>
+      <label>To   <input type="date" id="rpt-to"   value="${today}"></label>
+      <button class="btn primary" id="rpt-go">Load</button>
+    </div>
+    <div class="tabs" id="rpt-tabs">
+      <button class="tab active" data-tab="summary">Summary</button>
+      <button class="tab" data-tab="category">Category mix</button>
+      <button class="tab" data-tab="sector">By sector</button>
+      <button class="tab" data-tab="daily">Day-by-day</button>
+    </div>
+    <div id="tab-summary"></div>
+    <div id="tab-category" hidden></div>
+    <div id="tab-sector"   hidden></div>
+    <div id="tab-daily"    hidden></div>
+  `);
 
-  function trend() {
-    const open = barHeights(state.trend.map((w) => w.open));
-    const last = state.trend.at(-1);
-    return html`
-      <div class="toolbar">
-        <label class="field"><span class="label">Weeks</span><select class="select" data-f="weeks">${[8, 12, 26, 52].map((n) => html`<option value="${n}" ${n === state.weeks ? 'selected' : ''}>${n}</option>`)}</select></label>
-        ${cityFilter()}
-        ${last ? html`<span class="muted small">Open now ${formatINR(last.open)} · overdue ${formatINR(last.overdue)}</span>` : ''}
-      </div>
-      <div class="card card-pad">
-        <div class="bars" role="img" aria-label="Open receivables per week">${state.trend.map((w, i) => html`<div class="bar-col" title="${shortDate(w.week_end)}: open ${formatINR(w.open)}, overdue ${formatINR(w.overdue)}">
-          <div class="bar" style="height:${open[i]}%"><div class="bar-overdue" style="height:${w.open > 0 ? Math.round((w.overdue / w.open) * 100) : 0}%"></div></div>
-          <span class="bar-label">${shortDate(w.week_end)}</span></div>`)}</div>
-        <p class="muted small" style="margin-top:var(--space-3)">Bars: open receivables at the end of each week; the darker part is overdue.</p>
-      </div>
-      <div class="card" style="margin-top:var(--space-4)"><div class="table-wrap"><table class="table">
-        <thead><tr><th>Week ending</th><th class="right">Invoiced</th><th class="right">Collected</th><th class="right">Open</th><th class="right">Overdue</th></tr></thead>
-        <tbody>${state.trend.map((w) => html`<tr><td>${shortDate(w.week_end)}</td><td class="right money">${formatINR(w.invoiced)}</td><td class="right money">${formatINR(w.collected)}</td><td class="right money">${formatINR(w.open)}</td><td class="right money ${Number(w.overdue) > 0 ? 'danger-text' : ''}">${formatINR(w.overdue)}</td></tr>`)}</tbody>
-      </table></div></div>`;
-  }
-
-  function draw() {
-    mount(container, html`
-      <div class="page-head"><div><h1>Reports</h1><p>${state.tab === 'sales' ? 'Sales for a date range, grouped the way you need.' : 'What customers owed at the end of each week.'}</p></div>
-        ${can(me, 'reports', 'export') ? html`<button class="btn" id="export">Export CSV</button>` : ''}</div>
-      <div class="tabs" role="tablist"><a role="tab" href="#reports" aria-selected="${String(state.tab === 'sales')}" data-tab="sales">Sales</a><a role="tab" href="#reports" aria-selected="${String(state.tab === 'trend')}" data-tab="trend">Receivables trend</a></div>
-      ${state.tab === 'sales' ? sales() : trend()}`);
-  }
-
-  on(container, 'click', '[data-tab]', (_e, el) => { state.tab = el.dataset.tab; load().catch(reportError); });
-  on(container, 'change', '[data-f]', (_e, el) => {
-    state[el.dataset.f] = el.dataset.f === 'weeks' ? Number(el.value) : (el.value || null);
-    if (el.dataset.f === 'from' || el.dataset.f === 'to') { if (!state.from || !state.to) return; }
-    load().catch(reportError);
-  });
-  on(container, 'click', '#export', () => {
-    if (state.tab === 'sales') {
-      const cols = reportColumns(state.groupBy).map((c) => ({ key: c.key, label: c.label }));
-      downloadCsv(`sales-${state.groupBy}-${state.from}-to-${state.to}.csv`, state.rows, cols);
-    } else {
-      downloadCsv(`receivables-trend-${state.weeks}w.csv`, state.trend, [{ key: 'week_end', label: 'Week ending' }, { key: 'invoiced', label: 'Invoiced' }, { key: 'collected', label: 'Collected' }, { key: 'open', label: 'Open' }, { key: 'overdue', label: 'Overdue' }]);
-    }
+  on(container, 'click', '.tab', (_, btn) => {
+    container.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    ['summary','category','sector','daily'].forEach((t) => {
+      container.querySelector(`#tab-${t}`).hidden = (t !== tab);
+    });
   });
 
-  await load();
+  on(container, 'click', '#rpt-go', () => loadAll());
+
+  // Auto-load on mount
+  loadAll();
+
+  function getRange() {
+    return {
+      from: container.querySelector('#rpt-from')?.value ?? firstOfMonth,
+      to:   container.querySelector('#rpt-to')?.value ?? today,
+    };
+  }
+
+  async function loadAll() {
+    const { from, to } = getRange();
+    await Promise.all([
+      loadSummary(from, to),
+      loadCategoryMix(from, to),
+      loadSector(from, to),
+      loadDaily(from, to),
+    ]);
+  }
+
+  async function loadSummary(from, to) {
+    const el = container.querySelector('#tab-summary');
+    mount(el, html`<div class="loading">Loading…</div>`);
+    try {
+      const s = await getFinanceSummary(from, to);
+      mount(el, html`
+        <div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:var(--space-4);margin:var(--space-5) 0">
+          ${kpiCard('GMV', formatINR(s.gmv))}
+          ${kpiCard('Orders', String(s.orders))}
+          ${kpiCard('Avg order', formatINR(s.avg_order))}
+          ${kpiCard('Amount paid', formatINR(s.paid_amount))}
+          ${kpiCard('Outstanding', formatINR(s.outstanding), s.outstanding > 0 ? 'warn' : '')}
+        </div>
+      `);
+    } catch (err) { reportError(err); }
+  }
+
+  async function loadCategoryMix(from, to) {
+    const el = container.querySelector('#tab-category');
+    mount(el, html`<div class="loading">Loading…</div>`);
+    try {
+      const rows = await getCategoryMix(from, to);
+      if (!rows?.length) { mount(el, html`<p class="muted">No data for this period.</p>`); return; }
+      mount(el, html`
+        <table class="data-table">
+          <thead><tr><th>Category</th><th>Revenue</th><th>Share</th><th>Bar</th></tr></thead>
+          <tbody>${rows.map((r) => html`<tr>
+            <td>${r.category_name}</td>
+            <td>${formatINR(r.revenue)}</td>
+            <td>${r.pct}%</td>
+            <td><div style="background:var(--primary);height:8px;border-radius:4px;width:${r.pct}%;min-width:2px"></div></td>
+          </tr>`).join('')}
+          </tbody>
+        </table>
+      `);
+    } catch (err) { reportError(err); }
+  }
+
+  async function loadSector(from, to) {
+    const el = container.querySelector('#tab-sector');
+    mount(el, html`<div class="loading">Loading…</div>`);
+    try {
+      const sb = getSupabase();
+      const { data, error } = await sb.rpc('revenue_by_sector', { p_from: from, p_to: to });
+      if (error) throw error;
+      if (!data?.length) { mount(el, html`<p class="muted">No data.</p>`); return; }
+      mount(el, html`
+        <table class="data-table">
+          <thead><tr><th>Sector</th><th>Orders</th><th>Revenue</th></tr></thead>
+          <tbody>${data.map((r) => html`<tr>
+            <td>${r.sector_name}</td><td>${r.orders}</td><td>${formatINR(r.revenue)}</td>
+          </tr>`).join('')}
+          </tbody>
+        </table>
+      `);
+    } catch (err) { reportError(err); }
+  }
+
+  async function loadDaily(from, to) {
+    const el = container.querySelector('#tab-daily');
+    mount(el, html`<div class="loading">Loading…</div>`);
+    try {
+      const sb = getSupabase();
+      const { data, error } = await sb.rpc('revenue_by_day', { p_from: from, p_to: to });
+      if (error) throw error;
+      if (!data?.length) { mount(el, html`<p class="muted">No orders in this period.</p>`); return; }
+      const max = Math.max(...data.map((r) => r.revenue));
+      mount(el, html`
+        <table class="data-table">
+          <thead><tr><th>Date</th><th>Orders</th><th>Revenue</th><th>Chart</th></tr></thead>
+          <tbody>${data.map((r) => html`<tr>
+            <td>${r.day}</td><td>${r.orders}</td><td>${formatINR(r.revenue)}</td>
+            <td><div style="background:var(--primary);height:8px;border-radius:4px;width:${max > 0 ? Math.round(r.revenue/max*100) : 0}%;min-width:2px"></div></td>
+          </tr>`).join('')}
+          </tbody>
+        </table>
+      `);
+    } catch (err) { reportError(err); }
+  }
+}
+
+function kpiCard(label, value, cls = '') {
+  return html`<div class="card card-pad ${cls}">
+    <div class="muted small">${label}</div>
+    <div class="money" style="font-size:var(--text-xl);margin-top:var(--space-1)">${value}</div>
+  </div>`;
 }

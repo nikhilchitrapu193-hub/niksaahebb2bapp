@@ -1,124 +1,190 @@
 // =============================================================================
-// price-lists.js — Pricing → Price lists: what each city and / or sector pays.
+// price-lists.js — Admin: Contract pricing / Price list management (P2-3)
+// Route: #price-lists (sub-page of #pricing)
 //
-// A list is a % adjustment over the published price (−5 = 5 % cheaper) plus
-// fixed prices for chosen products. The database picks the most specific
-// active list for a customer (city + sector, then sector, then city) in
-// customer_price(), which place_order charges and the customer app shows.
-// Needs pricing:view to see, pricing:edit to change.
+// Admins can create price lists scoped to a sector or restaurant, add items
+// with overridden prices, and assign a list to a restaurant.
 // =============================================================================
 
-import { html, mount, on, $, formatINR, openModal, reportError, toast, withBusy, confirmDialog } from '../../core/ui.js';
-import { listPriceLists, savePriceList, deletePriceList, listPriceListItems, savePriceListItems, deletePriceListItem,
-         listCities, listSectors, listProducts } from '../../core/api.js';
+import { html, mount, on, toast, modal, reportError, withBusy, formatINR } from '../../core/ui.js';
+import { listPriceLists, savePriceList, listPriceListItems, savePriceListItem, assignPriceList, listProducts, listRestaurants } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
-import { pricingTabs } from './price-board.js';
-
-/** Price a customer on this list pays for a product: fixed item, else published × (1 + adjustment). Pure; mirrors customer_price(). */
-export function listPrice(product, list, items) {
-  const fixed = items.find((i) => i.product_id === product.id);
-  if (fixed) return Number(fixed.price);
-  return Math.round(Number(product.price) * (1 + Number(list.adjustment_pct) / 100) * 100) / 100;
-}
+import { settingsTabs } from './settings.js';  // re-use settings tabs not needed here
+import { renderPriceBoard } from './price-board.js';  // for pricing sub-tabs
 
 export async function renderPriceLists(container, me) {
-  const editable = can(me, 'pricing', 'edit');
-  let [lists, cities, sectors, products] = await Promise.all([listPriceLists(), listCities(), listSectors(), listProducts()]);
-  let selected = lists[0]?.id ?? null;
-  let items = selected ? await listPriceListItems(selected) : [];
-  let search = '';
+  const canEdit = can(me, 'pricing', 'edit');
+  mount(container, html`
+    <div class="page-head">
+      <div><h1>Price lists</h1><p>Custom pricing for sectors or individual restaurants.</p></div>
+      ${canEdit ? html`<button class="btn primary" id="new-pl-btn">+ New price list</button>` : ''}
+    </div>
+    <div id="pl-list"><div class="loading">Loading…</div></div>
+  `);
 
-  async function reload(keep = selected) {
-    lists = await listPriceLists();
-    selected = lists.some((l) => l.id === keep) ? keep : (lists[0]?.id ?? null);
-    items = selected ? await listPriceListItems(selected) : [];
-    draw();
+  on(container, 'click', '#new-pl-btn', () => openPriceListForm(null, canEdit, reload));
+
+  await reload();
+
+  async function reload() {
+    const pls = await listPriceLists().catch(() => []);
+    const el  = container.querySelector('#pl-list');
+    if (!pls.length) { mount(el, html`<p class="muted">No price lists yet. Create one to override product prices for specific customers.</p>`); return; }
+    mount(el, html`
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Scope</th><th>Items</th><th>Status</th><th></th></tr></thead>
+        <tbody>${pls.map((pl) => html`
+          <tr>
+            <td><strong>${pl.name}</strong></td>
+            <td class="muted">${pl.kind === 'restaurant' ? `Restaurant: ${pl.restaurants?.name ?? pl.restaurant_id}` : pl.kind === 'sector' ? `Sector: ${pl.sectors?.name ?? pl.sector_id}` : `City: ${pl.city ?? '—'}`}</td>
+            <td>${pl.price_list_items?.length ?? 0}</td>
+            <td><span class="badge ${pl.is_active ? 'delivered' : 'cancelled'}">${pl.is_active ? 'Active' : 'Inactive'}</span></td>
+            <td class="actions">
+              <button class="btn small" data-edit-pl="${pl.id}">Edit / Items</button>
+              ${canEdit ? html`<button class="btn small ghost" data-assign-pl="${pl.id}">Assign</button>` : ''}
+            </td>
+          </tr>
+        `).join('')}
+        </tbody>
+      </table>
+    `);
+
+    on(el, 'click', '[data-edit-pl]', (_, btn) => {
+      const pl = pls.find((p) => p.id === btn.dataset.editPl);
+      if (pl) openPriceListForm(pl, canEdit, reload);
+    });
+    on(el, 'click', '[data-assign-pl]', (_, btn) => {
+      const pl = pls.find((p) => p.id === btn.dataset.assignPl);
+      if (pl) openAssignModal(pl, reload);
+    });
   }
-
-  const scopeOf = (l) => [l.cities?.name ?? 'Every city', l.sectors?.name ?? 'Every sector'].join(' · ');
-
-  function draw() {
-    const list = lists.find((l) => l.id === selected);
-    const term = search.trim().toLowerCase();
-    const rows = products.filter((p) => p.is_active && (!term || p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term)));
-    mount(container, html`
-      <div class="page-head"><div><h1>Price lists</h1><p>A % over or under the published price per city and sector, with fixed prices where needed. The most specific list wins.</p></div>
-        ${editable ? html`<button class="btn primary" id="new-list">New price list</button>` : ''}</div>
-      ${pricingTabs('#price-lists')}
-      ${lists.length === 0 ? html`<div class="empty"><strong>No price lists yet</strong>Everyone pays the published price. Add a list for a sector (hotels −3 %) or a city.</div>` : html`
-      <div class="toolbar">
-        <select class="select" id="list">${lists.map((l) => html`<option value="${l.id}" ${l.id === selected ? 'selected' : ''}>${l.name}${l.is_active ? '' : ' (inactive)'} — ${scopeOf(l)}</option>`)}</select>
-        ${editable && list ? html`<button class="btn" id="edit-list">Edit list</button><button class="btn danger" id="delete-list">Delete</button>` : ''}
-        <input class="input search" id="search" type="search" placeholder="Search product…" value="${search}">
-      </div>
-      ${list ? html`<div class="banner info"><div><strong>${list.name}</strong> · ${scopeOf(list)} · ${Number(list.adjustment_pct) === 0 ? 'published price' : `${Number(list.adjustment_pct) > 0 ? '+' : ''}${Number(list.adjustment_pct)}% on the published price`} · ${items.length} fixed price${items.length === 1 ? '' : 's'}${list.note ? html` · ${list.note}` : ''}</div></div>
-      <div class="card"><div class="table-wrap"><table class="table">
-        <thead><tr><th>Product</th><th class="right">Published</th><th class="right">On this list</th><th class="right">Fixed price (₹)</th><th></th></tr></thead>
-        <tbody>${rows.map((p) => { const fixed = items.find((i) => i.product_id === p.id); return html`<tr data-id="${p.id}">
-          <td><strong>${p.name}</strong><div class="muted tiny">${p.sku} · per ${p.unit}</div></td>
-          <td class="right num">${formatINR(p.price)}</td>
-          <td class="right num ${fixed ? 'money' : ''}">${formatINR(listPrice(p, list, items))}${fixed ? html`<div class="muted tiny">fixed</div>` : ''}</td>
-          <td class="right">${editable ? html`<input class="input small num right" type="number" min="0" step="0.01" data-fixed="${p.id}" value="${fixed?.price ?? ''}" style="width:110px" aria-label="Fixed price for ${p.name}">` : html`<span class="num">${fixed ? formatINR(fixed.price) : '—'}</span>`}</td>
-          <td class="right">${editable && fixed ? html`<button class="btn small" data-clear="${p.id}" title="Back to the % rule">Clear</button>` : ''}</td></tr>`; })}</tbody></table></div></div>
-      ${editable ? html`<div class="row" style="margin-top:var(--space-3);justify-content:flex-end"><button class="btn primary" id="save-fixed">Save fixed prices</button></div>` : ''}` : ''}`}`);
-    const input = $('#search', container);
-    if (input) input.oninput = () => { search = input.value; draw(); $('#search', container).focus(); };
-  }
-
-  on(container, 'change', '#list', async (_e, el) => { selected = el.value; items = await listPriceListItems(selected); draw(); });
-  on(container, 'click', '#new-list', () => listForm(null, { cities, sectors }, (saved) => reload(saved.id)));
-  on(container, 'click', '#edit-list', () => listForm(lists.find((l) => l.id === selected), { cities, sectors }, () => reload()));
-  on(container, 'click', '#delete-list', async () => {
-    if (!(await confirmDialog('Delete this price list? Customers it covered go back to the published price.', { confirmText: 'Delete', danger: true }))) return;
-    try { await deletePriceList(selected); toast('Price list deleted', 'success'); await reload(null); } catch (error) { reportError(error); }
-  });
-  on(container, 'click', '#save-fixed', async (_e, button) => {
-    const rows = [];
-    for (const input of container.querySelectorAll('[data-fixed]')) {
-      const current = items.find((i) => i.product_id === input.dataset.fixed);
-      if (input.value === '' && !current) continue;
-      if (input.value === '' && current) continue;                    // cleared with the Clear button
-      if (current && Number(current.price) === Number(input.value)) continue;
-      rows.push({ product_id: input.dataset.fixed, price: Number(input.value) });
-    }
-    if (!rows.length) { toast('Nothing changed', 'info'); return; }
-    try { await withBusy(button, () => savePriceListItems(selected, rows)); toast(`${rows.length} fixed price${rows.length === 1 ? '' : 's'} saved`, 'success'); await reload(); }
-    catch (error) { reportError(error); }
-  });
-  on(container, 'click', '[data-clear]', async (_e, el) => {
-    try { await deletePriceListItem(selected, el.dataset.clear); await reload(); } catch (error) { reportError(error); }
-  });
-
-  draw();
 }
 
-function listForm(list, { cities, sectors }, onSaved) {
-  const l = list ?? { adjustment_pct: 0, is_active: true };
-  const { el, close } = openModal(html`
-    <form id="list-form" class="stack" novalidate>
+// ── Price list form ───────────────────────────────────────────────────────────
+async function openPriceListForm(pl, canEdit, onSave) {
+  const [products, items] = await Promise.all([
+    listProducts().catch(() => []),
+    pl ? listPriceListItems(pl.id).catch(() => []) : Promise.resolve([]),
+  ]);
+
+  const overlay = modal(html`
+    <h3>${pl ? `Edit: ${pl.name}` : 'New price list'}</h3>
+    <form id="pl-form" class="stack" novalidate>
       <div class="form-grid">
-        <label class="field span-2"><span class="label">Name</span><input class="input" name="name" value="${l.name ?? ''}" required maxlength="80" placeholder="Hotels −3 %"></label>
-        <label class="field"><span class="label">City</span><select class="select" name="city_id"><option value="">Every city</option>
-          ${cities.map((c) => html`<option value="${c.id}" ${c.id === l.city_id ? 'selected' : ''}>${c.name}</option>`)}</select></label>
-        <label class="field"><span class="label">Sector</span><select class="select" name="sector_code"><option value="">Every sector</option>
-          ${sectors.map((s) => html`<option value="${s.code}" ${s.code === l.sector_code ? 'selected' : ''}>${s.name}</option>`)}</select></label>
-        <label class="field"><span class="label">Adjustment % on the published price</span><input class="input" name="adjustment_pct" type="number" min="-100" max="500" step="0.1" value="${l.adjustment_pct ?? 0}" required><span class="hint">−5 = 5 % cheaper, 2 = 2 % dearer, 0 = fixed prices only</span></label>
-        <label class="check" style="align-self:end"><input type="checkbox" name="is_active" ${l.is_active ? 'checked' : ''}> Active</label>
-        <label class="field span-2"><span class="label">Note</span><input class="input" name="note" value="${l.note ?? ''}" maxlength="200"></label>
+        <label class="field span-2"><span class="label">Name</span>
+          <input class="input" name="name" value="${pl?.name ?? ''}" required maxlength="120" ${canEdit ? '' : 'disabled'}></label>
+        <label class="field"><span class="label">Scope</span>
+          <select class="select" name="kind" id="pl-kind" ${canEdit ? '' : 'disabled'}>
+            <option value="sector"     ${(pl?.kind ?? 'sector') === 'sector'     ? 'selected' : ''}>Sector</option>
+            <option value="restaurant" ${pl?.kind === 'restaurant' ? 'selected' : ''}>Restaurant</option>
+            <option value="city"       ${pl?.kind === 'city'       ? 'selected' : ''}>City</option>
+          </select></label>
+        <label class="field"><span class="label">Status</span>
+          <select class="select" name="is_active" ${canEdit ? '' : 'disabled'}>
+            <option value="true"  ${pl?.is_active !== false ? 'selected' : ''}>Active</option>
+            <option value="false" ${pl?.is_active === false  ? 'selected' : ''}>Inactive</option>
+          </select></label>
       </div>
-      <p class="muted small">One list per city + sector combination. City + sector beats sector only, which beats city only.</p>
-      <p class="form-error" id="list-error" role="alert"></p>
-      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save list</button></div>
-    </form>`, { title: list ? 'Edit price list' : 'New price list' });
-  $('#list-form', el).onsubmit = async (event) => {
-    event.preventDefault();
-    const form = event.target;
-    if (!form.checkValidity()) { $('#list-error', el).textContent = 'Please fill in the name and the adjustment.'; return; }
-    const v = Object.fromEntries(new FormData(form));
+      ${canEdit ? html`<div><button class="btn primary" type="submit" id="save-pl-btn">Save price list</button></div>` : ''}
+    </form>
+    ${pl ? html`
+      <hr>
+      <div class="between" style="margin:var(--space-5) 0 var(--space-3)">
+        <h4 style="margin:0">Price overrides (${items.length} items)</h4>
+        ${canEdit ? html`<button class="btn small primary" id="add-item-btn">+ Add item</button>` : ''}
+      </div>
+      <div id="pl-items-list">
+        ${items.length ? html`
+          <table class="data-table">
+            <thead><tr><th>Product</th><th>Custom price (₹)</th><th></th></tr></thead>
+            <tbody>${items.map((it) => html`
+              <tr>
+                <td>${products.find((p) => p.id === it.product_id)?.name ?? it.product_id}</td>
+                <td>${formatINR(it.price)}</td>
+                <td class="actions">${canEdit ? html`<button class="btn small ghost" data-del-pli="${it.id}">Remove</button>` : ''}</td>
+              </tr>
+            `).join('')}</tbody>
+          </table>` : html`<p class="muted">No item overrides yet.</p>`}
+      </div>
+    ` : ''}
+  `);
+
+  on(overlay, 'submit', '#pl-form', async (e, form) => {
+    e.preventDefault();
+    const fd = new FormData(form);
     try {
-      const saved = await withBusy($('button[type="submit"]', form), () => savePriceList({ ...v, id: list?.id, is_active: form.elements.is_active.checked }));
-      toast('Price list saved', 'success');
-      close(); onSaved(saved);
-    } catch (error) { $('#list-error', el).textContent = /duplicate|already exists/i.test(error.message) ? 'There is already a list for this city and sector.' : error.message; }
-  };
+      await withBusy(overlay.querySelector('#save-pl-btn'), () =>
+        savePriceList({ id: pl?.id, name: fd.get('name'), kind: fd.get('kind'), is_active: fd.get('is_active') === 'true' }));
+      toast(pl ? 'Price list updated' : 'Price list created', 'success');
+      overlay.remove();
+      onSave();
+    } catch (err) { reportError(err); }
+  });
+
+  if (pl && canEdit) {
+    on(overlay, 'click', '#add-item-btn', () => openItemForm(pl.id, products, () => {
+      // Refresh items in the modal
+      listPriceListItems(pl.id).then((its) => {
+        mount(overlay.querySelector('#pl-items-list'), html`
+          <table class="data-table">
+            <thead><tr><th>Product</th><th>Custom price (₹)</th><th></th></tr></thead>
+            <tbody>${its.map((it) => html`
+              <tr>
+                <td>${products.find((p) => p.id === it.product_id)?.name ?? it.product_id}</td>
+                <td>${formatINR(it.price)}</td>
+                <td class="actions"><button class="btn small ghost" data-del-pli="${it.id}">Remove</button></td>
+              </tr>
+            `).join('')}</tbody>
+          </table>`);
+      });
+    }));
+  }
+}
+
+function openItemForm(priceListId, products, onSave) {
+  const m = modal(html`
+    <h4>Add price override</h4>
+    <form id="pli-form" class="stack" novalidate>
+      <label class="field"><span class="label">Product</span>
+        <select class="select" name="product_id" required>
+          <option value="">— choose —</option>
+          ${products.map((p) => html`<option value="${p.id}">${p.name} (₹${p.price}/${p.unit})</option>`)}
+        </select></label>
+      <label class="field"><span class="label">Custom price (₹)</span>
+        <input class="input" name="price" type="number" min="0" step="0.01" required placeholder="0.00"></label>
+      <div><button class="btn primary" type="submit">Add</button></div>
+    </form>
+  `);
+  on(m, 'submit', '#pli-form', async (e, form) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    try {
+      await savePriceListItem({ price_list_id: priceListId, product_id: fd.get('product_id'), price: Number(fd.get('price')) });
+      toast('Item added');
+      m.remove();
+      onSave();
+    } catch (err) { reportError(err); }
+  });
+}
+
+function openAssignModal(pl, onSave) {
+  const m = modal(html`
+    <h4>Assign "${pl.name}" to a restaurant</h4>
+    <p class="muted">This will set this price list for a specific restaurant, overriding any sector-level list they're in.</p>
+    <form id="assign-form" class="stack" novalidate>
+      <label class="field"><span class="label">Restaurant ID</span>
+        <input class="input" name="restaurant_id" placeholder="uuid of the restaurant" required maxlength="36"></label>
+      <div><button class="btn primary" type="submit">Assign</button></div>
+    </form>
+  `);
+  on(m, 'submit', '#assign-form', async (e, form) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    try {
+      await assignPriceList(pl.id, fd.get('restaurant_id'));
+      toast('Price list assigned');
+      m.remove();
+      onSave();
+    } catch (err) { reportError(err); }
+  });
 }

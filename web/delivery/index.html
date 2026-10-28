@@ -2,15 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fresh Supply — Deliveries</title>
-  <link rel="stylesheet" href="../css/base.css">
-  <link rel="stylesheet" href="../css/components.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Fresh Supply — Delivery</title>
+  <!-- Security: CSP (AIGuard fix) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self';
+                 style-src 'self' https://fonts.googleapis.com;
+                 font-src 'self' https://fonts.gstatic.com;
+                 img-src 'self' data: https:;
+                 connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co;
+                 frame-ancestors 'none';
+                 form-action 'self';">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+  <link rel="stylesheet" href="/css/main.css">
 </head>
 <body>
-  <header class="app-header" id="app-header"></header>
-  <main class="page page-narrow" id="view"></main>
-  <script src="../vendor/supabase.js"></script>
-  <script type="module" src="../js/pages/delivery/main.js"></script>
+  <div id="root"></div>
+  <div id="view"></div>
+  <script type="module" src="/js/pages/delivery/main.js"></script>
 </body>
 </html>

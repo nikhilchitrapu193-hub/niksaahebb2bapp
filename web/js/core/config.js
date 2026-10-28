@@ -34,6 +34,11 @@ export const config = Object.freeze({
   // shows no "Pay online" button. The secret stays in the Edge Functions
   // (supabase/functions/razorpay-order, razorpay-webhook) — see docs/deployment.md.
   razorpayKeyId: '',
+
+  // Fleetbase API base URL (set to '' to disable Fleetbase integration)
+  fleetbaseUrl: '',
+  // Fleetbase publishable key (safe in the browser — read-only scope)
+  fleetbaseKey: '',
 });
 
 /**
@@ -48,11 +53,13 @@ export const ROLE_HOME = Object.freeze({
   admin: 'admin/',
   restaurant: 'restaurant/',
   delivery: 'delivery/',
+  supplier: 'supplier/',
 });
 export const ROLE_LOGIN = Object.freeze({
   admin: 'admin/login.html',
   restaurant: 'restaurant/login.html',
   delivery: 'delivery/login.html',
+  supplier: 'supplier/login.html',
 });
 // "restaurant" is the app role of every customer (restaurants, hotels, institutions,
 // defence, retail): the label names them all.
@@ -60,6 +67,7 @@ export const ROLE_LABELS = Object.freeze({
   admin: 'Admin',
   restaurant: 'Customer',
   delivery: 'Delivery staff',
+  supplier: 'Supplier',
 });
 
 /** Delivery slots offered at checkout (keys match the delivery_slot enum). */
@@ -79,116 +87,29 @@ export const PAYMENT_METHODS = Object.freeze({
 export const RECEIPT_METHODS = Object.freeze({
   cash:          { label: 'Cash', needsReference: false },
   upi:           { label: 'UPI', needsReference: true },
-  bank_transfer: { label: 'Bank transfer (NEFT / IMPS / RTGS)', needsReference: true },
+  bank_transfer: { label: 'Bank transfer (NEFT/RTGS)', needsReference: true },
   cheque:        { label: 'Cheque', needsReference: true },
-  online:        { label: 'Online (Razorpay)', needsReference: false },
-  other:         { label: 'Other / adjustment', needsReference: false },
+  online:        { label: 'Online (Razorpay)', needsReference: true },
 });
 
-/**
- * Launch control (migration 014): the two company-wide switches an admin flips
- * under Settings → Launch. Keys match the check constraints on company_settings.
- */
-export const LAUNCH_PRICING_MODES = Object.freeze({
-  simple:   { label: 'Simple', hint: 'Type each product\'s price on the product form. Price board, rules, benchmarks and price lists stay hidden.' },
-  advanced: { label: 'Advanced', hint: 'Prices come from the pricing engine: cost + markup rules, benchmarks, margin guard, scheduled changes, price lists.' },
-});
-export const STOCK_MODES = Object.freeze({
-  simple:  { label: 'Simple', hint: 'No quantities. A product is "in stock" or "out of stock" (the toggle on the Products list). Orders never reserve stock. Inventory and Procurement stay hidden.' },
-  counted: { label: 'Counted', hint: 'The stock ledger: receive goods (GRN), per-warehouse counts, reservations per order, batches and expiry, purchase orders.' },
+export const ORDER_STATUSES = Object.freeze({
+  pending:          { label: 'Pending', badge: 'pending' },
+  confirmed:        { label: 'Confirmed', badge: 'confirmed' },
+  processing:       { label: 'Processing', badge: 'packed' },
+  packed:           { label: 'Packed', badge: 'packed' },
+  out_for_delivery: { label: 'Out for delivery', badge: 'packed' },
+  delivered:        { label: 'Delivered', badge: 'delivered' },
+  cancelled:        { label: 'Cancelled', badge: 'cancelled' },
+  returned:         { label: 'Returned', badge: 'cancelled' },
 });
 
-/**
- * Admin-app modules and the actions a team role can be granted in each.
- * MUST match the check constraints on role_permissions (migrations 006, 009, 011, 012).
- * `nav` is the admin route that opens the module; modules without one are
- * permission groups only (reports arrive in a later batch). Settings → Launch
- * can hide pricing / inventory / procurement (web/js/core/launch.js).
- */
-export const MODULES = Object.freeze({
-  dashboard: { label: 'Dashboard', nav: '#dashboard' },
-  orders:    { label: 'Orders', nav: '#orders' },
-  products:  { label: 'Products', nav: '#products' },
-  inventory: { label: 'Inventory', nav: '#inventory' },
-  customers: { label: 'Customers', nav: '#customers' },
-  payments:  { label: 'Payments', nav: '#payments' },
-  team:      { label: 'Team', nav: '#team' },
-  settings:  { label: 'Settings', nav: '#settings' },
-  audit:     { label: 'Audit log', nav: '#audit' },
-  reports:   { label: 'Reports', nav: '#reports' },
-  pricing:   { label: 'Pricing', nav: '#pricing' },
-  procurement: { label: 'Procurement', nav: '#procurement' },
-  fulfilment: { label: 'Fulfilment', nav: '#fulfilment' },
+export const PAYMENT_STATUSES = Object.freeze({
+  unpaid:        { label: 'Unpaid', badge: 'pending' },
+  partial:       { label: 'Partial', badge: 'packed' },
+  paid:          { label: 'Paid', badge: 'delivered' },
+  credit_applied:{ label: 'Credit applied', badge: 'delivered' },
+  overdue:       { label: 'Overdue', badge: 'cancelled' },
 });
-
-/** Selling-unit contents (products.pack_unit). Per-kg costs apply to kg/g/l/ml, not to pieces. */
-export const PACK_UNITS = Object.freeze({ kg: 'kg', g: 'g', l: 'litre', ml: 'ml', pc: 'pieces' });
-
-/** products.veg_type; null = not applicable (packaging, cleaning…). */
-export const VEG_TYPES = Object.freeze({ veg: 'Veg', non_veg: 'Non-veg' });
-
-/** Catalogue sort orders (customer app). */
-export const CATALOGUE_SORTS = Object.freeze({
-  name:       { label: 'Name A–Z' },
-  price_asc:  { label: 'Price: low to high' },
-  price_desc: { label: 'Price: high to low' },
-});
-
-/** How a product's price is worked out (product_pricing.pricing_mode). */
-export const PRICING_MODES = Object.freeze({
-  rule:                 { label: 'Cost + markup (category rule)' },
-  fixed_over_benchmark: { label: 'Benchmark + fixed amount' },
-  manual:               { label: 'Manual price' },
-});
-
-/** Which cost the formula starts from (pricing_rules / product_pricing.cost_method). */
-export const COST_METHODS = Object.freeze({
-  weighted_avg_30d: { label: '30-day weighted average (ledger)' },
-  latest:           { label: 'Latest receipt (ledger)' },
-  quote:            { label: "Today's supplier quote" },
-  manual:           { label: 'Typed cost' },
-});
-
-/** Purchase order statuses (purchase_orders.status). */
-export const PO_STATUSES = Object.freeze({
-  draft:         { label: 'Draft', badge: 'pending' },
-  sent:          { label: 'Sent', badge: 'confirmed' },
-  part_received: { label: 'Part received', badge: 'packed' },
-  closed:        { label: 'Closed', badge: 'delivered' },
-  cancelled:     { label: 'Cancelled', badge: 'cancelled' },
-});
-
-/** Where a goods receipt came from (goods_receipts.source). */
-export const GRN_SOURCES = Object.freeze({
-  po:     { label: 'Against a purchase order' },
-  mandi:  { label: 'Mandi cash purchase' },
-  direct: { label: 'Direct delivery (no PO)' },
-});
-
-/** Trip-sheet statuses (trips.status), migration 012. */
-export const TRIP_STATUSES = Object.freeze({
-  draft:      { label: 'Draft', badge: 'pending' },
-  dispatched: { label: 'Dispatched', badge: 'packed' },
-  closed:     { label: 'Closed', badge: 'delivered' },
-  cancelled:  { label: 'Cancelled', badge: 'cancelled' },
-});
-
-/** What a customer can report about an order (order_issues.kind), migration 013. */
-export const ISSUE_KINDS = Object.freeze({
-  quality:    { label: 'Quality problem' },
-  short:      { label: 'Short / missing items' },
-  damaged:    { label: 'Damaged in transit' },
-  wrong_item: { label: 'Wrong item sent' },
-  other:      { label: 'Something else' },
-});
-
-/** order_issues.status. */
-export const ISSUE_STATUSES = Object.freeze({
-  open:     { label: 'Open', badge: 'pending' },
-  resolved: { label: 'Resolved', badge: 'delivered' },
-  rejected: { label: 'Declined', badge: 'cancelled' },
-});
-
 
 /** Reports (migration 019): how sales_report() can group. */
 export const REPORT_GROUPINGS = Object.freeze({
@@ -268,4 +189,99 @@ export const ACTIONS = Object.freeze({
   edit:    'Create / edit',
   approve: 'Approve',
   export:  'Export',
+});
+
+/**
+ * MODULES — maps permission module names (used by permissions.js) to their
+ * display labels. Every module listed here can be granted a view / edit /
+ * approve / export action in a team role.
+ */
+export const MODULES = Object.freeze({
+  dashboard:   'Dashboard',
+  orders:      'Orders',
+  products:    'Products',
+  inventory:   'Inventory',
+  customers:   'Customers',
+  team:        'Team',
+  settings:    'Settings',
+  pricing:     'Pricing',
+  procurement: 'Procurement',
+  fulfilment:  'Fulfilment',
+  payments:    'Payments',
+  reports:     'Reports',
+  audit:       'Audit log',
+});
+
+// ---------------------------------------------------------------------------
+// P2-2 Ordering Plus additions
+// ---------------------------------------------------------------------------
+
+/** Coupon discount types (coupons.kind), migration 20261028000002. */
+export const COUPON_KINDS = Object.freeze({
+  percent: { label: '% off the subtotal' },
+  amount:  { label: '₹ off the subtotal' },
+});
+
+/** Quote lifecycle (quotes.status), migration 20261028000002. */
+export const QUOTE_STATUSES = Object.freeze({
+  draft:    { label: 'Draft',            badge: 'pending' },
+  sent:     { label: 'Sent to customer', badge: 'packed' },
+  accepted: { label: 'Accepted',         badge: 'delivered' },
+  declined: { label: 'Declined',         badge: 'cancelled' },
+  expired:  { label: 'Expired',          badge: 'inactive' },
+});
+
+/** Days of the week for standing-order schedule (ISO day number, 0 = Sunday). */
+export const WEEKDAYS = Object.freeze([
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+]);
+
+// ---------------------------------------------------------------------------
+// P2-3 Contract Pricing additions
+// ---------------------------------------------------------------------------
+
+/** Price-list types. */
+export const PRICE_LIST_KINDS = Object.freeze({
+  standard:  { label: 'Standard (all customers)' },
+  contract:  { label: 'Contract (assigned accounts)' },
+  promotion: { label: 'Promotion (date-limited)' },
+});
+
+// ---------------------------------------------------------------------------
+// P2-4 Supplier additions
+// ---------------------------------------------------------------------------
+
+/** Supplier status. */
+export const SUPPLIER_STATUSES = Object.freeze({
+  active:    { label: 'Active',    badge: 'delivered' },
+  inactive:  { label: 'Inactive',  badge: 'cancelled' },
+  pending:   { label: 'Pending',   badge: 'pending' },
+});
+
+/** Purchase order status. */
+export const PO_STATUSES = Object.freeze({
+  draft:     { label: 'Draft',     badge: 'pending' },
+  sent:      { label: 'Sent',      badge: 'packed' },
+  received:  { label: 'Received',  badge: 'delivered' },
+  partial:   { label: 'Partial',   badge: 'packed' },
+  cancelled: { label: 'Cancelled', badge: 'cancelled' },
+});
+
+// ---------------------------------------------------------------------------
+// P2-8 Fleetbase additions
+// ---------------------------------------------------------------------------
+
+/** Fleetbase trip status (mirrors Fleetbase order statuses). */
+export const TRIP_STATUSES = Object.freeze({
+  created:    { label: 'Created',       badge: 'pending' },
+  dispatched: { label: 'Dispatched',    badge: 'packed' },
+  started:    { label: 'Started',       badge: 'packed' },
+  completed:  { label: 'Completed',     badge: 'delivered' },
+  cancelled:  { label: 'Cancelled',     badge: 'cancelled' },
 });
