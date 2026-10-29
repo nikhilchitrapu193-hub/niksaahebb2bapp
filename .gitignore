@@ -2,3 +2,7 @@ node_modules/
 .DS_Store
 *.log
 .env
+tests/dbg.mjs
+tests/dbg16.mjs
+tests/debug16.mjs
+tests/debug16b.mjs
