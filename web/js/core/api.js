@@ -66,6 +66,91 @@ export async function listCategories() {
   return unwrap(await supabase.from('categories').select('*').order('sort_order').order('name'));
 }
 
+export async function saveCategory(cat) {
+  const vals = { name: cat.name, sort_order: Number(cat.sort_order) || 0, parent_id: cat.parent_id || null };
+  if (cat.id) return unwrap(await supabase.from('categories').update(vals).eq('id', cat.id).select().single());
+  return unwrap(await supabase.from('categories').insert(vals).select().single());
+}
+
+export async function deleteCategory(id) {
+  unwrap(await supabase.from('categories').delete().eq('id', id));
+}
+
+export async function listHsnCodes() {
+  return unwrap(await supabase.from('hsn_codes').select('*').order('code'));
+}
+
+export async function saveProduct(p) {
+  const vals = {
+    name: p.name, sku: p.sku, category_id: p.category_id || null, unit: p.unit,
+    price: Number(p.price) || 0, gst_rate: Number(p.gst_rate) || 0,
+    stock_qty: p.stock_qty != null ? Number(p.stock_qty) : undefined,
+    description: p.description || null,
+    // hsn_code is the code string stored directly on products (e.g. '0702')
+    hsn_code: p.hsn_code || null,
+    pack_unit: p.pack_unit || null, pack_size: p.pack_size != null ? Number(p.pack_size) : null,
+    parent_product_id: p.parent_product_id || null,
+    variant_label: p.variant_label || null,
+    veg_type: p.veg_type || null, grade: p.grade || null, origin: p.origin || null,
+    brand: p.brand || null,
+    shelf_life_days: p.shelf_life_days != null ? Number(p.shelf_life_days) : null,
+    storage_note: p.storage_note || null,
+    sold_by_weight: Boolean(p.sold_by_weight),
+    weight_tolerance_pct: p.weight_tolerance_pct != null ? Number(p.weight_tolerance_pct) : null,
+    in_stock: p.in_stock !== false,
+    is_active: p.is_active !== false,
+    market_price: p.market_price != null ? Number(p.market_price) : null,
+    price_source: p.price_source || null,
+    min_order_qty: p.min_order_qty != null ? Number(p.min_order_qty) : null,
+    low_stock_threshold: p.low_stock_threshold != null ? Number(p.low_stock_threshold) : null,
+  };
+  // A board-priced product: never overwrite the price with the form value.
+  if (p.price_source === 'rule') delete vals.price;
+  if (p.id) return unwrap(await supabase.from('products').update(vals).eq('id', p.id).select().single());
+  return unwrap(await supabase.from('products').insert(vals).select().single());
+}
+
+export async function setProductFlags(id, flags) {
+  return unwrap(await supabase.from('products').update(flags).eq('id', id).select().single());
+}
+
+export async function uploadProductPhoto(productId, file) {
+  const path = `products/${productId}/${Date.now()}_${file.name}`;
+  const { error } = await supabase.storage.from('product-photos').upload(path, file, { upsert: true });
+  if (error) throw error;
+  unwrap(await supabase.from('products').update({ photo_path: path }).eq('id', productId));
+  return path;
+}
+
+export async function upsertProducts(rows) {
+  // Split into updates (rows with an id set by csv-import.js from the existing-product
+  // lookup) and inserts (new products without an id). One DB call per row so each is
+  // recorded as 'update' or 'insert' for tests and for audit clarity.
+  const results = [];
+  for (const row of rows) {
+    if (row.id != null) {
+      const { id, sku, ...fields } = row;
+      const r = unwrap(await supabase.from('products').update({ sku, ...fields }).eq('id', id).select());
+      if (Array.isArray(r)) results.push(...r); else if (r != null) results.push(r);
+    } else {
+      const r = unwrap(await supabase.from('products').insert(row).select());
+      if (Array.isArray(r)) results.push(...r); else if (r != null) results.push(r);
+    }
+  }
+  return results;
+}
+
+export async function listProductAvailability(productId) {
+  return unwrap(await supabase.from('product_availability').select('*').eq('product_id', productId));
+}
+
+export async function setProductAvailability(productId, cityId, available) {
+  if (available) {
+    return unwrap(await supabase.from('product_availability').upsert({ product_id: productId, city_id: cityId, is_available: true }, { onConflict: 'product_id,city_id' }));
+  }
+  return unwrap(await supabase.from('product_availability').delete().eq('product_id', productId).eq('city_id', cityId));
+}
+
 /** Restaurants only see active products (enforced by RLS); admins see all. */
 export async function listProducts() {
   return unwrap(await supabase.from('products').select('*, categories(name)').order('name'));
@@ -95,20 +180,21 @@ export async function getOrderHistory(orderId) {
     .select('*').eq('order_id', orderId).order('changed_at', { ascending: false }));
 }
 
-/** place_order v8: couponCode is optional. Returns the new order id. */
-export async function placeOrder({ restaurantId, outletId, items, slot = 'morning', note, paymentMethod = 'cod', couponCode = null }) {
+/** place_order v9: accepts (items, opts) — items is the cart array, opts carries checkout fields. */
+export async function placeOrder(items, { outletId = null, slot = 'morning', notes = null, deliveryDate = null, paymentMethod = 'cod', poReference = null, couponCode = null } = {}) {
   return unwrap(await supabase.rpc('place_order', {
-    p_restaurant_id: restaurantId || null,
-    p_outlet_id: outletId || null,
     p_items: items,
-    p_slot: slot,
-    p_note: note || null,
+    p_outlet_id: outletId || null,
+    p_delivery_slot: slot,
+    p_delivery_date: deliveryDate || null,
+    p_note: notes || null,
     p_payment_method: paymentMethod,
+    p_po_reference: poReference || null,
     p_coupon_code: couponCode || null,
   }));
 }
 
-export async function editOrder(orderId, { items, slot, note } = {}) {
+export async function editOrder(orderId, items, { slot, note } = {}) {
   unwrap(await supabase.rpc('edit_order', {
     p_order_id: orderId,
     p_items: items ?? null,
@@ -125,8 +211,8 @@ export async function cancelOrder(orderId, reason) {
   unwrap(await supabase.rpc('cancel_order', { p_order_id: orderId, p_reason: reason || null }));
 }
 
-export async function setOrderStatus(orderId, status) {
-  unwrap(await supabase.rpc('set_order_status', { p_order_id: orderId, p_status: status }));
+export async function setOrderStatus(orderId, status, note = null) {
+  unwrap(await supabase.rpc('set_order_status', { p_order_id: orderId, p_new: status, p_note: note }));
 }
 
 export async function setPacked(orderId, items) {
@@ -211,6 +297,32 @@ export async function approveRestaurant(id, approve) {
   unwrap(await supabase.rpc('approve_restaurant', { p_restaurant_id: id, p_approve: approve }));
 }
 
+export async function setRestaurantStatus(id, status) {
+  unwrap(await supabase.rpc('set_customer_status', { p_restaurant_id: id, p_status: status }));
+}
+
+export async function saveCustomerTerms(restaurantId, terms) {
+  const num = (v) => (v === '' || v == null ? null : Number(v));
+  const bool = (v) => (v === '' || v == null ? null : v === 'true' || v === true);
+  unwrap(await supabase.from('restaurants').update({
+    sector_code: terms.sector_code || null,
+    city_id: terms.city_id || null,
+    pincode: terms.pincode || null,
+    warehouse_id: terms.warehouse_id || null,
+    min_order_value: num(terms.min_order_value),
+    delivery_fee_below_mov: num(terms.delivery_fee_below_mov),
+    credit_days: num(terms.credit_days),
+    credit_limit: num(terms.credit_limit),
+    needs_order_approval: bool(terms.needs_order_approval),
+  }).eq('id', restaurantId));
+}
+
+export async function listOutstandingBalances({ cityId } = {}) {
+  let q = supabase.from('customer_balances').select('*').order('name');
+  if (cityId) q = q.eq('city_id', cityId);
+  return unwrap(await q);
+}
+
 // ---------- Cities / sectors / warehouses ------------------------------------
 
 export async function listCities() {
@@ -267,14 +379,23 @@ export async function savePurchaseOrder({ id, supplierId, warehouseId, items, ex
 }
 
 export async function setPurchaseOrderStatus(id, status) {
-  unwrap(await supabase.rpc('set_po_status', { p_id: id, p_status: status }));
+  return unwrap(await supabase.rpc('set_purchase_order_status', { p_po_id: id, p_status: status }));
 }
 
-export async function receiveGoods({ purchaseOrderId, warehouseId, items, billPath, billDate, supplierRef, note }) {
+export async function receiveGoods({ purchaseOrderId, poId, warehouseId, supplierId, source, items,
+    billPhotoPath, billPath, billAmount, billDate, supplierRef, paidCash, note }) {
   return unwrap(await supabase.rpc('receive_goods', {
-    p_po_id: purchaseOrderId || null, p_warehouse_id: warehouseId,
-    p_items: items, p_bill_path: billPath || null,
-    p_bill_date: billDate || null, p_supplier_ref: supplierRef || null, p_note: note || null,
+    p_po_id: poId ?? purchaseOrderId ?? null,
+    p_warehouse_id: warehouseId,
+    p_supplier_id: supplierId || null,
+    p_source: source || 'direct',
+    p_items: items,
+    p_bill_path: billPhotoPath ?? billPath ?? null,
+    p_bill_amount: billAmount ? Number(billAmount) : null,
+    p_paid_cash: paidCash ?? false,
+    p_bill_date: billDate || null,
+    p_supplier_ref: supplierRef || null,
+    p_note: note || null,
   }));
 }
 
@@ -310,30 +431,46 @@ export async function inviteSupplier(supplierId) {
 }
 
 export async function listSupplierProducts(supplierId) {
-  return unwrap(await supabase.from('supplier_products').select('*, products(name, sku)').eq('supplier_id', supplierId).order('created_at'));
+  let query = supabase.from('supplier_products').select('*, products(name, sku)').order('created_at');
+  if (supplierId) query = query.eq('supplier_id', supplierId);
+  return unwrap(await query);
 }
 
-export async function saveSupplierProduct({ id, supplierId, productId, supplierSku, unitCost, moq, leadDays }) {
-  return unwrap(await supabase.rpc('save_supplier_product', {
-    p_id: id || null, p_supplier_id: supplierId, p_product_id: productId,
-    p_supplier_sku: supplierSku || null, p_unit_cost: unitCost, p_moq: moq || 1, p_lead_days: leadDays || 1,
-  }));
+export async function saveSupplierProduct({ id, supplier_id, product_id, price, moq, lead_days, valid_from, valid_to, is_preferred }) {
+  const values = {
+    supplier_id,
+    product_id,
+    price: Number(price),
+    moq: Number(moq) || 1,
+    lead_days: Number(lead_days) || 1,
+    valid_from: valid_from || null,
+    valid_to: valid_to || null,
+    is_preferred: Boolean(is_preferred),
+  };
+  if (id) return unwrap(await supabase.from('supplier_products').update(values).eq('id', id).select().single());
+  return unwrap(await supabase.from('supplier_products').upsert(values, { onConflict: 'supplier_id,product_id' }).select().single());
 }
 
 // ---------- Pricing / price lists (P2-3) -------------------------------------
 
-export async function listPriceLists({ kind } = {}) {
-  let query = supabase.from('price_lists').select('*').order('name');
-  if (kind) query = query.eq('kind', kind);
-  return unwrap(await query);
+export async function listPriceLists() {
+  return unwrap(await supabase.from('price_lists').select('*, cities(name), sectors(name)').order('name'));
 }
 
-export async function savePriceList({ id, name, kind, validFrom, validTo, isActive }) {
-  return unwrap(await supabase.rpc('save_price_list', {
-    p_id: id || null, p_name: name, p_kind: kind || 'standard',
-    p_valid_from: validFrom || null, p_valid_to: validTo || null,
-    p_is_active: Boolean(isActive ?? true),
-  }));
+export async function savePriceList({ id, name, city_id, sector_code, adjustment_pct, is_active }) {
+  const values = {
+    name,
+    city_id: city_id || null,
+    sector_code: sector_code || null,
+    adjustment_pct: Number(adjustment_pct) || 0,
+    is_active: Boolean(is_active ?? true),
+  };
+  if (id) return unwrap(await supabase.from('price_lists').update(values).eq('id', id).select().single());
+  return unwrap(await supabase.from('price_lists').insert(values).select().single());
+}
+
+export async function upsertPriceListItems(items) {
+  return unwrap(await supabase.from('price_list_items').upsert(items, { onConflict: 'price_list_id,product_id' }).select());
 }
 
 export async function listPriceListItems(priceListId) {
@@ -353,11 +490,10 @@ export async function assignPriceList(restaurantId, priceListId) {
 
 // ---------- Price board (admin) -----------------------------------------------
 
-export async function listPriceBoard({ cityId, categoryId } = {}) {
-  let query = supabase.from('products').select('*, categories(name), price, cost_basis, margin').order('name');
-  if (cityId) query = query.eq('city_id', cityId);
-  if (categoryId) query = query.eq('category_id', categoryId);
-  return unwrap(await query);
+export async function listPriceBoard(arg = {}) {
+  // Called as listPriceBoard(categoryId) from price-board.js or listPriceBoard({ cityId, categoryId })
+  const { cityId, categoryId } = (arg && typeof arg === 'object') ? arg : { categoryId: arg || null };
+  return unwrap(await supabase.rpc('price_board', { p_city_id: cityId || null, p_category_id: categoryId || null }));
 }
 
 export async function publishPrices(productIds) {
@@ -379,17 +515,18 @@ export async function assignTrip(orderId, driverId) {
 }
 
 export async function listDrivers() {
-  return unwrap(await supabase.from('profiles').select('id, full_name, phone').eq('role', 'delivery').order('full_name'));
+  const users = unwrap(await supabase.rpc('admin_list_users', {}));
+  return users.filter((u) => u.role === 'delivery');
 }
 
 // ---------- Order issues (restaurant + admin) --------------------------------
 
 export async function reportIssue(orderId, kind, note) {
-  return unwrap(await supabase.rpc('report_order_issue', { p_order_id: orderId, p_kind: kind, p_note: note || null }));
+  return unwrap(await supabase.rpc('report_issue', { p_order_id: orderId, p_kind: kind, p_note: note || null }));
 }
 
 export async function resolveIssue(issueId, { resolution, creditAmount = 0, reject = false } = {}) {
-  unwrap(await supabase.rpc('resolve_order_issue', { p_issue_id: issueId, p_resolution: resolution || null, p_credit_amount: creditAmount, p_reject: reject }));
+  unwrap(await supabase.rpc('resolve_issue', { p_issue_id: issueId, p_resolution: resolution || null, p_credit_amount: Number(creditAmount) || 0, p_reject: reject }));
 }
 
 export async function listOrderIssues({ status, orderId, limit = 200 } = {}) {
@@ -446,7 +583,7 @@ export async function recordPayment(restaurantId, { amount, method, reference, r
   return unwrap(await supabase.rpc('record_payment', {
     p_restaurant_id: restaurantId, p_amount: amount, p_method: method,
     p_reference: reference || null, p_received_on: receivedOn || null,
-    p_note: note || null, p_allocations: allocations || [],
+    p_note: note || null, p_allocations: (allocations && allocations.length > 0) ? allocations : null,
   }));
 }
 
@@ -506,10 +643,16 @@ export async function listNotificationSettings() {
 }
 
 export async function saveNotificationSetting(row) {
-  const values = { event: row.event, channel: row.channel, template: row.template, is_enabled: Boolean(row.is_enabled) };
-  if (row.id) {
-    return unwrap(await supabase.from('notification_settings').update(values).eq('id', row.id).select().single());
-  }
+  const values = {
+    event: row.event,
+    sector_code: row.sector_code ?? null,
+    sms_enabled: Boolean(row.sms_enabled),
+    email_enabled: Boolean(row.email_enabled),
+    sms_template: row.sms_template ?? '',
+    email_subject: row.email_subject ?? '',
+    email_template: row.email_template ?? '',
+  };
+  if (row.id) return unwrap(await supabase.from('notification_settings').update(values).eq('id', row.id).select().single());
   return unwrap(await supabase.from('notification_settings').insert(values).select().single());
 }
 
@@ -527,7 +670,7 @@ export async function listNotifications({ status, channel, restaurantId, orderId
 }
 
 export async function retryNotification(id) {
-  unwrap(await supabase.from('notifications').update({ status: 'queued', attempts: 0 }).eq('id', id));
+  return unwrap(await supabase.rpc('retry_notification', { p_id: id }));
 }
 
 export async function sendNotificationsNow({ limit = 50, dryRun = false } = {}) {
@@ -551,7 +694,7 @@ export async function getSupportChannels() {
 }
 
 export async function listTickets({ status, restaurantId, assignedTo, limit = 200 } = {}) {
-  let query = supabase.from('support_tickets').select('*, restaurants(name)').order('created_at', { ascending: false }).limit(limit);
+  let query = supabase.from('support_tickets').select('*, restaurants(name, phone)').order('created_at', { ascending: false }).limit(limit);
   if (status) query = query.eq('status', status);
   if (restaurantId) query = query.eq('restaurant_id', restaurantId);
   if (assignedTo) query = query.eq('assigned_to', assignedTo);
@@ -563,22 +706,24 @@ export async function listTicketMessages(ticketId) {
 }
 
 export async function openTicket({ subject, body, orderId, restaurantId, priority = 'normal' }) {
-  return unwrap(await supabase.rpc('open_support_ticket', { p_subject: subject, p_body: body, p_order_id: orderId || null, p_restaurant_id: restaurantId || null, p_priority: priority }));
+  return unwrap(await supabase.rpc('open_ticket', { p_subject: subject, p_body: body, p_order_id: orderId || null, p_restaurant_id: restaurantId || null, p_priority: priority }));
 }
 
 export async function replyTicket(ticketId, body) {
-  unwrap(await supabase.rpc('reply_support_ticket', { p_ticket_id: ticketId, p_body: body }));
+  unwrap(await supabase.rpc('reply_ticket', { p_ticket_id: ticketId, p_body: body }));
 }
 
 export async function setTicket(ticketId, { status, assignedTo, priority } = {}) {
-  unwrap(await supabase.rpc('set_support_ticket', { p_ticket_id: ticketId, p_status: status ?? null, p_assigned_to: assignedTo ?? null, p_priority: priority ?? null }));
+  unwrap(await supabase.rpc('set_ticket', { p_ticket_id: ticketId, p_status: status ?? null, p_assigned_to: assignedTo ?? null, p_priority: priority ?? null }));
 }
 
 // ---------- Help articles ----------------------------------------------------
 
 export async function listHelpArticles(audience) {
   let query = supabase.from('help_articles').select('*').eq('is_published', true).order('sort_order').order('title');
-  if (audience) query = query.eq('audience', audience);
+  // 'customer' audience also sees 'public' articles; other audiences see only their own.
+  if (audience === 'customer') query = query.in('audience', ['customer', 'public']);
+  else if (audience) query = query.eq('audience', audience);
   return unwrap(await query);
 }
 
@@ -684,6 +829,24 @@ export async function saveOutlet({ id, restaurantId, name, address, phone, cityI
 
 export async function listMyCustomerUsers() {
   return unwrap(await supabase.rpc('my_customer_users'));
+}
+
+export async function listCustomerLogins() {
+  return unwrap(await supabase.rpc('admin_customer_logins', {}));
+}
+
+/** Admin actions on a customer's authentication state (migration 016). */
+export async function customerAccess(action, restaurantId, extra = {}) {
+  const { data, error } = await supabase.functions.invoke('customer-access', {
+    body: { action, restaurant_id: restaurantId, ...extra },
+  });
+  if (error) {
+    let message = error.message;
+    try { message = (await error.context?.json())?.error ?? message; } catch { /* keep default */ }
+    throw new Error(message);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export async function listCustomerUsersOf(restaurantId) {
@@ -846,9 +1009,12 @@ export async function getOrder(id) {
 
 // ---------- Procurement: create / update PO (wrappers for savePurchaseOrder) -
 
-/** Create a new purchase order. Alias used by purchase-orders.js screen. */
+/** Create a new purchase order via the create_purchase_order RPC. */
 export async function createPurchaseOrder({ supplierId, warehouseId, items, expectedDate, note }) {
-  return savePurchaseOrder({ id: null, supplierId, warehouseId, items, expectedDate, note });
+  return unwrap(await supabase.rpc('create_purchase_order', {
+    p_supplier_id: supplierId, p_warehouse_id: warehouseId || null,
+    p_items: items, p_expected_date: expectedDate || null, p_note: note || null,
+  }));
 }
 
 /** Update an existing purchase order. Alias used by purchase-orders.js screen. */
@@ -857,10 +1023,11 @@ export async function updatePurchaseOrder(id, { supplierId, warehouseId, items, 
 }
 
 /** Buying list: suggested quantities for next PO, keyed by supplier. */
-export async function getBuyingList({ warehouseId, categoryId } = {}) {
+export async function getBuyingList(warehouseId, date, coverDays) {
   return unwrap(await supabase.rpc('buying_list', {
     p_warehouse_id: warehouseId || null,
-    p_category_id: categoryId || null,
+    p_date: date || null,
+    p_cover_days: coverDays != null ? Number(coverDays) : 1,
   }));
 }
 
@@ -924,29 +1091,35 @@ export async function listAuditLog({ table, rowId, userId, from, to, limit = 200
 
 /** List all staff/admin user profiles. */
 export async function listUsers({ role } = {}) {
-  let query = supabase.from('profiles').select('*').order('full_name');
-  if (role) query = query.eq('role', role);
-  return unwrap(await query);
+  const users = unwrap(await supabase.rpc('admin_list_users', {}));
+  return role ? users.filter((u) => u.role === role) : users;
 }
 
 // ---------- Company settings save --------------------------------------------
 
 export async function saveCompanySettings(s) {
   const values = {
-    company_name: s.company_name || null,
+    name: s.name || null,
     address: s.address || null,
     phone: s.phone || null,
     email: s.email || null,
     gstin: s.gstin || null,
-    fssai_license: s.fssai_license || null,
+    fssai: s.fssai || null,
     support_phone: s.support_phone || null,
     support_email: s.support_email || null,
     support_whatsapp: s.support_whatsapp || null,
     invoice_prefix: s.invoice_prefix || null,
-    invoice_notes: s.invoice_notes || null,
+    invoice_note: s.invoice_note || null,
+    show_prices_incl_gst: Boolean(s.show_prices_incl_gst),
     logo_url: s.logo_url || null,
+    notify_customers: s.notify_customers !== undefined ? Boolean(s.notify_customers) : undefined,
+    seo_title: s.seo_title !== undefined ? s.seo_title : undefined,
+    seo_description: s.seo_description !== undefined ? s.seo_description : undefined,
+    sms_from_label: s.sms_from_label || null,
   };
-  return unwrap(await supabase.from('company_settings').upsert(values).select().single());
+  // Remove undefined values so we don't overwrite DB fields unintentionally
+  Object.keys(values).forEach((k) => values[k] === undefined && delete values[k]);
+  return unwrap(await supabase.from('company_settings').update(values).not('id', 'is', null).select().single());
 }
 
 // ---------- Launch control ---------------------------------------------------
@@ -956,7 +1129,7 @@ export async function getLaunchStatus() {
 }
 
 export async function setSectorLive(sectorCode, live) {
-  unwrap(await supabase.rpc('set_sector_live', { p_sector_code: sectorCode, p_live: Boolean(live) }));
+  unwrap(await supabase.from('sectors').update({ is_active: Boolean(live) }).eq('code', sectorCode));
 }
 
 export async function saveLaunchModes({ pricingMode, stockMode }) {
@@ -968,12 +1141,10 @@ export async function saveLaunchModes({ pricingMode, stockMode }) {
 
 // ---------- Dashboard --------------------------------------------------------
 
-export async function getDashboardStats({ from, to, cityId } = {}) {
-  return unwrap(await supabase.rpc('dashboard_stats', {
-    p_from: from || null,
-    p_to: to || null,
-    p_city_id: cityId || null,
-  }));
+export async function getDashboardStats(cityIdOrObj = null) {
+  // Accept either getDashboardStats('city-uuid') or getDashboardStats({ cityId }) or getDashboardStats(null)
+  const cityId = (cityIdOrObj && typeof cityIdOrObj === 'object') ? cityIdOrObj.cityId || null : cityIdOrObj || null;
+  return unwrap(await supabase.rpc('admin_dashboard_stats', { p_city_id: cityId }));
 }
 
 // ---------- Fulfilment: pick list, expiry, write-off -------------------------
@@ -993,7 +1164,10 @@ export async function getExpiringBatches({ warehouseId, daysAhead = 3 } = {}) {
   }));
 }
 
-export async function writeOffExpired({ warehouseId, items, note } = {}) {
+export async function writeOffExpired(warehouseIdOrObj, extra = {}) {
+  // Called as writeOffExpired(warehouseId) or writeOffExpired({ warehouseId, items, note })
+  const warehouseId = (warehouseIdOrObj && typeof warehouseIdOrObj === 'object') ? warehouseIdOrObj.warehouseId : warehouseIdOrObj;
+  const { items, note } = (warehouseIdOrObj && typeof warehouseIdOrObj === 'object') ? warehouseIdOrObj : extra;
   unwrap(await supabase.rpc('write_off_expired', {
     p_warehouse_id: warehouseId || null,
     p_items: items || [],
@@ -1011,7 +1185,7 @@ export async function getDriverCashSummary({ driverId, from, to } = {}) {
   }));
 }
 
-export async function settleDriverCash({ driverId, amount, note } = {}) {
+export async function settleDriverCash(driverId, amount, note) {
   unwrap(await supabase.rpc('settle_driver_cash', {
     p_driver_id: driverId || null,
     p_amount: amount,
@@ -1058,8 +1232,13 @@ export async function listPriceHistory({ productId, from, to, limit = 200 } = {}
   return unwrap(await query);
 }
 
-export async function applyPrices(productIds) {
-  return unwrap(await supabase.rpc('apply_prices', { p_product_ids: productIds || null }));
+export async function applyPrices(items, { reason, effectiveAt, force } = {}) {
+  return unwrap(await supabase.rpc('apply_prices', {
+    p_items: items || null,
+    p_reason: reason || null,
+    p_effective_at: effectiveAt || null,
+    p_force: force || false,
+  }));
 }
 
 export async function publishDuePrices() {
@@ -1077,10 +1256,21 @@ export async function cancelScheduledPrice(id) {
   unwrap(await supabase.from('scheduled_prices').update({ status: 'cancelled' }).eq('id', id));
 }
 
-export async function saveSupplierQuote({ id, supplierId, productId, price, validFrom, validTo, note }) {
+export async function saveSupplierQuote_legacy({ id, supplierId, productId, price, validFrom, validTo, note }) {
   const values = { supplier_id: supplierId, product_id: productId, price, valid_from: validFrom || null, valid_to: validTo || null, note: note || null };
   if (id) return unwrap(await supabase.from('supplier_quotes').update(values).eq('id', id).select().single());
   return unwrap(await supabase.from('supplier_quotes').insert(values).select().single());
+}
+
+export async function saveSupplierQuote(productId, quote, quoteDate) {
+  return unwrap(await supabase.from('product_pricing').upsert(
+    { product_id: productId, supplier_quote: quote === '' ? null : Number(quote), quote_date: quoteDate || null },
+    { onConflict: 'product_id' }
+  ).select().single());
+}
+
+export async function placeOrderFor(restaurantId, items) {
+  return unwrap(await supabase.rpc('place_order_for', { p_restaurant_id: restaurantId, p_items: items }));
 }
 
 export async function saveProductPricing({ productId, costBasis, marginPct, price }) {
@@ -1105,28 +1295,68 @@ export async function listPricingRules({ isActive } = {}) {
 }
 
 export async function savePricingRule(r) {
-  const values = {
-    name: r.name, rule_type: r.rule_type,
-    product_ids: r.product_ids || null, category_ids: r.category_ids || null,
-    customer_ids: r.customer_ids || null, sector_codes: r.sector_codes || null,
-    discount_pct: r.discount_pct || null, markup_pct: r.markup_pct || null,
-    fixed_price: r.fixed_price || null,
-    valid_from: r.valid_from || null, valid_to: r.valid_to || null,
-    is_active: Boolean(r.is_active ?? true),
-  };
+  // Supports both legacy discount-rules schema and the category-based pricing-rules schema.
+  // Fields that are undefined are omitted so a partial update (closing effective_to) doesn't
+  // blank out other columns.
+  const values = {};
+  if (r.category_id !== undefined) values.category_id = r.category_id ?? null;
+  if (r.markup_pct !== undefined) values.markup_pct = Number(r.markup_pct) || 0;
+  if (r.min_markup_pct !== undefined) values.min_markup_pct = Number(r.min_markup_pct) || 0;
+  if (r.wastage_pct !== undefined) values.wastage_pct = Number(r.wastage_pct) || 0;
+  if (r.handling_per_kg !== undefined) values.handling_per_kg = Number(r.handling_per_kg) || 0;
+  if (r.packing_per_unit !== undefined) values.packing_per_unit = Number(r.packing_per_unit) || 0;
+  if (r.transport_per_kg !== undefined) values.transport_per_kg = Number(r.transport_per_kg) || 0;
+  if (r.market_fee_pct !== undefined) values.market_fee_pct = Number(r.market_fee_pct) || 0;
+  if (r.other_cost_pct !== undefined) values.other_cost_pct = Number(r.other_cost_pct) || 0;
+  if (r.rounding_step !== undefined) values.rounding_step = Number(r.rounding_step) || 1;
+  if (r.round_mode !== undefined) values.round_mode = r.round_mode || 'nearest';
+  if (r.benchmark_cap_pct !== undefined) values.benchmark_cap_pct = r.benchmark_cap_pct != null && r.benchmark_cap_pct !== '' ? Number(r.benchmark_cap_pct) : null;
+  if (r.benchmark_source_id !== undefined) values.benchmark_source_id = r.benchmark_source_id ?? null;
+  if (r.cost_method !== undefined) values.cost_method = r.cost_method || 'weighted_avg_30d';
+  if (r.guard_mode !== undefined) values.guard_mode = r.guard_mode || 'warn';
+  if (r.effective_from !== undefined) values.effective_from = r.effective_from || null;
+  if (r.effective_to !== undefined) values.effective_to = r.effective_to ?? null;
+  if (r.note !== undefined) values.note = r.note || null;
+  // Legacy discount-rule fields
+  if (r.name !== undefined) values.name = r.name || null;
+  if (r.rule_type !== undefined) values.rule_type = r.rule_type || null;
+  if (r.product_ids !== undefined) values.product_ids = r.product_ids || null;
+  if (r.category_ids !== undefined) values.category_ids = r.category_ids || null;
+  if (r.customer_ids !== undefined) values.customer_ids = r.customer_ids || null;
+  if (r.sector_codes !== undefined) values.sector_codes = r.sector_codes || null;
+  if (r.discount_pct !== undefined) values.discount_pct = r.discount_pct || null;
+  if (r.fixed_price !== undefined) values.fixed_price = r.fixed_price || null;
+  if (r.valid_from !== undefined) values.valid_from = r.valid_from || null;
+  if (r.valid_to !== undefined) values.valid_to = r.valid_to || null;
+  if (r.is_active !== undefined) values.is_active = Boolean(r.is_active ?? true);
   if (r.id) return unwrap(await supabase.from('pricing_rules').update(values).eq('id', r.id).select().single());
   return unwrap(await supabase.from('pricing_rules').insert(values).select().single());
 }
 
 // ---------- Sector terms -------------------------------------------------------
 
-export async function saveSectorTerms({ sectorCode, paymentTerms, creditDays, minOrderValue }) {
-  unwrap(await supabase.rpc('save_sector_terms', {
-    p_sector_code: sectorCode,
-    p_payment_terms: paymentTerms || null,
-    p_credit_days: creditDays ?? null,
-    p_min_order_value: minOrderValue ?? null,
-  }));
+export async function saveSectorTerms(sectorCode, fields) {
+  // Accepts (code, fields) — updates the sectors row directly.
+  // Also handles legacy single-object call for back-compat.
+  if (typeof sectorCode === 'object') {
+    // Legacy: { sectorCode, paymentTerms, creditDays, minOrderValue }
+    const o = sectorCode;
+    return saveSectorTerms(o.sectorCode, { credit_days: o.creditDays, min_order_value: o.minOrderValue });
+  }
+  const values = {};
+  const f = fields || {};
+  const numOrNull = (v) => (v === '' || v == null) ? null : Number(v);
+  if ('min_order_value'            in f) values.min_order_value            = numOrNull(f.min_order_value);
+  if ('delivery_fee_below_mov'     in f) values.delivery_fee_below_mov     = numOrNull(f.delivery_fee_below_mov);
+  if ('credit_days'                in f) values.credit_days                = numOrNull(f.credit_days);
+  if ('credit_limit'               in f) values.credit_limit               = numOrNull(f.credit_limit);
+  if ('block_credit_when_overdue'  in f) values.block_credit_when_overdue  = Boolean(f.block_credit_when_overdue);
+  if ('customer_edit_window_minutes' in f) values.customer_edit_window_minutes = numOrNull(f.customer_edit_window_minutes);
+  if ('needs_po_reference'         in f) values.needs_po_reference         = Boolean(f.needs_po_reference);
+  if ('needs_order_approval'       in f) values.needs_order_approval       = Boolean(f.needs_order_approval);
+  if ('can_self_register'          in f) values.can_self_register          = Boolean(f.can_self_register);
+  if ('is_active'                  in f) values.is_active                  = Boolean(f.is_active);
+  return unwrap(await supabase.from('sectors').update(values).eq('code', sectorCode));
 }
 
 // ---------- Foundation: city / warehouse save --------------------------------
@@ -1148,18 +1378,19 @@ export async function saveWarehouse({ id, name, cityId, address, phone, isActive
 
 // ---------- Service zones ----------------------------------------------------
 
-export async function listServiceZones({ cityId } = {}) {
-  let query = supabase.from('service_zones').select('*').order('name');
-  if (cityId) query = query.eq('city_id', cityId);
+export async function listServiceZones({ warehouseId, cityId } = {}) {
+  let query = supabase.from('service_zones').select('*').order('pincode');
+  if (warehouseId) query = query.eq('warehouse_id', warehouseId);
+  else if (cityId) query = query.eq('city_id', cityId);
   return unwrap(await query);
 }
 
-export async function saveServiceZone({ id, name, cityId, pincodesRaw, warehouseId, isActive }) {
+export async function saveServiceZone({ id, pincode, area_name, warehouse_id, is_active }) {
   const values = {
-    name, city_id: cityId || null,
-    pincodes: pincodesRaw ? pincodesRaw.split(/[\s,]+/).map(p => p.trim()).filter(Boolean) : [],
-    warehouse_id: warehouseId || null,
-    is_active: Boolean(isActive ?? true),
+    pincode: pincode || null,
+    area_name: area_name || null,
+    warehouse_id: warehouse_id || null,
+    is_active: Boolean(is_active ?? true),
   };
   if (id) return unwrap(await supabase.from('service_zones').update(values).eq('id', id).select().single());
   return unwrap(await supabase.from('service_zones').insert(values).select().single());
@@ -1224,26 +1455,26 @@ export async function listVehicles({ isActive } = {}) {
 
 // ---------- Delivery charges -------------------------------------------------
 
-export async function listDeliveryCharges({ cityId, sectorCode } = {}) {
-  let query = supabase.from('delivery_charges').select('*').order('min_order_value');
+export async function listDeliveryCharges({ cityId } = {}) {
+  let query = supabase.from('delivery_charge_rules').select('*, cities(name)').order('slot');
   if (cityId) query = query.eq('city_id', cityId);
-  if (sectorCode) query = query.eq('sector_code', sectorCode);
   return unwrap(await query);
 }
 
-export async function saveDeliveryCharge({ id, cityId, sectorCode, minOrderValue, chargeAmount, isActive }) {
+export async function saveDeliveryCharge({ id, city_id, slot, fee, free_above, is_active }) {
   const values = {
-    city_id: cityId || null, sector_code: sectorCode || null,
-    min_order_value: Number(minOrderValue) || 0,
-    charge_amount: Number(chargeAmount) || 0,
-    is_active: Boolean(isActive ?? true),
+    city_id: city_id || null,
+    slot: slot || null,
+    fee: Number(fee) || 0,
+    free_above: (free_above !== '' && free_above != null) ? Number(free_above) : null,
+    is_active: Boolean(is_active ?? true),
   };
-  if (id) return unwrap(await supabase.from('delivery_charges').update(values).eq('id', id).select().single());
-  return unwrap(await supabase.from('delivery_charges').insert(values).select().single());
+  if (id) return unwrap(await supabase.from('delivery_charge_rules').update(values).eq('id', id).select().single());
+  return unwrap(await supabase.from('delivery_charge_rules').insert(values).select().single());
 }
 
 export async function deleteDeliveryCharge(id) {
-  unwrap(await supabase.from('delivery_charges').delete().eq('id', id));
+  unwrap(await supabase.from('delivery_charge_rules').delete().eq('id', id));
 }
 
 // ---------- Inventory: stock movements & warehouse stock ---------------------
@@ -1270,35 +1501,39 @@ export async function listWarehouseStock({ warehouseId, categoryId, lowStock } =
 // ---------- Team / RBAC ------------------------------------------------------
 
 export async function listTeamRoles() {
-  return unwrap(await supabase.from('roles').select('*').order('name'));
+  return unwrap(await supabase.from('team_roles').select('*').order('sort_order'));
 }
 
-export async function listRolePermissions(roleName) {
-  return unwrap(await supabase.from('role_permissions').select('*').eq('role', roleName).order('module').order('action'));
+export async function listRolePermissions() {
+  return unwrap(await supabase.from('role_permissions').select('*').order('module').order('action'));
 }
 
-export async function setRolePermission({ role, module, action, allowed }) {
-  unwrap(await supabase.rpc('set_role_permission', {
-    p_role: role, p_module: module, p_action: action, p_allowed: Boolean(allowed),
-  }));
+export async function setRolePermission(teamRole, module, action, isAllowed) {
+  if (isAllowed) {
+    unwrap(await supabase.from('role_permissions').upsert({ team_role: teamRole, module, action }).select());
+  } else {
+    unwrap(await supabase.from('role_permissions').delete().eq('team_role', teamRole).eq('module', module).eq('action', action));
+  }
 }
 
-export async function setTeamMember(userId, { role, cityId, warehouseId, isActive }) {
-  unwrap(await supabase.rpc('set_team_member', {
-    p_user_id: userId,
+export async function setTeamMember(userId, { role, teamRole, cityId, warehouseId, isActive }) {
+  unwrap(await supabase.rpc('admin_set_team_member', {
+    p_user: userId,
     p_role: role || null,
+    p_team_role: teamRole || null,
     p_city_id: cityId || null,
     p_warehouse_id: warehouseId || null,
     p_is_active: isActive ?? null,
   }));
 }
 
-export async function inviteStaff({ email, fullName, phone, role, cityId, warehouseId }) {
+export async function inviteStaff({ email, fullName, phone, role, teamRole, cityId, warehouseId }) {
   const { data, error } = await supabase.functions.invoke('invite-staff', {
     body: {
       email, full_name: fullName, phone: phone || null,
-      role, city_id: cityId || null, warehouse_id: warehouseId || null,
-      redirect_to: `${webRoot}admin/login.html`,
+      role, team_role: teamRole || null,
+      city_id: cityId || null, warehouse_id: warehouseId || null,
+      redirect_to: `${webRoot}reset.html?role=${role}`,
     },
   });
   if (error) {
@@ -1308,4 +1543,19 @@ export async function inviteStaff({ email, fullName, phone, role, cityId, wareho
   }
   if (data?.error) throw new Error(data.error);
   return data;
+}
+
+// ---------- Reports ----------------------------------------------------------
+
+export async function salesReport({ groupBy = 'day', cityId = null, from = null, to = null } = {}) {
+  return unwrap(await supabase.rpc('sales_report', {
+    p_group_by: groupBy,
+    p_city_id: cityId || null,
+    p_from: from || null,
+    p_to: to || null,
+  }));
+}
+
+export async function receivablesTrend() {
+  return unwrap(await supabase.rpc('receivables_trend'));
 }
