@@ -10,6 +10,7 @@ import { html, mount, on, toast, modal, money, badge } from '../../core/ui.js';
 import { listQuotes, saveQuote, setQuoteStatus, listStandingOrders, listRestaurants } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
 import { QUOTE_STATUSES, WEEKDAYS } from '../../core/config.js';
+export { renderCoupons } from './coupons.js';
 
 /** Render the Quotes & Standing orders screen. Route: #quotes */
 export async function renderQuotes(container, me) {
@@ -26,7 +27,7 @@ export async function renderQuotes(container, me) {
     <div id="tab-standing" hidden><div class="loading">Loading…</div></div>
   `);
 
-  on(container, '.tab', 'click', e => {
+  on(container, 'click', '.tab', e => {
     container.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     e.target.classList.add('active');
     const tab = e.target.dataset.tab;
@@ -35,7 +36,7 @@ export async function renderQuotes(container, me) {
     if (tab === 'standing') loadStanding();
   });
 
-  on(container, '#new-quote-btn', 'click', () => openQuoteForm(null, me, loadQuotes));
+  on(container, 'click', '#new-quote-btn', () => openQuoteForm(null, me, loadQuotes));
 
   loadQuotes();
 
@@ -70,21 +71,21 @@ export async function renderQuotes(container, me) {
               </td>
             </tr>
           `;
-        }).join('')}</tbody>
+        })}</tbody>
       </table>
     `);
 
-    on(el, '[data-edit]', 'click', e => {
+    on(el, 'click', '[data-edit]', e => {
       const q = quotes.find(x => x.id === e.target.dataset.edit);
       if (q) openQuoteForm(q, me, loadQuotes);
     });
 
-    on(el, '[data-send]', 'click', async e => {
+    on(el, 'click', '[data-send]', async e => {
       try { await setQuoteStatus(e.target.dataset.send, 'sent'); toast('Quote sent to customer'); loadQuotes(); }
       catch (err) { toast(err.message, 'error'); }
     });
 
-    on(el, '[data-expire]', 'click', async e => {
+    on(el, 'click', '[data-expire]', async e => {
       try { await setQuoteStatus(e.target.dataset.expire, 'expired'); toast('Quote marked expired'); loadQuotes(); }
       catch (err) { toast(err.message, 'error'); }
     });
@@ -113,7 +114,7 @@ export async function renderQuotes(container, me) {
             <td>${(o.standing_order_items || []).length}</td>
             <td>${badge(o.is_active ? 'Active' : 'Paused', o.is_active ? 'delivered' : 'cancelled')}</td>
           </tr>
-        `).join('')}</tbody>
+        `)}</tbody>
       </table>
     `);
   }
@@ -128,7 +129,7 @@ async function openQuoteForm(quote, me, onSave) {
       <label>Customer *
         <select name="restaurant_id" required>
           <option value="">— select —</option>
-          ${restaurants.map(r => html`<option value="${r.id}" ${quote?.restaurant_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+          ${restaurants.map(r => html`<option value="${r.id}" ${quote?.restaurant_id === r.id ? 'selected' : ''}>${r.name}</option>`)}
         </select>
       </label>
       <label>Valid for (days)
@@ -147,7 +148,7 @@ async function openQuoteForm(quote, me, onSave) {
               <input name="price_${i}" type="number" min="0" step="0.01" placeholder="Unit price ₹" value="${item.unit_price}" required>
               <button type="button" class="btn btn-sm remove-item-btn">✕</button>
             </div>
-          `).join('')}
+          `)}
         </div>
         <button type="button" class="btn btn-sm" id="add-item-btn">+ Add line</button>
       </fieldset>
@@ -173,7 +174,7 @@ async function openQuoteForm(quote, me, onSave) {
     form.querySelector('#quote-items').appendChild(div);
   });
 
-  on(form, '.remove-item-btn', 'click', e => e.target.closest('.quote-item')?.remove());
+  on(form, 'click', '.remove-item-btn', e => e.target.closest('.quote-item')?.remove());
 
   form.addEventListener('submit', async e => {
     e.preventDefault();

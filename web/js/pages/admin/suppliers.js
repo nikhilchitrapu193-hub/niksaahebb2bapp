@@ -20,7 +20,7 @@ export async function renderSuppliers(container, me) {
     <div class="filters row gap-sm mb-md">
       <select id="status-filter">
         <option value="">All statuses</option>
-        ${Object.entries(SUPPLIER_STATUSES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}
+        ${Object.entries(SUPPLIER_STATUSES).map(([k, v]) => `<option value="${k}">${v.label}</option>`)}
       </select>
       <input type="search" id="search-input" placeholder="Search by name…" class="input-sm">
     </div>
@@ -116,14 +116,14 @@ async function openSupplierForm(supplier, me, onSave) {
       <label>City
         <select name="city_id">
           <option value="">— optional —</option>
-          ${cities.map(c => `<option value="${c.id}" ${supplier?.city_id === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+          ${cities.map(c => `<option value="${c.id}" ${supplier?.city_id === c.id ? 'selected' : ''}>${c.name}</option>`)}
         </select>
       </label>
       <label>Address <textarea name="address">${supplier?.address ?? ''}</textarea></label>
       <label>GSTIN <input name="gstin" type="text" maxlength="15" value="${supplier?.gstin ?? ''}"></label>
       <label>Status
         <select name="status">
-          ${Object.entries(SUPPLIER_STATUSES).map(([k, v]) => `<option value="${k}" ${(supplier?.status ?? 'pending') === k ? 'selected' : ''}>${v.label}</option>`).join('')}
+          ${Object.entries(SUPPLIER_STATUSES).map(([k, v]) => `<option value="${k}" ${(supplier?.status ?? 'pending') === k ? 'selected' : ''}>${v.label}</option>`)}
         </select>
       </label>
       <label>Notes <textarea name="notes">${supplier?.notes ?? ''}</textarea></label>
@@ -169,7 +169,7 @@ async function openSupplierProducts(supplierId, supplierName, me) {
             <td>${r.moq ?? 1}</td>
             <td>${r.lead_days ?? 1}</td>
           </tr>
-        `).join('')}</tbody>
+        `)}</tbody>
       </table>
     `}
   `);

@@ -36,7 +36,7 @@ export async function renderFleetbaseTrips(container, me) {
     <div class="filters row gap-sm mb-md">
       <select id="status-filter">
         <option value="">All statuses</option>
-        ${Object.entries(TRIP_STATUSES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}
+        ${Object.entries(TRIP_STATUSES).map(([k, v]) => `<option value="${k}">${v.label}</option>`)}
       </select>
       <input type="date" id="date-filter" value="${new Date().toISOString().slice(0, 10)}">
     </div>
@@ -109,7 +109,7 @@ async function openDispatchModal(me, onDone) {
     <p class="muted">Select a packed order to create a Fleetbase trip.</p>
     <select id="order-select" style="width:100%;margin-bottom:1rem">
       <option value="">— select order —</option>
-      ${orders.map(o => `<option value="${o.id}">#${o.order_number} — ${o.outlets?.name ?? 'Outlet'}</option>`).join('')}
+      ${orders.map(o => `<option value="${o.id}">#${o.order_number} — ${o.outlets?.name ?? 'Outlet'}</option>`)}
     </select>
     <button class="btn btn-primary" id="confirm-dispatch-btn">Dispatch</button>
   `;

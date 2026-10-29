@@ -23,7 +23,7 @@ export function renderCoupons(container, me) {
     <div id="coupons-list">Loading…</div>
   `);
 
-  on(container, '#new-coupon-btn', 'click', () => openCouponForm(null, me, () => reload()));
+  on(container, 'click', '#new-coupon-btn', () => openCouponForm(null, me, () => reload()));
   reload();
 
   async function reload() {
@@ -51,16 +51,16 @@ export function renderCoupons(container, me) {
               <button class="btn btn-sm" data-usage="${c.id}">Usage</button>
             </td>
           </tr>
-        `).join('')}</tbody>
+        `)}</tbody>
       </table>
     `);
 
-    on(list, '[data-edit]', 'click', e => {
+    on(list, 'click', '[data-edit]', e => {
       const row = rows.find(r => r.id === e.target.dataset.edit);
       if (row) openCouponForm(row, me, reload);
     });
 
-    on(list, '[data-usage]', 'click', async e => {
+    on(list, 'click', '[data-usage]', async e => {
       const row = rows.find(r => r.id === e.target.dataset.usage);
       if (!row) return;
       const redemptions = await listCouponRedemptions(row.id).catch(err => { toast(err.message, 'error'); return []; });
@@ -76,7 +76,7 @@ export function renderCoupons(container, me) {
                 <td>${money(r.discount_amount)}</td>
                 <td>${r.created_at?.slice(0, 10)}</td>
               </tr>
-            `).join('')}</tbody>
+            `)}</tbody>
           </table>
         `}
       `);

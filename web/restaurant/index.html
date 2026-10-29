@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Fresh Supply — Restaurant</title>
   <!-- P2-7: PWA manifest -->
-  <link rel="manifest" href="/manifest.json">
+  <link rel="manifest" href="../manifest.json">
   <meta name="theme-color" content="#22863a">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="../icons/icon-192.png">
   <!-- Security: CSP (AIGuard fix) -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
@@ -20,12 +20,12 @@
                  form-action 'self';">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
-  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="../css/main.css">
 </head>
 <body>
   <div id="root"></div>
   <div id="view"></div>
-  <script type="module" src="/js/pages/restaurant/main.js"></script>
+  <script type="module" src="../js/pages/restaurant/main.js"></script>
   <!-- P2-7: Service worker registration -->
   <script>
     if ('serviceWorker' in navigator) {

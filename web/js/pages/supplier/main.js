@@ -137,7 +137,7 @@ async function renderDashboard(c) {
                   <td><span class="badge badge-${o.status}">${o.status}</span></td>
                   <td>₹${Number(o.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   <td>${new Date(o.created_at).toLocaleDateString('en-IN')}</td>
-                </tr>`).join('')}
+                </tr>`)}
             </tbody>
           </table>`}
     </section>
@@ -179,7 +179,7 @@ async function renderProducts(c) {
             <td>${p.min_qty ?? 1}</td>
             <td>${p.active ? '✅' : '❌'}</td>
             <td><button class="btn btn-ghost btn-sm edit-prod-btn" data-id="${p.id}">Edit</button></td>
-          </tr>`).join('')}
+          </tr>`)}
       </tbody>
     </table>
 
@@ -318,7 +318,7 @@ async function renderOrders(c) {
                   <td>${i.quantity}</td>
                   <td>₹${Number(i.unit_price || 0).toFixed(2)}</td>
                   <td>₹${(i.quantity * Number(i.unit_price || 0)).toFixed(2)}</td>
-                </tr>`).join('')}
+                </tr>`)}
             </tbody>
           </table>
           ${o.status === 'pending'
@@ -327,7 +327,7 @@ async function renderOrders(c) {
                  <button class="btn btn-ghost reject-po-btn" data-id="${o.id}">Reject</button>
                </div>`
             : ''}
-        </div>`).join('')}
+        </div>`)}
   `;
 
   on(c, 'click', '.confirm-po-btn', async (e) => {

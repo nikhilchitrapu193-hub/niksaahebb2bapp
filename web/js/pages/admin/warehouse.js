@@ -98,7 +98,7 @@ export async function renderWarehouse(container, me) {
             <td>${l.qty_reserved}</td>
             <td>${l.cost_price != null ? formatINR(l.cost_price) : '—'}</td>
             <td>${l.expiry_date ?? '—'}</td>
-          </tr>`).join('')}
+          </tr>`)}
           </tbody>
         </table>
       `);
@@ -127,7 +127,7 @@ export async function renderWarehouse(container, me) {
               <td>${loc.zone ?? '—'}</td>
               <td><span class="badge ${loc.is_active ? 'delivered' : 'cancelled'}">${loc.is_active ? 'Active' : 'Inactive'}</span></td>
               <td class="actions">${canEdit ? html`<button class="btn small ghost" data-edit-loc="${loc.id}">Edit</button>` : ''}</td>
-            </tr>`).join('')}
+            </tr>`)}
             </tbody>
           </table>
         `}
@@ -167,7 +167,7 @@ export async function renderWarehouse(container, me) {
             <td>${m.locations?.name ?? '—'}</td>
             <td class="mono">${m.reference_type ? `${m.reference_type} ${m.reference_id?.slice(0,8) ?? ''}` : '—'}</td>
             <td>${m.profiles?.full_name ?? '—'}</td>
-          </tr>`).join('')}
+          </tr>`)}
           </tbody>
         </table>
       `);

@@ -27,7 +27,7 @@ export async function renderOrderingPlus(container, me) {
     <div id="tab-spend"    hidden></div>
   `);
 
-  on(container, '.tab', 'click', e => {
+  on(container, 'click', '.tab', e => {
     container.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     e.target.classList.add('active');
     const tab = e.target.dataset.tab;
@@ -75,19 +75,19 @@ export async function renderOrderingPlus(container, me) {
                 </button>
               </div>
             </div>
-          `).join('')}
+          `)}
         </div>
       `}
     `);
 
-    on(el, '#new-standing-btn', 'click', () => openStandingForm(null, me, loadStanding));
+    on(el, 'click', '#new-standing-btn', () => openStandingForm(null, me, loadStanding));
 
-    on(el, '[data-edit-so]', 'click', e => {
+    on(el, 'click', '[data-edit-so]', e => {
       const o = orders.find(x => x.id === e.target.dataset.editSo);
       if (o) openStandingForm(o, me, loadStanding);
     });
 
-    on(el, '[data-toggle-so]', 'click', async e => {
+    on(el, 'click', '[data-toggle-so]', async e => {
       const id = e.target.dataset.toggleSo;
       const active = e.target.dataset.active === 'true';
       try {
@@ -135,7 +135,7 @@ export async function renderOrderingPlus(container, me) {
       </div>
     `);
 
-    on(el, '[data-accept-quote]', 'click', async e => {
+    on(el, 'click', '[data-accept-quote]', async e => {
       const id = e.target.dataset.acceptQuote;
       try {
         const orderId = await acceptQuote(id);
@@ -144,7 +144,7 @@ export async function renderOrderingPlus(container, me) {
       } catch (err) { toast(err.message, 'error'); }
     });
 
-    on(el, '[data-decline-quote]', 'click', async e => {
+    on(el, 'click', '[data-decline-quote]', async e => {
       const id = e.target.dataset.declineQuote;
       const reason = prompt('Reason for declining? (optional)');
       if (reason === null) return; // cancelled
@@ -170,7 +170,7 @@ export async function renderOrderingPlus(container, me) {
       <div id="spend-result"><p class="muted">Select a date range and click Load.</p></div>
     `);
 
-    on(el, '#spend-go-btn', 'click', async () => {
+    on(el, 'click', '#spend-go-btn', async () => {
       const from = el.querySelector('#spend-from').value;
       const to   = el.querySelector('#spend-to').value;
       const res  = el.querySelector('#spend-result');
@@ -188,7 +188,7 @@ export async function renderOrderingPlus(container, me) {
                 <td>${r.orders ?? '—'}</td>
                 <td>${money(r.total)}</td>
               </tr>
-            `).join('')}
+            `)}
             <tr class="total-row"><td colspan="2"><strong>Total</strong></td><td><strong>${money(grandTotal)}</strong></td></tr>
             </tbody>
           </table>
@@ -220,12 +220,12 @@ async function openStandingForm(so, me, onSave) {
               <input type="checkbox" name="days" value="${d.value}" ${existingDays.includes(d.value) ? 'checked' : ''}>
               ${d.label}
             </label>
-          `).join('')}
+          `)}
         </div>
       </fieldset>
       <label>Delivery slot
         <select name="slot">
-          ${Object.entries(DELIVERY_SLOTS).map(([k, v]) => `<option value="${k}" ${(so?.slot ?? 'morning') === k ? 'selected' : ''}>${v.label} (${v.time})</option>`).join('')}
+          ${Object.entries(DELIVERY_SLOTS).map(([k, v]) => `<option value="${k}" ${(so?.slot ?? 'morning') === k ? 'selected' : ''}>${v.label} (${v.time})</option>`)}
         </select>
       </label>
       <div class="form-row">
@@ -243,12 +243,12 @@ async function openStandingForm(so, me, onSave) {
             <div class="form-row so-item">
               <select name="product_id_${i}" required>
                 <option value="${item.product_id ?? ''}">— select product —</option>
-                ${products.map(p => `<option value="${p.id}" ${p.id === item.product_id ? 'selected' : ''}>${p.name}</option>`).join('')}
+                ${products.map(p => `<option value="${p.id}" ${p.id === item.product_id ? 'selected' : ''}>${p.name}</option>`)}
               </select>
               <input name="qty_${i}" type="number" min="0.01" step="0.01" value="${item.qty ?? 1}" required>
               <button type="button" class="btn btn-sm remove-so-item">✕</button>
             </div>
-          `).join('')}
+          `)}
         </div>
         <button type="button" class="btn btn-sm" id="add-so-item-btn">+ Add item</button>
       </fieldset>
@@ -268,7 +268,7 @@ async function openStandingForm(so, me, onSave) {
     div.innerHTML = `
       <select name="product_id_${idx}" required>
         <option value="">— select product —</option>
-        ${products.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+        ${products.map(p => `<option value="${p.id}">${p.name}</option>`)}
       </select>
       <input name="qty_${idx}" type="number" min="0.01" step="0.01" value="1" required>
       <button type="button" class="btn btn-sm remove-so-item">✕</button>
@@ -276,7 +276,7 @@ async function openStandingForm(so, me, onSave) {
     form.querySelector('#so-items')?.appendChild(div);
   });
 
-  on(form, '.remove-so-item', 'click', e => e.target.closest('.so-item')?.remove());
+  on(form, 'click', '.remove-so-item', e => e.target.closest('.so-item')?.remove());
 
   form.addEventListener('submit', async e => {
     e.preventDefault();

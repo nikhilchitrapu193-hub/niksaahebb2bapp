@@ -248,14 +248,14 @@ export const MODULES = Object.freeze({
   products:    { label: 'Products',    nav: '#products' },
   inventory:   { label: 'Inventory',   nav: '#inventory' },
   customers:   { label: 'Customers',   nav: '#customers' },
+  payments:    { label: 'Payments',    nav: '#payments' },
   team:        { label: 'Team',        nav: '#team' },
   settings:    { label: 'Settings',    nav: '#settings' },
   pricing:     { label: 'Pricing',     nav: '#pricing' },
   procurement: { label: 'Procurement', nav: '#procurement' },
-  fulfilment:  { label: 'Fulfilment',  nav: '#fulfilment' },
-  payments:    { label: 'Payments',    nav: '#payments' },
-  reports:     { label: 'Reports',     nav: '#reports' },
   audit:       { label: 'Audit log',   nav: '#audit' },
+  reports:     { label: 'Reports',     nav: '#reports' },
+  fulfilment:  { label: 'Fulfilment',  nav: '#fulfilment' },
 });
 
 // ---------------------------------------------------------------------------

@@ -8,8 +8,19 @@
 // =============================================================================
 
 import { supabase } from './supabase.js';
-import { ROLE_HOME, ROLE_LOGIN, webRoot } from './config.js';
+import { ROLE_HOME, ROLE_LOGIN, webRoot, MODULES, ACTIONS } from './config.js';
 import { toPermissionSet } from './permissions.js';
+
+/** All module:action pairs — granted to super_admin. */
+function allPermissions() {
+  const entries = [];
+  for (const mod of Object.keys(MODULES)) {
+    for (const action of Object.keys(ACTIONS)) {
+      entries.push({ module: mod, action });
+    }
+  }
+  return toPermissionSet(entries);
+}
 
 /** Throw a readable Error if a Supabase call returned one. */
 function check({ data, error }) {
@@ -116,9 +127,13 @@ export async function loadCurrentUser() {
       ? await supabase.from('restaurants').select('*').eq('id', rid).maybeSingle()
       : await supabase.from('restaurants').select('*').eq('owner_id', profile.id).maybeSingle();
     restaurant = check(res);
-  } else if (profile.role === 'admin' && profile.team_role && profile.team_role !== 'super_admin') {
-    const rows = check(await supabase.from('role_permissions').select('module, action').eq('team_role', profile.team_role));
-    permissions = toPermissionSet(rows);
+  } else if (profile.role === 'admin' && profile.team_role) {
+    if (profile.team_role === 'super_admin') {
+      permissions = allPermissions();
+    } else {
+      const rows = check(await supabase.from('role_permissions').select('module, action').eq('team_role', profile.team_role));
+      permissions = toPermissionSet(rows);
+    }
   }
   return { user: session.user, profile, restaurant, permissions };
 }

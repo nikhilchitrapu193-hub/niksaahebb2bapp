@@ -1,7 +1,7 @@
 // =============================================================================
 // fake-supabase.js — a tiny in-memory stand-in for the supabase-js client, so
 // page tests run offline. It supports exactly the calls the app makes:
-//   from(table).select/eq/neq/in/gte/lte/order/limit/maybeSingle/single/insert/update/upsert/delete
+//   from(table).select/eq/neq/not/in/gte/lte/order/limit/maybeSingle/single/insert/update/upsert/delete
 //   rpc(name, args), auth.*, functions.invoke, storage.from().getPublicUrl/upload
 //
 // Usage:
@@ -20,6 +20,7 @@ export function createFake({ tables = {}, rpc = {}, session = null } = {}) {
       select() { return builder; },
       eq(column, value) { q.filters.push([column, value]); return builder; },
       neq(column, value) { q.filters.push([column, value, 'neq']); return builder; },
+      not() { return builder; },
       in(column, values) { q.filters.push([column, values, 'in']); return builder; },
       gte(column, value) { q.filters.push([column, value, 'gte']); return builder; },
       lte(column, value) { q.filters.push([column, value, 'lte']); return builder; },
