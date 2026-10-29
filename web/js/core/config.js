@@ -237,23 +237,25 @@ export const VEG_TYPES = Object.freeze({
 
 /**
  * MODULES — maps permission module names (used by permissions.js) to their
- * display labels. Every module listed here can be granted a view / edit /
- * approve / export action in a team role.
+ * display labels and optional nav href. Every module listed here can be
+ * granted a view / edit / approve / export action in a team role.
+ * `nav` is the hash fragment shown in the admin sidebar; omit it for
+ * modules that have no top-level nav entry (e.g. team, settings, audit).
  */
 export const MODULES = Object.freeze({
-  dashboard:   'Dashboard',
-  orders:      'Orders',
-  products:    'Products',
-  inventory:   'Inventory',
-  customers:   'Customers',
-  team:        'Team',
-  settings:    'Settings',
-  pricing:     'Pricing',
-  procurement: 'Procurement',
-  fulfilment:  'Fulfilment',
-  payments:    'Payments',
-  reports:     'Reports',
-  audit:       'Audit log',
+  dashboard:   { label: 'Dashboard',   nav: '#dashboard' },
+  orders:      { label: 'Orders',      nav: '#orders' },
+  products:    { label: 'Products',    nav: '#products' },
+  inventory:   { label: 'Inventory',   nav: '#inventory' },
+  customers:   { label: 'Customers',   nav: '#customers' },
+  team:        { label: 'Team',        nav: '#team' },
+  settings:    { label: 'Settings',    nav: '#settings' },
+  pricing:     { label: 'Pricing',     nav: '#pricing' },
+  procurement: { label: 'Procurement', nav: '#procurement' },
+  fulfilment:  { label: 'Fulfilment',  nav: '#fulfilment' },
+  payments:    { label: 'Payments',    nav: '#payments' },
+  reports:     { label: 'Reports',     nav: '#reports' },
+  audit:       { label: 'Audit log',   nav: '#audit' },
 });
 
 // ---------------------------------------------------------------------------
@@ -328,4 +330,53 @@ export const TRIP_STATUSES = Object.freeze({
   started:    { label: 'Started',       badge: 'packed' },
   completed:  { label: 'Completed',     badge: 'delivered' },
   cancelled:  { label: 'Cancelled',     badge: 'cancelled' },
+});
+
+// ---------------------------------------------------------------------------
+// Delivery issues (order_issues.kind / .status), migration 20261015000008
+// ---------------------------------------------------------------------------
+
+/** Reason a customer raised an issue with a delivered order. */
+export const ISSUE_KINDS = Object.freeze({
+  quality:    { label: 'Quality issue',    hint: 'Product not fresh, wrong grade, or below spec' },
+  short:      { label: 'Short delivery',   hint: 'Received less than ordered' },
+  damaged:    { label: 'Damaged goods',    hint: 'Packaging or product damaged on arrival' },
+  wrong_item: { label: 'Wrong item',       hint: 'Different product delivered' },
+  other:      { label: 'Other',            hint: 'Describe in the note' },
+});
+
+/** Life cycle of an order issue. */
+export const ISSUE_STATUSES = Object.freeze({
+  open:     { label: 'Open',     badge: 'pending' },
+  resolved: { label: 'Resolved', badge: 'delivered' },
+  rejected: { label: 'Rejected', badge: 'cancelled' },
+});
+
+// ---------------------------------------------------------------------------
+// Launch-control modes (company_settings), migration 20261020000001
+// ---------------------------------------------------------------------------
+
+/** company_settings.pricing_mode values shown in Settings → Launch. */
+export const LAUNCH_PRICING_MODES = Object.freeze({
+  simple:   { label: 'Simple pricing',   hint: 'Type a price on each product — no pricing engine.' },
+  advanced: { label: 'Advanced pricing', hint: 'Use the price board, rules, benchmarks and price lists.' },
+});
+
+/** company_settings.stock_mode values shown in Settings → Launch. */
+export const STOCK_MODES = Object.freeze({
+  counted: { label: 'Counted stock',  hint: 'The stock ledger reserves and returns quantities per order.' },
+  simple:  { label: 'Simple stock',   hint: 'Only the in-stock flag matters — orders never touch stock.' },
+});
+
+/**
+ * GRN source types — how goods entered the warehouse (CLAUDE.md rule 17).
+ * Used by grn.js to label each receipt and by reports to group by source.
+ *   po       = received against a purchase order
+ *   mandi    = mandi cash purchase (no prior PO)
+ *   direct   = direct delivery from a supplier (no PO, billed later)
+ */
+export const GRN_SOURCES = Object.freeze({
+  po:     { label: 'Purchase order',   hint: 'Match against an approved PO' },
+  mandi:  { label: 'Mandi purchase',   hint: 'Cash buy at the mandi — no prior PO' },
+  direct: { label: 'Direct delivery',  hint: 'Supplier delivered directly — invoice to follow' },
 });

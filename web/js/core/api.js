@@ -152,13 +152,13 @@ export async function recordDelivery(orderId, { podPhotoPath, latitude, longitud
 
 /**
  * Complete a delivery with OTP verification.
- * p_otp: the 4-digit OTP the customer shows; p_returned_items: [] for a full delivery.
+ * p_otp: the 4-digit OTP the customer shows; p_returns: [] for a full delivery.
  */
-export async function completeDelivery(orderId, { otp, returnedItems = [], podPhotoPath, latitude, longitude } = {}) {
+export async function completeDelivery(orderId, { otp, returns = [], podPhotoPath, latitude, longitude } = {}) {
   unwrap(await supabase.rpc('complete_delivery', {
     p_order_id: orderId,
     p_otp: otp || null,
-    p_returned_items: returnedItems,
+    p_returns: returns,
     p_pod_photo_path: podPhotoPath || null,
     p_latitude: latitude ?? null,
     p_longitude: longitude ?? null,
@@ -545,8 +545,9 @@ export async function sendNotificationsNow({ limit = 50, dryRun = false } = {}) 
 // ---------- Support ----------------------------------------------------------
 
 export async function getSupportChannels() {
-  return unwrap(await supabase.from('company_settings')
-    .select('support_phone, support_email, support_whatsapp').maybeSingle());
+  // support_channels() is a security-definer function (migration 20261027000001)
+  // accessible to anon; it returns name, phone, whatsapp, email, address, fssai, gstin.
+  return unwrap(await supabase.rpc('support_channels'));
 }
 
 export async function listTickets({ status, restaurantId, assignedTo, limit = 200 } = {}) {
