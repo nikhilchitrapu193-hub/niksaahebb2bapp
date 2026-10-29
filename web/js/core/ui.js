@@ -179,32 +179,3 @@ export async function withBusy(button, action) {
   button.disabled = true;
   try { return await action(); } finally { button.disabled = false; }
 }
-
-// ---------- Generic badge chip -----------------------------------------------
-
-/**
- * A coloured pill chip for any label + CSS modifier class.
- * Unlike `statusBadge`, this is not tied to the ORDER_STATUSES labels map —
- * the caller supplies both the text and the badge CSS class directly.
- *
- * Example:
- *   badge('Active', 'delivered')  →  <span class="badge delivered">Active</span>
- *   badge(st.label, st.badge)     →  driven by a config status object
- */
-export function badge(label, cls = '') {
-  return html`<span class="badge ${cls}">${label}</span>`;
-}
-
-/** Short alias for formatINR — used by page modules that display many prices. */
-export function money(amount) { return formatINR(amount); }
-
-/** Alias for toast() — some page modules import it under this name. */
-export function showToast(message, kind = 'info') { return toast(message, kind); }
-
-// ---------- Modal (alias for openModal, matches import name used by pages) ---
-
-/**
- * Open a modal dialog. `content` is html``. Returns { el, close }.
- * This is an alias for openModal so pages that do `import { modal }` work.
- */
-export const modal = openModal;

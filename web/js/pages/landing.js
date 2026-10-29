@@ -8,6 +8,7 @@ import { html, mount, $, on, formatINR } from '../core/ui.js';
 import { listCategories, listProducts, photoUrl, checkPincode, listHelpArticles, listSectors, listContentPages } from '../core/api.js';
 import { categoryTree } from '../core/catalogue.js';
 import { fillFooter } from './page.js';
+import { deliveryFeeEstimate, creditCostEstimate } from '../core/calculators.js';
 
 async function fillCatalogue() {
   const [categories, products] = await Promise.all([listCategories(), listProducts()]);
@@ -91,3 +92,31 @@ async function fillHelp() {
   if (ch?.seo_description) document.querySelector('meta[name="description"]')?.setAttribute('content', ch.seo_description);
 }
 fillHelp().catch(console.error);
+
+// ---------- Calculators (migration 021 batch): live sector terms, pure arithmetic -------------
+async function fillCalculators() {
+  const sectorSelect = $('#calc-sector');
+  if (!sectorSelect) return;
+  const sectors = (await listSectors().catch(() => [])).filter((x) => x.is_active && x.can_self_register);
+  if (!sectors.length) { $('#calculators')?.remove(); return; }
+  mount(sectorSelect, html`${sectors.map((x) => html`<option value="${x.code}">${x.name}</option>`)}`);
+  const inr = (n) => formatINR(n);
+  const delivery = () => {
+    const sector = sectors.find((x) => x.code === sectorSelect.value) ?? sectors[0];
+    const r = deliveryFeeEstimate(sector, $('#calc-value').value);
+    $('#calc-delivery-result').textContent = r.mov === 0
+      ? `No minimum order for ${sector.name}: delivery is free at any value.`
+      : r.shortfall === 0 ? `Free delivery — ${sector.name} orders of ${inr(r.mov)} or more carry no fee.`
+      : r.canOrder ? `${inr(r.shortfall)} below the ${inr(r.mov)} minimum: a ${inr(r.fee)} delivery fee applies (total ${inr(r.total)}). Add ${inr(r.shortfall)} to skip it.`
+      : `Below the ${inr(r.mov)} minimum for ${sector.name} — add ${inr(r.shortfall)} to place the order.`;
+  };
+  const credit = () => {
+    const r = creditCostEstimate($('#calc-spend').value, $('#calc-days').value);
+    $('#calc-credit-result').textContent = r.cashInHand === 0 ? 'Enter your monthly purchases and the credit days to see the value.'
+      : `On ${inr($('#calc-spend').value)} a month with ${$('#calc-days').value} days' credit you hold about ${inr(r.cashInHand)} of working capital instead of paying at the door — worth roughly ${inr(r.monthlyValue)} a month at 18 % a year.`;
+  };
+  on(document, 'input', '#delivery-calc input, #delivery-calc select', delivery);
+  on(document, 'input', '#credit-calc input', credit);
+  delivery(); credit();
+}
+fillCalculators().catch(console.error);

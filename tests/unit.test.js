@@ -552,3 +552,33 @@ test('renderBody turns "## " lines into headings and blank lines into paragraphs
   assert.equal(out[1], '<h2>Heading</h2>');
   assert.match(out[2], /^<p>Para one\.\nStill one\.<\/p>$/);
 });
+
+
+// ---------- Ordering + (migration 021) --------------------------------------
+const bulk = await import('../web/js/core/bulk-order.js');
+const calc = await import('../web/js/core/calculators.js');
+const { parseCsv: parseCsvForBulk } = await import('../web/js/core/csv.js');
+
+test('csvToCartLines matches by sku or product name, raises to the minimum, merges duplicates and reports problems', () => {
+  const products = [{ id: 'p1', sku: 'VEG-001', name: 'Tomato', min_order_qty: 5, in_stock: true, is_active: true },
+                    { id: 'p2', sku: 'DAI-002', name: 'Paneer', min_order_qty: 1, in_stock: false, is_active: true }];
+  const parsed = parseCsvForBulk('sku,product,quantity\nveg-001,,2\n,tomato,10\n,Paneer,3\nXXX,,4\nVEG-001,,abc\n');
+  const r = bulk.csvToCartLines(parsed, products);
+  assert.deepEqual(r.lines, [{ product_id: 'p1', quantity: 15, name: 'Tomato' }]);   // 2 → raised to 5, + 10
+  assert.equal(r.problems.length, 4);
+  assert.match(r.problems[0], /raised to its minimum of 5/);
+  assert.match(r.problems[1], /Paneer is not available/);
+  assert.match(r.problems[2], /"XXX" is not in the catalogue/);
+  assert.match(r.problems[3], /must be a number/);
+  assert.deepEqual(bulk.csvToCartLines(parseCsvForBulk('foo,bar\n1,2'), products).problems, ['The file needs a "sku" (or "product") column and a "quantity" column.']);
+  assert.equal(bulk.bulkOrderTemplate(products).split('\r\n')[1], 'VEG-001,Tomato,5');
+});
+
+test('deliveryFeeEstimate mirrors the minimum-order rule; creditCostEstimate values the float', () => {
+  const sector = { min_order_value: 2000, delivery_fee_below_mov: 99 };
+  assert.deepEqual(calc.deliveryFeeEstimate(sector, 2500), { mov: 2000, shortfall: 0, fee: 0, canOrder: true, total: 2500 });
+  assert.deepEqual(calc.deliveryFeeEstimate(sector, 1500), { mov: 2000, shortfall: 500, fee: 99, canOrder: true, total: 1599 });
+  assert.equal(calc.deliveryFeeEstimate({ min_order_value: 2000, delivery_fee_below_mov: 0 }, 1500).canOrder, false);
+  assert.deepEqual(calc.creditCostEstimate(150000, 30, 18), { cashInHand: 150000, yearlyValue: 27000, monthlyValue: 2250 });
+  assert.deepEqual(calc.creditCostEstimate(0, 7), { cashInHand: 0, yearlyValue: 0, monthlyValue: 0 });
+});

@@ -4,12 +4,8 @@
 //   #settings (company) · #launch · #locations · #sectors · #roles · #audit
 //   #pricing (price board) · #pricing-rules · #benchmarks · #price-lists
 //   #procurement (buying list) · #purchase-orders · #receipts · #rate-cards
-//   #suppliers — NEW P2-4
-//   #warehouse-plus — NEW P2-5
 //   #payments (receivables) · #payments-receipts
-//   #notifications · #help-centre · #website (settings) · #tickets (orders) · #reports
-//   #quotes — NEW P2-2
-//   #trips-fleet — NEW P2-8 (Fleetbase trips)
+//   #notifications · #help-centre · #website · #coupons (settings) · #tickets · #quotes (orders) · #reports
 //
 // The menu shows only the modules the signed-in team member may VIEW
 // (web/js/core/permissions.js) AND that are switched on under Settings → Launch
@@ -56,31 +52,16 @@ import { renderTickets } from './tickets.js';
 import { renderHelpCentre } from './help-centre.js';
 import { renderWebsite } from './website.js';
 import { renderReports } from './reports.js';
-// P2-2
-import { renderQuotes, renderCoupons } from './quotes.js';
-// P2-4
-import { renderSuppliers } from './suppliers.js';
-// P2-5
-import { renderWarehouse } from './warehouse.js';
-// P2-8
-import { renderFleetbaseTrips } from './fleetbase-trips.js';
+import { renderCoupons } from './coupons.js';
+import { renderQuotes } from './quotes.js';
 
 /** Sub-pages keep their parent menu item highlighted. */
-const PARENT_OF = {
-  '#launch': '#settings', '#locations': '#settings', '#sectors': '#settings',
-  '#roles': '#settings', '#pricing-rules': '#pricing', '#benchmarks': '#pricing',
-  '#price-lists': '#pricing',
-  '#purchase-orders': '#procurement', '#receipts': '#procurement', '#rate-cards': '#procurement',
-  '#trips': '#fulfilment', '#driver-cash': '#fulfilment', '#delivery-charges': '#fulfilment',
-  '#slots': '#settings', '#issues': '#orders', '#payments-receipts': '#payments',
-  '#notifications': '#settings', '#help-centre': '#settings', '#website': '#settings',
-  '#tickets': '#orders',
-  // P2 sub-pages
-  '#quotes': '#orders',
-  '#trips-fleet': '#fulfilment',
-  '#coupons': '#settings',
-  '#warehouse-plus': '#inventory',
-};
+const PARENT_OF = { '#launch': '#settings', '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
+                    '#pricing-rules': '#pricing', '#benchmarks': '#pricing', '#price-lists': '#pricing',
+                    '#purchase-orders': '#procurement', '#receipts': '#procurement', '#rate-cards': '#procurement',
+                    '#trips': '#fulfilment', '#driver-cash': '#fulfilment', '#delivery-charges': '#fulfilment',
+                    '#slots': '#settings', '#issues': '#orders', '#payments-receipts': '#payments',
+                    '#notifications': '#settings', '#help-centre': '#settings', '#website': '#settings', '#tickets': '#orders', '#coupons': '#settings', '#quotes': '#orders' };
 
 const me = await requireRole('admin');
 if (me) {
@@ -114,44 +95,41 @@ if (me) {
     fallback: can(me, 'dashboard', 'view') ? '#dashboard' : (visibleNav(me, hidden)[0]?.href ?? '#dashboard'),
     onRoute: (key) => shell.setActive(PARENT_OF[key] ?? key),
     routes: {
-      '#dashboard':          guard('dashboard',   (c) => renderDashboard(c, me, settings)),
-      '#orders':             guard('orders',      (c) => renderOrders(c, me)),
-      '#quotes':             guard('orders',      (c) => renderQuotes(c, me)),          // P2-2
-      '#coupons':            guard('settings',    (c) => renderCoupons(c, me)),         // P2-2
-      '#products':           guard('products',    (c) => renderProducts(c, me, settings)),
-      '#inventory':          guard('inventory',   (c) => renderInventory(c, me)),
-      '#warehouse-plus':     guard('inventory',   (c) => renderWarehouse(c, me)),     // P2-5
-      '#customers':          guard('customers',   (c) => renderCustomers(c, me, (count) => shell.setBadge('#customers', count))),
-      '#suppliers':          guard('procurement', (c) => renderSuppliers(c, me)),       // P2-4
-      '#team':               guard('team',        (c) => renderTeam(c, me)),
-      '#settings':           guard('settings',    (c) => renderSettings(c, me)),
-      '#launch':             guard('settings',    (c) => renderLaunch(c, me)),
-      '#locations':          guard('settings',    (c) => renderLocations(c, me)),
-      '#sectors':            guard('settings',    (c) => renderSectors(c, me)),
-      '#roles':              guard('team',        (c) => renderRoles(c, me)),
-      '#audit':              guard('audit',       (c) => renderAudit(c, me)),
-      '#pricing':            guard('pricing',     (c) => renderPriceBoard(c, me)),
-      '#pricing-rules':      guard('pricing',     (c) => renderPricingRules(c, me)),
-      '#benchmarks':         guard('pricing',     (c) => renderBenchmarks(c, me)),
-      '#price-lists':        guard('pricing',     (c) => renderPriceLists(c, me)),
-      '#procurement':        guard('procurement', (c) => renderBuyingList(c, me)),
-      '#purchase-orders':    guard('procurement', (c) => renderPurchaseOrders(c, me)),
-      '#receipts':           guard('procurement', (c) => renderReceipts(c, me)),
-      '#rate-cards':         guard('procurement', (c) => renderRateCards(c, me)),
-      '#fulfilment':         guard('fulfilment',  (c) => renderPickList(c, me)),
-      '#trips':              guard('fulfilment',  (c) => renderTrips(c, me)),
-      '#trips-fleet':        guard('fulfilment',  (c) => renderFleetbaseTrips(c, me)),  // P2-8
-      '#driver-cash':        guard('fulfilment',  (c) => renderDriverCash(c, me)),
-      '#delivery-charges':   guard('fulfilment',  (c) => renderDeliveryCharges(c, me)),
-      '#slots':              guard('settings',    (c) => renderSlots(c, me)),
-      '#issues':             guard('orders',      (c) => renderIssues(c, me)),
-      '#payments':           guard('payments',    (c) => renderReceivables(c, me)),
-      '#payments-receipts':  guard('payments',    (c) => renderPaymentReceipts(c, me)),
-      '#notifications':      guard('settings',    (c) => renderNotifications(c, me)),
-      '#help-centre':        guard('settings',    (c) => renderHelpCentre(c, me)),
-      '#tickets':            guard('orders',      (c) => renderTickets(c, me)),
-      '#website':            guard('settings',    (c) => renderWebsite(c, me)),
-      '#reports':            guard('reports',     (c) => renderReports(c, me)),
+      '#dashboard': guard('dashboard', (c) => renderDashboard(c, me, settings)),
+      '#orders':    guard('orders', (c) => renderOrders(c, me)),
+      '#products':  guard('products', (c) => renderProducts(c, me, settings)),
+      '#inventory': guard('inventory', (c) => renderInventory(c, me)),
+      '#customers': guard('customers', (c) => renderCustomers(c, me, (count) => shell.setBadge('#customers', count))),
+      '#team':      guard('team', (c) => renderTeam(c, me)),
+      '#settings':  guard('settings', (c) => renderSettings(c, me)),
+      '#launch':    guard('settings', (c) => renderLaunch(c, me)),
+      '#locations': guard('settings', (c) => renderLocations(c, me)),
+      '#sectors':   guard('settings', (c) => renderSectors(c, me)),
+      '#roles':     guard('team', (c) => renderRoles(c, me)),
+      '#audit':     guard('audit', (c) => renderAudit(c, me)),
+      '#pricing':   guard('pricing', (c) => renderPriceBoard(c, me)),
+      '#pricing-rules': guard('pricing', (c) => renderPricingRules(c, me)),
+      '#benchmarks': guard('pricing', (c) => renderBenchmarks(c, me)),
+      '#price-lists': guard('pricing', (c) => renderPriceLists(c, me)),
+      '#procurement': guard('procurement', (c) => renderBuyingList(c, me)),
+      '#purchase-orders': guard('procurement', (c) => renderPurchaseOrders(c, me)),
+      '#receipts': guard('procurement', (c) => renderReceipts(c, me)),
+      '#rate-cards': guard('procurement', (c) => renderRateCards(c, me)),
+      '#fulfilment': guard('fulfilment', (c) => renderPickList(c, me)),
+      '#trips': guard('fulfilment', (c) => renderTrips(c, me)),
+      '#driver-cash': guard('fulfilment', (c) => renderDriverCash(c, me)),
+      '#delivery-charges': guard('fulfilment', (c) => renderDeliveryCharges(c, me)),
+      '#slots': guard('settings', (c) => renderSlots(c, me)),
+      '#issues': guard('orders', (c) => renderIssues(c, me)),
+      '#payments': guard('payments', (c) => renderReceivables(c, me)),
+      '#payments-receipts': guard('payments', (c) => renderPaymentReceipts(c, me)),
+      '#notifications': guard('settings', (c) => renderNotifications(c, me)),
+      '#help-centre': guard('settings', (c) => renderHelpCentre(c, me)),
+      '#tickets': guard('orders', (c) => renderTickets(c, me)),
+      '#website': guard('settings', (c) => renderWebsite(c, me)),
+      '#reports': guard('reports', (c) => renderReports(c, me)),
+      '#coupons': guard('settings', (c) => renderCoupons(c, me)),
+      '#quotes': guard('orders', (c) => renderQuotes(c, me)),
     },
   });
 }

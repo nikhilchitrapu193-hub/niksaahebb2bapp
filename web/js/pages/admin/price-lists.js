@@ -1,155 +1,124 @@
 // =============================================================================
-// price-lists.js — Admin: Price list management
-// Route: #price-lists (sub-page of #pricing)
+// price-lists.js — Pricing → Price lists: what each city and / or sector pays.
 //
-// Shows a table of ALL products with their computed price for the selected list.
-// Fixed-price overrides per product are editable inline.
-// Admins can create a new price list with name, city, sector, adjustment %.
+// A list is a % adjustment over the published price (−5 = 5 % cheaper) plus
+// fixed prices for chosen products. The database picks the most specific
+// active list for a customer (city + sector, then sector, then city) in
+// customer_price(), which place_order charges and the customer app shows.
+// Needs pricing:view to see, pricing:edit to change.
 // =============================================================================
 
-import { html, mount, on, toast, modal, reportError, withBusy, formatINR } from '../../core/ui.js';
-import { listPriceLists, savePriceList, upsertPriceListItems, listProducts, listPriceListItems } from '../../core/api.js';
+import { html, mount, on, $, formatINR, openModal, reportError, toast, withBusy, confirmDialog } from '../../core/ui.js';
+import { listPriceLists, savePriceList, deletePriceList, listPriceListItems, savePriceListItems, deletePriceListItem,
+         listCities, listSectors, listProducts } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
+import { pricingTabs } from './price-board.js';
 
-/**
- * Compute the effective price for a product under a price list.
- * Fixed per-item overrides (price_list_items) beat the list's adjustment_pct.
- */
+/** Price a customer on this list pays for a product: fixed item, else published × (1 + adjustment). Pure; mirrors customer_price(). */
 export function listPrice(product, list, items) {
-  const fixed = (items ?? []).find((i) => i.product_id === product.id);
-  if (fixed) return fixed.price;
-  const pct = list?.adjustment_pct ?? 0;
-  return product.price * (1 + pct / 100);
+  const fixed = items.find((i) => i.product_id === product.id);
+  if (fixed) return Number(fixed.price);
+  return Math.round(Number(product.price) * (1 + Number(list.adjustment_pct) / 100) * 100) / 100;
 }
 
 export async function renderPriceLists(container, me) {
-  const canEdit = can(me, 'pricing', 'edit');
+  const editable = can(me, 'pricing', 'edit');
+  let [lists, cities, sectors, products] = await Promise.all([listPriceLists(), listCities(), listSectors(), listProducts()]);
+  let selected = lists[0]?.id ?? null;
+  let items = selected ? await listPriceListItems(selected) : [];
+  let search = '';
 
-  // Load lists and products in parallel
-  const [lists, products] = await Promise.all([
-    listPriceLists().catch(() => []),
-    listProducts().catch(() => []),
-  ]);
-
-  // Default to first list
-  let selectedListId = lists[0]?.id ?? null;
-  let fixedItems = [];
-
-  mount(container, html`
-    <div class="page-head">
-      <div><h1>Price lists</h1><p>Custom pricing for sectors or individual restaurants.</p></div>
-      ${canEdit ? html`<button class="btn primary" id="new-list">+ New list</button>` : ''}
-    </div>
-    <div class="filters row gap-sm mb-md">
-      <label>List
-        <select class="select-sm" id="list-select">
-          ${lists.map((l) => html`<option value="${l.id}">${l.name}</option>`)}
-        </select>
-      </label>
-    </div>
-    <div id="list-info" class="muted small mb-md"></div>
-    <table class="data-table" id="products-table">
-      <thead><tr><th>Product</th><th>Base price</th><th>List price</th><th>Fixed override</th></tr></thead>
-      <tbody id="products-body"></tbody>
-    </table>
-    ${canEdit ? html`<div class="row gap-2 mt-md"><button class="btn primary" id="save-fixed">Save fixed prices</button></div>` : ''}
-    <div id="list-form" hidden class="card card-pad mt-md">
-      <h3>New price list</h3>
-      <form id="pl-form" class="stack" novalidate>
-        <label class="field"><span class="label">Name</span><input class="input" name="name" required maxlength="120"></label>
-        <label class="field"><span class="label">City ID (leave blank for all cities)</span><input class="input" name="city_id" placeholder="city UUID or blank"></label>
-        <label class="field"><span class="label">Sector code</span><input class="input" name="sector_code" placeholder="e.g. hotel" maxlength="40"></label>
-        <label class="field"><span class="label">Adjustment % (e.g. -3 for 3% off)</span><input class="input" type="number" name="adjustment_pct" value="0" step="0.01"></label>
-        <div class="row gap-2">
-          <button class="btn primary" type="submit" id="save-list-btn">Create list</button>
-          <button class="btn ghost" type="button" id="cancel-list-btn">Cancel</button>
-        </div>
-      </form>
-    </div>
-  `);
-
-  async function loadItems() {
-    if (!selectedListId) { fixedItems = []; renderRows(); return; }
-    fixedItems = await listPriceListItems(selectedListId).catch(() => []);
-    renderRows();
+  async function reload(keep = selected) {
+    lists = await listPriceLists();
+    selected = lists.some((l) => l.id === keep) ? keep : (lists[0]?.id ?? null);
+    items = selected ? await listPriceListItems(selected) : [];
+    draw();
   }
 
-  function selectedList() {
-    return lists.find((l) => l.id === selectedListId) ?? null;
+  const scopeOf = (l) => [l.cities?.name ?? 'Every city', l.sectors?.name ?? 'Every sector'].join(' · ');
+
+  function draw() {
+    const list = lists.find((l) => l.id === selected);
+    const term = search.trim().toLowerCase();
+    const rows = products.filter((p) => p.is_active && (!term || p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term)));
+    mount(container, html`
+      <div class="page-head"><div><h1>Price lists</h1><p>A % over or under the published price per city and sector, with fixed prices where needed. The most specific list wins.</p></div>
+        ${editable ? html`<button class="btn primary" id="new-list">New price list</button>` : ''}</div>
+      ${pricingTabs('#price-lists')}
+      ${lists.length === 0 ? html`<div class="empty"><strong>No price lists yet</strong>Everyone pays the published price. Add a list for a sector (hotels −3 %) or a city.</div>` : html`
+      <div class="toolbar">
+        <select class="select" id="list">${lists.map((l) => html`<option value="${l.id}" ${l.id === selected ? 'selected' : ''}>${l.name}${l.is_active ? '' : ' (inactive)'} — ${scopeOf(l)}</option>`)}</select>
+        ${editable && list ? html`<button class="btn" id="edit-list">Edit list</button><button class="btn danger" id="delete-list">Delete</button>` : ''}
+        <input class="input search" id="search" type="search" placeholder="Search product…" value="${search}">
+      </div>
+      ${list ? html`<div class="banner info"><div><strong>${list.name}</strong> · ${scopeOf(list)} · ${Number(list.adjustment_pct) === 0 ? 'published price' : `${Number(list.adjustment_pct) > 0 ? '+' : ''}${Number(list.adjustment_pct)}% on the published price`} · ${items.length} fixed price${items.length === 1 ? '' : 's'}${list.note ? html` · ${list.note}` : ''}</div></div>
+      <div class="card"><div class="table-wrap"><table class="table">
+        <thead><tr><th>Product</th><th class="right">Published</th><th class="right">On this list</th><th class="right">Fixed price (₹)</th><th></th></tr></thead>
+        <tbody>${rows.map((p) => { const fixed = items.find((i) => i.product_id === p.id); return html`<tr data-id="${p.id}">
+          <td><strong>${p.name}</strong><div class="muted tiny">${p.sku} · per ${p.unit}</div></td>
+          <td class="right num">${formatINR(p.price)}</td>
+          <td class="right num ${fixed ? 'money' : ''}">${formatINR(listPrice(p, list, items))}${fixed ? html`<div class="muted tiny">fixed</div>` : ''}</td>
+          <td class="right">${editable ? html`<input class="input small num right" type="number" min="0" step="0.01" data-fixed="${p.id}" value="${fixed?.price ?? ''}" style="width:110px" aria-label="Fixed price for ${p.name}">` : html`<span class="num">${fixed ? formatINR(fixed.price) : '—'}</span>`}</td>
+          <td class="right">${editable && fixed ? html`<button class="btn small" data-clear="${p.id}" title="Back to the % rule">Clear</button>` : ''}</td></tr>`; })}</tbody></table></div></div>
+      ${editable ? html`<div class="row" style="margin-top:var(--space-3);justify-content:flex-end"><button class="btn primary" id="save-fixed">Save fixed prices</button></div>` : ''}` : ''}`}`);
+    const input = $('#search', container);
+    if (input) input.oninput = () => { search = input.value; draw(); $('#search', container).focus(); };
   }
 
-  function renderRows() {
-    const list = selectedList();
-    const info = container.querySelector('#list-info');
-    if (list) {
-      const scope = list.sectors?.name ? `Sector: ${list.sectors.name}` : list.cities?.name ? `City: ${list.cities.name}` : 'All';
-      mount(info, html`${list.name} · ${scope} · ${list.adjustment_pct >= 0 ? '+' : ''}${list.adjustment_pct}%`);
+  on(container, 'change', '#list', async (_e, el) => { selected = el.value; items = await listPriceListItems(selected); draw(); });
+  on(container, 'click', '#new-list', () => listForm(null, { cities, sectors }, (saved) => reload(saved.id)));
+  on(container, 'click', '#edit-list', () => listForm(lists.find((l) => l.id === selected), { cities, sectors }, () => reload()));
+  on(container, 'click', '#delete-list', async () => {
+    if (!(await confirmDialog('Delete this price list? Customers it covered go back to the published price.', { confirmText: 'Delete', danger: true }))) return;
+    try { await deletePriceList(selected); toast('Price list deleted', 'success'); await reload(null); } catch (error) { reportError(error); }
+  });
+  on(container, 'click', '#save-fixed', async (_e, button) => {
+    const rows = [];
+    for (const input of container.querySelectorAll('[data-fixed]')) {
+      const current = items.find((i) => i.product_id === input.dataset.fixed);
+      if (input.value === '' && !current) continue;
+      if (input.value === '' && current) continue;                    // cleared with the Clear button
+      if (current && Number(current.price) === Number(input.value)) continue;
+      rows.push({ product_id: input.dataset.fixed, price: Number(input.value) });
     }
-    const tbody = container.querySelector('#products-body');
-    mount(tbody, html`${products.map((p) => {
-      const fixedItem = fixedItems.find((i) => i.product_id === p.id);
-      const effectivePrice = listPrice(p, list, fixedItems);
-      const isFixed = Boolean(fixedItem);
-      return html`<tr data-id="${p.id}">
-        <td>${p.name}</td>
-        <td>${formatINR(p.price)}</td>
-        <td>${isFixed ? 'fixed' : formatINR(effectivePrice)}</td>
-        <td>${canEdit ? html`<input class="input-sm" type="number" min="0" step="0.01"
-          data-fixed="${p.id}"
-          value=""
-          placeholder="${fixedItem ? fixedItem.price : formatINR(effectivePrice).replace('₹', '')}">` : (fixedItem ? formatINR(fixedItem.price) : '—')}
-        </td>
-      </tr>`;
-    })}`);
-  }
-
-  on(container, 'change', '#list-select', (e) => {
-    selectedListId = e.target.value;
-    loadItems();
+    if (!rows.length) { toast('Nothing changed', 'info'); return; }
+    try { await withBusy(button, () => savePriceListItems(selected, rows)); toast(`${rows.length} fixed price${rows.length === 1 ? '' : 's'} saved`, 'success'); await reload(); }
+    catch (error) { reportError(error); }
+  });
+  on(container, 'click', '[data-clear]', async (_e, el) => {
+    try { await deletePriceListItem(selected, el.dataset.clear); await reload(); } catch (error) { reportError(error); }
   });
 
-  on(container, 'click', '#new-list', () => {
-    container.querySelector('#list-form').hidden = false;
-  });
-  on(container, 'click', '#cancel-list-btn', () => {
-    container.querySelector('#list-form').hidden = true;
-  });
+  draw();
+}
 
-  on(container, 'submit', '#list-form', async (e, listForm) => {
-    e.preventDefault();
-    const form = listForm.querySelector('form') ?? listForm;
-    const fd = new FormData(form);
-    const btn = form.querySelector('#save-list-btn');
+function listForm(list, { cities, sectors }, onSaved) {
+  const l = list ?? { adjustment_pct: 0, is_active: true };
+  const { el, close } = openModal(html`
+    <form id="list-form" class="stack" novalidate>
+      <div class="form-grid">
+        <label class="field span-2"><span class="label">Name</span><input class="input" name="name" value="${l.name ?? ''}" required maxlength="80" placeholder="Hotels −3 %"></label>
+        <label class="field"><span class="label">City</span><select class="select" name="city_id"><option value="">Every city</option>
+          ${cities.map((c) => html`<option value="${c.id}" ${c.id === l.city_id ? 'selected' : ''}>${c.name}</option>`)}</select></label>
+        <label class="field"><span class="label">Sector</span><select class="select" name="sector_code"><option value="">Every sector</option>
+          ${sectors.map((s) => html`<option value="${s.code}" ${s.code === l.sector_code ? 'selected' : ''}>${s.name}</option>`)}</select></label>
+        <label class="field"><span class="label">Adjustment % on the published price</span><input class="input" name="adjustment_pct" type="number" min="-100" max="500" step="0.1" value="${l.adjustment_pct ?? 0}" required><span class="hint">−5 = 5 % cheaper, 2 = 2 % dearer, 0 = fixed prices only</span></label>
+        <label class="check" style="align-self:end"><input type="checkbox" name="is_active" ${l.is_active ? 'checked' : ''}> Active</label>
+        <label class="field span-2"><span class="label">Note</span><input class="input" name="note" value="${l.note ?? ''}" maxlength="200"></label>
+      </div>
+      <p class="muted small">One list per city + sector combination. City + sector beats sector only, which beats city only.</p>
+      <p class="form-error" id="list-error" role="alert"></p>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save list</button></div>
+    </form>`, { title: list ? 'Edit price list' : 'New price list' });
+  $('#list-form', el).onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    if (!form.checkValidity()) { $('#list-error', el).textContent = 'Please fill in the name and the adjustment.'; return; }
+    const v = Object.fromEntries(new FormData(form));
     try {
-      await withBusy(btn, () => savePriceList({
-        name: fd.get('name'),
-        city_id: fd.get('city_id') || null,
-        sector_code: fd.get('sector_code') || null,
-        adjustment_pct: Number(fd.get('adjustment_pct')) || 0,
-        is_active: true,
-      }));
-      toast('Price list created', 'success');
-      container.querySelector('#list-form').hidden = true;
-      form.reset();
-    } catch (err) { reportError(err); }
-  });
-
-  on(container, 'click', '#save-fixed', async (_, btn) => {
-    if (!selectedListId) return;
-    const inputs = container.querySelectorAll('[data-fixed]');
-    const items = [];
-    inputs.forEach((inp) => {
-      const val = inp.value.trim();
-      if (val !== '') {
-        items.push({ price_list_id: selectedListId, product_id: inp.dataset.fixed, price: Number(val), note: null });
-      }
-    });
-    try {
-      await withBusy(btn, () => upsertPriceListItems(items));
-      toast('Fixed prices saved', 'success');
-      await loadItems();
-    } catch (err) { reportError(err); }
-  });
-
-  await loadItems();
+      const saved = await withBusy($('button[type="submit"]', form), () => savePriceList({ ...v, id: list?.id, is_active: form.elements.is_active.checked }));
+      toast('Price list saved', 'success');
+      close(); onSaved(saved);
+    } catch (error) { $('#list-error', el).textContent = /duplicate|already exists/i.test(error.message) ? 'There is already a list for this city and sector.' : error.message; }
+  };
 }

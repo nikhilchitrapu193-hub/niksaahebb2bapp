@@ -102,6 +102,8 @@ async function showOrder(order, state, refresh) {
         <tfoot>
           <tr><td colspan="3" class="right muted">Subtotal</td><td class="right num">${formatINR(order.subtotal)}</td></tr>
           <tr><td colspan="3" class="right muted">GST</td><td class="right num">${formatINR(order.tax_amount)}</td></tr>
+          ${Number(order.delivery_fee) > 0 ? html`<tr><td colspan="3" class="right muted">Delivery fee</td><td class="right num">${formatINR(order.delivery_fee)}</td></tr>` : ''}
+          ${Number(order.discount_amount) > 0 ? html`<tr><td colspan="3" class="right muted">Coupon ${order.coupon_code ?? ''}</td><td class="right num">−${formatINR(order.discount_amount)}</td></tr>` : ''}
           <tr><td colspan="3" class="right"><strong>Total</strong></td><td class="right money">${formatINR(order.total_amount)}</td></tr></tfoot>
       </table></div>
       <dl class="kv">

@@ -19,12 +19,8 @@ export async function renderTickets(container, me) {
   let tickets = [];
   let team = [];
 
-  // 'active' means status = 'open' or 'waiting_customer' (the two un-resolved states).
-  // Pass the actual DB status; 'all' passes undefined (no filter).
-  const tabToStatus = { active: 'open', resolved: 'resolved', all: undefined };
-
   async function load() {
-    [tickets, team] = await Promise.all([listTickets({ status: tabToStatus[tab] }),
+    [tickets, team] = await Promise.all([listTickets({ status: tab === 'all' ? undefined : tab }),
       listUsers().then((u) => u.filter((x) => x.role === 'admin' && x.is_active)).catch(() => [])]);
     draw();
   }

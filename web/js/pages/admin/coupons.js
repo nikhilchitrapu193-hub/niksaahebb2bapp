@@ -1,168 +1,84 @@
 // =============================================================================
-// coupons.js — Settings → Coupons admin screen.
-//
-// Lets admins create and manage discount coupons. Coupons are validated by the
-// database (coupon_check / apply_coupon_to_order) — the UI shows configuration
-// and usage history only.
+// coupons.js — Settings → Coupons (migration 021). A code with a % or ₹ discount
+// on the subtotal, a minimum order, an optional cap, validity dates, an
+// optional sector and a once-per-customer rule. The cart previews a code with
+// validate_coupon(); place_order applies it. Editing needs settings:edit.
 // =============================================================================
 
-import { html, mount, on, toast, modal, money } from '../../core/ui.js';
-import { listCoupons, saveCoupon, listCouponRedemptions } from '../../core/api.js';
+import { html, mount, on, $, formatINR, formatDate, openModal, reportError, toast, withBusy } from '../../core/ui.js';
+import { listCoupons, saveCoupon, listCouponRedemptions, listSectors } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
 import { COUPON_KINDS } from '../../core/config.js';
+import { settingsTabs } from './settings.js';
 
-const BADGE = { true: 'delivered', false: 'cancelled' };
+export async function renderCoupons(container, me) {
+  const canEdit = can(me, 'settings', 'edit');
+  let coupons = [];
+  let sectors = [];
+  async function load() { [coupons, sectors] = await Promise.all([listCoupons(), listSectors()]); draw(); }
+  const sectorName = (code) => (code ? (sectors.find((s) => s.code === code)?.name ?? code) : 'Every sector');
+  const describe = (c) => (c.kind === 'percent' ? `${Number(c.value)}% off${c.max_discount ? ` (up to ${formatINR(c.max_discount)})` : ''}` : `${formatINR(c.value)} off`);
 
-/** Render the Coupons sub-section inside Settings. Called by admin/settings.js. */
-export function renderCoupons(container, me) {
-  mount(container, html`
-    <div class="page-header">
-      <h2>Coupons</h2>
-      ${can(me, 'settings', 'edit') ? html`<button class="btn btn-primary" id="new-coupon-btn">+ New coupon</button>` : ''}
-    </div>
-    <div id="coupons-list">Loading…</div>
-  `);
-
-  on(container, 'click', '#new-coupon-btn', () => openCouponForm(null, me, () => reload()));
-  reload();
-
-  async function reload() {
-    const rows = await listCoupons().catch(e => { toast(e.message, 'error'); return []; });
-    const list = container.querySelector('#coupons-list');
-    if (!rows.length) { mount(list, html`<p class="muted">No coupons yet.</p>`); return; }
-
-    mount(list, html`
-      <table class="data-table">
-        <thead><tr>
-          <th>Code</th><th>Type</th><th>Value</th><th>Min order</th>
-          <th>Uses</th><th>Valid</th><th>Status</th><th></th>
-        </tr></thead>
-        <tbody>${rows.map(c => html`
-          <tr>
-            <td><strong>${c.code}</strong></td>
-            <td>${COUPON_KINDS[c.kind]?.label ?? c.kind}</td>
-            <td>${c.kind === 'percent' ? `${c.value}%` : money(c.value)}</td>
-            <td>${c.min_order ? money(c.min_order) : '—'}</td>
-            <td>${c.redemption_count ?? '—'}${c.max_uses ? ` / ${c.max_uses}` : ''}</td>
-            <td>${c.valid_from ? c.valid_from.slice(0, 10) : ''}${c.valid_to ? ' – ' + c.valid_to.slice(0, 10) : ''}</td>
-            <td><span class="badge ${BADGE[String(c.is_active)]}">${c.is_active ? 'Active' : 'Inactive'}</span></td>
-            <td class="actions">
-              ${can(me, 'settings', 'edit') ? html`<button class="btn btn-sm" data-edit="${c.id}">Edit</button>` : ''}
-              <button class="btn btn-sm" data-usage="${c.id}">Usage</button>
-            </td>
-          </tr>
-        `)}</tbody>
-      </table>
-    `);
-
-    on(list, 'click', '[data-edit]', e => {
-      const row = rows.find(r => r.id === e.target.dataset.edit);
-      if (row) openCouponForm(row, me, reload);
-    });
-
-    on(list, 'click', '[data-usage]', async e => {
-      const row = rows.find(r => r.id === e.target.dataset.usage);
-      if (!row) return;
-      const redemptions = await listCouponRedemptions(row.id).catch(err => { toast(err.message, 'error'); return []; });
-      modal(html`
-        <h3>Usage — ${row.code}</h3>
-        ${!redemptions.length ? html`<p class="muted">No redemptions yet.</p>` : html`
-          <table class="data-table">
-            <thead><tr><th>Order</th><th>Customer</th><th>Discount</th><th>Date</th></tr></thead>
-            <tbody>${redemptions.map(r => html`
-              <tr>
-                <td>${r.orders?.order_number ?? '—'}</td>
-                <td>${r.restaurants?.name ?? '—'}</td>
-                <td>${money(r.discount_amount)}</td>
-                <td>${r.created_at?.slice(0, 10)}</td>
-              </tr>
-            `)}</tbody>
-          </table>
-        `}
-      `);
-    });
+  function draw() {
+    mount(container, html`
+      <div class="page-head"><div><h1>Coupons</h1><p>Codes customers type in the cart. The discount comes off the subtotal, before GST.</p></div>
+        ${canEdit ? html`<button class="btn primary" id="new-coupon">New coupon</button>` : ''}</div>
+      ${settingsTabs(me, '#coupons')}
+      <div class="card"><div class="table-wrap"><table class="table">
+        <thead><tr><th>Code</th><th>Discount</th><th>Min order</th><th>Valid</th><th>Who</th><th class="right">Used</th><th>Status</th><th></th></tr></thead>
+        <tbody>${coupons.length === 0 ? html`<tr><td colspan="8"><div class="empty">No coupons yet.</div></td></tr>` : coupons.map((c) => html`<tr data-coupon="${c.id}">
+          <td><strong>${c.code}</strong>${c.description ? html`<div class="muted tiny">${c.description}</div>` : ''}</td>
+          <td>${describe(c)}</td>
+          <td class="num">${Number(c.min_order_value) > 0 ? formatINR(c.min_order_value) : '—'}</td>
+          <td class="small nowrap">${formatDate(c.valid_from)} → ${c.valid_to ? formatDate(c.valid_to) : 'open'}</td>
+          <td class="small">${sectorName(c.sector_code)}${c.once_per_customer ? ' · once each' : ''}</td>
+          <td class="right num"><a href="#" data-uses="${c.id}">${c.uses}${c.max_uses ? ` / ${c.max_uses}` : ''}</a></td>
+          <td>${c.is_active ? html`<span class="badge delivered">active</span>` : html`<span class="badge inactive">off</span>`}</td>
+          <td class="right">${canEdit ? html`<button class="btn small" data-edit="${c.id}">Edit</button>` : ''}</td></tr>`)}</tbody></table></div></div>`);
   }
-}
 
-function openCouponForm(coupon, me, onSave) {
-  const isNew = !coupon;
-  modal(html`
-    <h3>${isNew ? 'New coupon' : 'Edit coupon'}</h3>
-    <form id="coupon-form">
-      <label>Code *
-        <input name="code" type="text" required value="${coupon?.code ?? ''}"
-               placeholder="SUMMER20" style="text-transform:uppercase" ${!isNew ? 'readonly' : ''}>
-      </label>
-      <label>Type *
-        <select name="kind">
-          ${Object.entries(COUPON_KINDS).map(([k, v]) =>
-            `<option value="${k}" ${coupon?.kind === k ? 'selected' : ''}>${v.label}</option>`
-          ).join('')}
-        </select>
-      </label>
-      <div class="form-row">
-        <label>Discount value *
-          <input name="value" type="number" min="0.01" step="0.01" required value="${coupon?.value ?? ''}">
-        </label>
-        <label>Min order (₹)
-          <input name="min_order" type="number" min="0" step="1" value="${coupon?.min_order ?? 0}">
-        </label>
+  function edit(c = {}) {
+    const { el, close } = openModal(html`<form id="coupon-form" class="stack" novalidate>
+      <div class="form-grid">
+        <label class="field"><span class="label">Code</span><input class="input" name="code" value="${c.code ?? ''}" maxlength="20" pattern="[A-Za-z0-9-]{3,20}" required style="text-transform:uppercase" ${c.id ? 'disabled' : ''}><span class="hint">3–20 letters, digits or dashes</span></label>
+        <label class="field"><span class="label">Description (internal)</span><input class="input" name="description" value="${c.description ?? ''}" maxlength="160"></label>
+        <label class="field"><span class="label">Type</span><select class="select" name="kind">${Object.entries(COUPON_KINDS).map(([k, v]) => html`<option value="${k}" ${k === (c.kind ?? 'percent') ? 'selected' : ''}>${v.label}</option>`)}</select></label>
+        <label class="field"><span class="label">Value</span><input class="input num" name="value" type="number" min="0.01" step="0.01" value="${c.value ?? ''}" required></label>
+        <label class="field"><span class="label">Minimum order (₹)</span><input class="input num" name="min_order_value" type="number" min="0" step="1" value="${c.min_order_value ?? 0}"></label>
+        <label class="field"><span class="label">Cap for % coupons (₹, blank = none)</span><input class="input num" name="max_discount" type="number" min="1" step="1" value="${c.max_discount ?? ''}"></label>
+        <label class="field"><span class="label">Valid from</span><input class="input" name="valid_from" type="date" value="${c.valid_from ?? ''}"></label>
+        <label class="field"><span class="label">Valid to (blank = open)</span><input class="input" name="valid_to" type="date" value="${c.valid_to ?? ''}"></label>
+        <label class="field"><span class="label">Sector</span><select class="select" name="sector_code"><option value="">Every sector</option>${sectors.map((s) => html`<option value="${s.code}" ${s.code === c.sector_code ? 'selected' : ''}>${s.name}</option>`)}</select></label>
+        <label class="field"><span class="label">Total uses allowed (blank = unlimited)</span><input class="input num" name="max_uses" type="number" min="1" step="1" value="${c.max_uses ?? ''}"></label>
+        <label class="check"><input type="checkbox" name="once_per_customer" ${c.once_per_customer !== false ? 'checked' : ''}> Once per customer</label>
+        <label class="check"><input type="checkbox" name="is_active" ${c.is_active !== false ? 'checked' : ''}> Active</label>
       </div>
-      <div class="form-row">
-        <label>Max discount (₹, optional)
-          <input name="max_discount" type="number" min="0" step="1" value="${coupon?.max_discount ?? ''}">
-        </label>
-        <label>Max total uses (optional)
-          <input name="max_uses" type="number" min="1" step="1" value="${coupon?.max_uses ?? ''}">
-        </label>
-        <label>Per customer limit
-          <input name="per_customer" type="number" min="1" step="1" value="${coupon?.per_customer ?? 1}">
-        </label>
-      </div>
-      <div class="form-row">
-        <label>Valid from
-          <input name="valid_from" type="date" value="${coupon?.valid_from?.slice(0, 10) ?? ''}">
-        </label>
-        <label>Valid to
-          <input name="valid_to" type="date" value="${coupon?.valid_to?.slice(0, 10) ?? ''}">
-        </label>
-      </div>
-      <label>Description (optional)
-        <input name="description" type="text" value="${coupon?.description ?? ''}">
-      </label>
-      <label class="checkbox-row">
-        <input name="is_active" type="checkbox" ${(coupon?.is_active ?? true) ? 'checked' : ''}>
-        Active
-      </label>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Save coupon</button>
-      </div>
-    </form>
-  `);
+      <p class="form-error" id="coupon-error" role="alert"></p>
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
+    </form>`, { title: c.id ? `Edit ${c.code}` : 'New coupon', wide: true });
+    const form = $('#coupon-form', el);
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const v = Object.fromEntries(new FormData(form));
+      v.code = c.code ?? v.code; v.once_per_customer = form.elements.once_per_customer.checked; v.is_active = form.elements.is_active.checked;
+      if (!form.checkValidity() || !(Number(v.value) > 0)) { $('#coupon-error', el).textContent = 'Check the code and the value.'; return; }
+      if (v.kind === 'percent' && Number(v.value) > 100) { $('#coupon-error', el).textContent = 'A percentage cannot be above 100.'; return; }
+      try { await withBusy($('button[type="submit"]', form), () => saveCoupon({ ...c, ...v })); toast('Coupon saved', 'success'); close(); await load(); }
+      catch (error) { $('#coupon-error', el).textContent = error.message; }
+    };
+  }
 
-  document.querySelector('#coupon-form')?.addEventListener('submit', async e => {
+  on(container, 'click', '#new-coupon', () => edit());
+  on(container, 'click', '[data-edit]', (_e, b) => edit(coupons.find((c) => c.id === b.dataset.edit)));
+  on(container, 'click', '[data-uses]', async (e, a) => {
     e.preventDefault();
-    const f = new FormData(e.target);
     try {
-      await saveCoupon({
-        id: coupon?.id,
-        code: f.get('code'),
-        kind: f.get('kind'),
-        value: f.get('value'),
-        min_order: f.get('min_order') || 0,
-        max_discount: f.get('max_discount') || null,
-        max_uses: f.get('max_uses') || null,
-        per_customer: f.get('per_customer') || 1,
-        valid_from: f.get('valid_from') || null,
-        valid_to: f.get('valid_to') || null,
-        description: f.get('description') || null,
-        is_active: f.get('is_active') === 'on',
-      });
-      toast('Coupon saved');
-      document.querySelector('.modal-overlay')?.remove();
-      onSave();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
+      const rows = await listCouponRedemptions(a.dataset.uses);
+      openModal(html`<div class="stack"><div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Customer</th><th class="right">Discount</th><th>When</th></tr></thead>
+        <tbody>${rows.length === 0 ? html`<tr><td colspan="4" class="muted small">Not used yet.</td></tr>` : rows.map((r) => html`<tr><td>${r.orders?.order_number ?? '—'}</td><td>${r.restaurants?.name ?? '—'}</td><td class="right money">${formatINR(r.discount)}</td><td class="muted small">${formatDate(r.created_at)}</td></tr>`)}</tbody></table></div>
+        <div class="row" style="justify-content:flex-end"><button class="btn" data-close>Close</button></div></div>`, { title: 'Redemptions' });
+    } catch (error) { reportError(error); }
   });
+
+  await load();
 }

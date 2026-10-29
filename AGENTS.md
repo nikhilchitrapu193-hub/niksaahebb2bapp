@@ -40,7 +40,9 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 7. **No frameworks, no bundlers, no TypeScript, no new npm runtime dependencies.**
    The only dev dependency is jsdom for tests.
 8. **Every file starts with a header comment saying what it is for.** Comment the *why*.
-9. **Run `npm test` before finishing.** Add a test for every new screen or helper.
+9. **Run `npm test` before finishing.** Add a test for every new screen or helper. `tests/schema.test.js` checks every
+   table / column / function name in `web/js` against the live schema snapshot (`tests/fixtures/live-schema.json`);
+   after applying a migration refresh it with `supabase/tests/schema_snapshot.sql`. Never guess a name — read the migration.
 10. **Update the docs** (`docs/api.md`, `docs/roles.md`, an ADR for significant decisions)
     in the same change.
 11. **Permission and scope, not "is admin".** Admin-app functions and policies check

@@ -17,6 +17,7 @@
     <nav class="site-nav" aria-label="Site">
       <a href="#catalogue">Catalogue</a>
       <a href="#sectors">Who we serve</a>
+      <a href="#calculators">Calculators</a>
       <a href="#delivery">Delivery</a>
       <a href="#how">How it works</a>
       <a href="#faq">FAQ</a>
@@ -97,6 +98,29 @@
         <article class="card card-pad">
           <h3>Express delivery</h3>
           <p class="muted">Ran out mid-service? Express orders are delivered today, within hours, for urgent top-ups.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============ Calculators (filled by landing.js from the live sector terms) ============ -->
+    <section class="section" id="calculators">
+      <div class="section-head"><h2>Work it out</h2><p class="muted">What an order costs to deliver, and what credit terms are worth to your kitchen.</p></div>
+      <div class="two-up">
+        <article class="card card-pad" id="delivery-calc">
+          <h3>Delivery cost</h3>
+          <div class="form-grid">
+            <label class="field"><span class="label">Kind of business</span><select class="select" id="calc-sector"></select></label>
+            <label class="field"><span class="label">Order value (₹)</span><input class="input num" id="calc-value" type="number" min="0" step="100" value="1500"></label>
+          </div>
+          <p id="calc-delivery-result" class="small" role="status" aria-live="polite"></p>
+        </article>
+        <article class="card card-pad" id="credit-calc">
+          <h3>What credit is worth</h3>
+          <div class="form-grid">
+            <label class="field"><span class="label">Monthly purchases (₹)</span><input class="input num" id="calc-spend" type="number" min="0" step="5000" value="150000"></label>
+            <label class="field"><span class="label">Credit days</span><input class="input num" id="calc-days" type="number" min="0" max="90" step="1" value="7"></label>
+          </div>
+          <p id="calc-credit-result" class="small" role="status" aria-live="polite"></p>
         </article>
       </div>
     </section>

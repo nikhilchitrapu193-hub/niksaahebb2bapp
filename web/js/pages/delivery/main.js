@@ -27,9 +27,7 @@ function start() {
   const mapsUrl = (o) => mapHref(pins[o.id]?.lat, pins[o.id]?.lng, o.delivery_address);
 
   async function draw() {
-    const rawPins = await getDeliveryPins().catch(() => []);
-    pins = Object.fromEntries((rawPins || []).map((p) => [p.order_id, p]));
-    all = await listOrders();
+    [all, pins] = await Promise.all([listOrders(), getDeliveryPins().catch(() => ({}))]);
     const active = all.filter((o) => ['packed', 'out_for_delivery'].includes(o.status));
     const done = all.filter((o) => o.status === 'delivered').slice(0, 10);
 

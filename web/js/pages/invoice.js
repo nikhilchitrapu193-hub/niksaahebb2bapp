@@ -65,6 +65,7 @@ async function render() {
     <table class="table totals">
       <tr><td class="muted">Taxable value</td><td class="right num">${formatINR(order.subtotal)}</td></tr>
       ${Number(order.delivery_fee) > 0 ? html`<tr><td class="muted">Delivery fee</td><td class="right num">${formatINR(order.delivery_fee)}</td></tr>` : ''}
+      ${Number(order.discount_amount) > 0 ? html`<tr><td class="muted">Discount${order.coupon_code ? ` (${order.coupon_code})` : ''}</td><td class="right num">−${formatINR(order.discount_amount)}</td></tr>` : ''}
       ${Object.entries(byRate).filter(([r]) => Number(r) > 0).map(([r, amt]) => html`
         <tr><td class="muted">CGST ${Number(r) / 2}%</td><td class="right num">${formatINR(amt / 2)}</td></tr>
         <tr><td class="muted">SGST ${Number(r) / 2}%</td><td class="right num">${formatINR(amt / 2)}</td></tr>`)}

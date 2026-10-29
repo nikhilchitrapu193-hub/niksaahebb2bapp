@@ -1,77 +1,49 @@
 // =============================================================================
-// bulk-order.js — CSV bulk order parsing and template generation.
+// bulk-order.js — "Upload your order as a CSV" (migration 021 batch; no schema).
+// Turns a parsed CSV (csv.js parseCsv) into cart lines against the catalogue
+// the customer can see. Pure and unit-tested; the screen only shows the result.
 //
-// Lets a restaurant upload a CSV with SKU + quantity to add many lines to
-// the cart at once. The template is a downloadable starter sheet.
+// Columns (header names, any order, case-insensitive): sku or product (name),
+// quantity (or qty). A line below the product's minimum is raised to it and
+// reported; an unknown SKU / name is reported and skipped.
 // =============================================================================
 
+const norm = (v) => String(v ?? '').trim().toLowerCase();
+
 /**
- * Parse a CSV text (from a FileReader) into cart-ready line objects.
- * Expected columns (case-insensitive, first two required):
- *   sku, qty, [note]
- *
- * Returns { lines: [{ sku, qty, note }], errors: [{ row, message }] }
+ * @param parsed   { headers, rows } from parseCsv (rows are objects keyed by header)
+ * @param products the customer's catalogue [{ id, sku, name, min_order_qty, in_stock, is_active }]
+ * @returns { lines: [{ product_id, quantity, name }], problems: ['line 3: …'] }
  */
-export function csvToCartLines(text) {
-  const lines = [];
-  const errors = [];
+export function csvToCartLines(parsed, products) {
+  const bySku = new Map(products.map((p) => [norm(p.sku), p]));
+  const byName = new Map(products.map((p) => [norm(p.name), p]));
+  const lines = new Map();
+  const problems = [];
+  const headers = (parsed.headers ?? []).map(norm);
+  const skuKey = parsed.headers?.[headers.indexOf('sku')];
+  const nameKey = parsed.headers?.[headers.findIndex((h) => h === 'product' || h === 'name' || h === 'item')];
+  const qtyKey = parsed.headers?.[headers.findIndex((h) => h === 'quantity' || h === 'qty')];
+  if (!qtyKey || (!skuKey && !nameKey)) return { lines: [], problems: ['The file needs a "sku" (or "product") column and a "quantity" column.'] };
 
-  const rows = text.trim().split(/\r?\n/);
-  if (rows.length < 2) {
-    return { lines: [], errors: [{ row: 0, message: 'File is empty or has no data rows.' }] };
-  }
-
-  // Parse header
-  const header = rows[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z_]/g, ''));
-  const skuIdx = header.indexOf('sku');
-  const qtyIdx = header.indexOf('qty');
-  const noteIdx = header.indexOf('note');
-
-  if (skuIdx === -1 || qtyIdx === -1) {
-    return { lines: [], errors: [{ row: 1, message: 'CSV must have "sku" and "qty" columns in the header row.' }] };
-  }
-
-  for (let i = 1; i < rows.length; i++) {
-    const rowNum = i + 1;
-    const raw = rows[i].trim();
-    if (!raw) continue; // skip blank rows
-
-    // Simple CSV parse: split on comma, strip quotes
-    const cells = raw.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-    const sku = (cells[skuIdx] || '').trim().toUpperCase();
-    const qtyRaw = (cells[qtyIdx] || '').trim();
-    const note = noteIdx >= 0 ? (cells[noteIdx] || '').trim() : '';
-
-    if (!sku) {
-      errors.push({ row: rowNum, message: 'Missing SKU.' });
-      continue;
-    }
-    const qty = parseFloat(qtyRaw);
-    if (!qtyRaw || isNaN(qty) || qty <= 0) {
-      errors.push({ row: rowNum, message: `SKU ${sku}: qty must be a positive number.` });
-      continue;
-    }
-
-    lines.push({ sku, qty, note });
-  }
-
-  return { lines, errors };
+  parsed.rows.forEach((row, i) => {
+    const line = i + 2;
+    const sku = skuKey ? norm(row[skuKey]) : '';
+    const name = nameKey ? norm(row[nameKey]) : '';
+    const product = (sku && bySku.get(sku)) || (name && byName.get(name)) || null;
+    if (!product) { problems.push(`line ${line}: "${row[skuKey] || row[nameKey] || ''}" is not in the catalogue`); return; }
+    if (product.is_active === false || product.in_stock === false) { problems.push(`line ${line}: ${product.name} is not available right now`); return; }
+    let qty = Number(String(row[qtyKey]).replace(/[^0-9.]/g, ''));
+    if (!(qty > 0)) { problems.push(`line ${line}: quantity for ${product.name} must be a number above 0`); return; }
+    const min = Number(product.min_order_qty) || 0;
+    if (qty < min) { problems.push(`line ${line}: ${product.name} raised to its minimum of ${min}`); qty = min; }
+    lines.set(product.id, { product_id: product.id, quantity: (lines.get(product.id)?.quantity ?? 0) + qty, name: product.name });
+  });
+  return { lines: [...lines.values()], problems };
 }
 
-/**
- * Generate the content of a blank bulk-order CSV template.
- * The caller downloads this file so the user can fill it in.
- *
- * @param {Array<{ sku: string, name: string, unit: string }>} products
- *   Optional: pass the product catalogue to pre-fill the template with all SKUs.
- * @returns {string} CSV text
- */
-export function bulkOrderTemplate(products = []) {
-  const header = 'sku,qty,note';
-  if (products.length === 0) {
-    // Plain blank template with a sample row
-    return [header, 'TOMATO-1KG,5,', 'ONION-1KG,10,'].join('\r\n') + '\r\n';
-  }
-  const rows = products.map(p => `${p.sku},,`);
-  return [header, ...rows].join('\r\n') + '\r\n';
+/** The template customers download: header + two example rows. */
+export function bulkOrderTemplate(products) {
+  const sample = products.slice(0, 2);
+  return ['sku,product,quantity', ...sample.map((p) => `${p.sku},${p.name.includes(',') ? `"${p.name}"` : p.name},${Number(p.min_order_qty) || 1}`)].join('\r\n');
 }

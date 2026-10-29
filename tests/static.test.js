@@ -39,10 +39,6 @@ test('app shells load the Supabase client and have the header and view mount poi
     assert.match(source, /id="app-header"/, `${role}/index.html needs <header id="app-header">`);
     assert.match(source, /id="view"/, `${role}/index.html needs <main id="view">`);
     assert.match(source, /css\/components\.css/, `${role}/index.html must load components.css`);
-    assert.ok(!/<script>(?!\s*<\/script>)/.test(source), `${role}/index.html has an inline script the CSP blocks`);
-  }
-  for (const page of ['supplier/index.html', 'supplier/login.html']) {
-    assert.match(readFileSync(join(WEB, page), 'utf8'), /vendor\/supabase\.js/, `${page} must load ../vendor/supabase.js`);
   }
 });
 

@@ -1,14 +1,6 @@
 // =============================================================================
 // main.js — restaurant app entry: auth guard, header, routes, cart drawer.
-// Routes: #catalogue (default) · #product/<id> · #orders · #approvals
-//         · #payments · #help · #account · #ordering-plus (P2-2)
-//
-// P2-2 changes:
-//  - Added coupon code field in the cart drawer (validates via coupon_check RPC).
-//  - Discount is shown in the price summary and passed to place_order as couponCode.
-//  - #ordering-plus route added (standing orders, quotes, spend report).
-//  - Nav link "Orders Plus" added when the route is live.
-//
+// Routes: #catalogue (default) · #product/<id> · #orders · #approvals · #plus (standing orders · quotes · spend) · #payments · #help · #account
 // The cart obeys the credit rules from my_order_terms (migration 015): pay later
 // is offered only while nothing is overdue and the limit has room; and a sector
 // switched off under Settings → Launch (migration 014) cannot order.
@@ -17,18 +9,19 @@
 import { html, mount, $, on, formatINR, reportError, toast, withBusy } from '../../core/ui.js';
 import { requireRole } from '../../core/auth.js';
 import { renderShell, startRouter } from '../../core/shell.js';
-import { listProducts, listCategories, placeOrder, getMyOrderTerms, getCompanySettings, getMyPriceList, validateCoupon } from '../../core/api.js';
+import { listProducts, listCategories, placeOrder, getMyOrderTerms, getCompanySettings, getMyPriceList } from '../../core/api.js';
 import { applyPriceList } from '../../core/catalogue.js';
-import { renderProduct }       from './product.js';
-import { renderCatalogue }     from './catalogue.js';
-import { renderOrders }        from './orders.js';
-import { renderAccount }       from './account.js';
-import { renderPayments }      from './payments.js';
-import { renderHelp }          from './help.js';
-import { renderApprovals }     from './approvals.js';
-import { renderOrderingPlus }  from './ordering-plus.js';   // P2-2
+import { renderProduct } from './product.js';
+import { renderCatalogue } from './catalogue.js';
+import { renderOrders } from './orders.js';
+import { renderAccount } from './account.js';
+import { renderPayments } from './payments.js';
+import { renderHelp } from './help.js';
+import { renderApprovals } from './approvals.js';
+import { renderOrderingPlus, standingOrderDialog } from './ordering-plus.js';
+import { validateCoupon } from '../../core/api.js';
 import { cartEntries, cartCount, cartTotal, setQty, clearCart, toOrderItems, onCartChange, orderPreview } from './cart.js';
-import { isUnavailable }       from './catalogue.js';
+import { isUnavailable } from './catalogue.js';
 import { DELIVERY_SLOTS, PAYMENT_METHODS, config } from '../../core/config.js';
 
 /** YYYY-MM-DD for `daysFromNow` days ahead, in India time. */
@@ -50,13 +43,13 @@ async function start() {
     me,
     subtitle: me.restaurant?.name ?? 'Restaurant',
     links: [
-      { href: '#catalogue',     label: 'Catalogue' },
-      { href: '#orders',        label: 'My orders' },
-      { href: '#ordering-plus', label: 'Orders Plus' },   // P2-2
-      { href: '#approvals',     label: 'Approvals' },
-      { href: '#payments',      label: 'Payments' },
-      { href: '#help',          label: 'Help' },
-      { href: '#account',       label: 'Account' },
+      { href: '#catalogue', label: 'Catalogue' },
+      { href: '#orders', label: 'My orders' },
+      { href: '#approvals', label: 'Approvals' },
+      { href: '#plus', label: 'Standing & quotes' },
+      { href: '#payments', label: 'Payments' },
+      { href: '#help', label: 'Help' },
+      { href: '#account', label: 'Account' },
     ],
     extra: html`<button class="btn primary small" id="open-cart">Cart <span id="cart-count">0</span></button>`,
   });
@@ -118,12 +111,8 @@ async function start() {
     // Checkout choices survive re-renders of the drawer.
     const outlets = (state.terms?.outlets ?? []).filter((o) => o.is_active);
     const primary = outlets.find((o) => o.is_primary) ?? outlets[0];
-    const checkout = {
-      slot: primary?.default_slot ?? 'morning', date: isoDate(1), payment: 'cod',
-      notes: '', poReference: '', outletId: primary?.id ?? null,
-      couponCode: '',             // P2-2
-    };
-    const coupon = { applied: null, discount: 0, error: '' };  // P2-2
+    const checkout = { slot: primary?.default_slot ?? 'morning', date: isoDate(1), payment: 'cod', notes: '', poReference: '', outletId: primary?.id ?? null,
+                       couponCode: '', coupon: null };   // coupon: the validate_coupon answer for the current subtotal (migration 021)
     const needsPo = Boolean(state.terms?.needs_po_reference);
     // Pay later is blocked while an invoice is overdue or the limit is used up (place_order enforces it too).
     const creditBlocked = state.terms?.credit_blocked_reason ?? null;
@@ -132,7 +121,6 @@ async function start() {
       const entries = cartEntries().filter((e) => state.byId[e.productId]);
       const preview = orderPreview(state.byId, state.terms);
       const { subtotal: total, tax, deliveryFee, shortfall } = preview;
-      const finalTotal = preview.total - coupon.discount;  // P2-2
       mount(overlay, html`
         <aside class="drawer" role="dialog" aria-label="Your cart">
           <div class="drawer-head"><h2>Your cart</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
@@ -175,17 +163,10 @@ async function start() {
                 <span class="hint">Required for ${state.terms.sector_name}; printed on the invoice.</span></label>` : ''}
               <label class="field" style="margin-top:var(--space-4)"><span class="label">Order notes (optional)</span>
               <textarea class="textarea" id="notes" rows="2" maxlength="500" placeholder="Gate code, packing instructions…">${checkout.notes}</textarea></label>
-              <!-- P2-2: coupon field -->
-              <div class="field" style="margin-top:var(--space-4)">
-                <span class="label">Coupon code (optional)</span>
-                <div class="row gap-sm">
-                  <input class="input" id="coupon-input" maxlength="32" value="${checkout.couponCode}" placeholder="e.g. SAVE10" style="text-transform:uppercase">
-                  <button class="btn" id="apply-coupon-btn" type="button">Apply</button>
-                  ${coupon.applied ? html`<button class="btn ghost" id="remove-coupon-btn" type="button">Remove</button>` : ''}
-                </div>
-                ${coupon.error ? html`<p class="hint error">${coupon.error}</p>` : ''}
-                ${coupon.applied ? html`<p class="hint success">✓ ${coupon.applied.description ?? coupon.applied.code} — saving ${formatINR(coupon.discount)}</p>` : ''}
-              </div>` : ''}
+              <div class="field" style="margin-top:var(--space-4)"><span class="label">Coupon code</span>
+                <div class="row" style="gap:var(--space-2)"><input class="input" id="coupon" maxlength="20" value="${checkout.couponCode}" placeholder="WELCOME10" style="text-transform:uppercase;max-width:200px"><button class="btn" type="button" id="apply-coupon">Apply</button></div>
+                <span class="hint" id="coupon-hint">${checkout.coupon ? (checkout.coupon.valid ? `${checkout.coupon.label}: −${formatINR(checkout.coupon.discount)}` : checkout.coupon.reason) : ''}</span></div>
+              <button class="btn ghost small" type="button" id="save-standing" style="margin-top:var(--space-3)">Save this basket as a standing order</button>` : ''}
           </div>
           <div class="drawer-foot">
             ${shortfall > 0 ? html`<div class="banner ${deliveryFee > 0 ? 'info' : 'warn'}" style="margin-bottom:var(--space-3)">
@@ -195,8 +176,8 @@ async function start() {
             <div class="spread small muted"><span>Subtotal</span><span class="num">${formatINR(total)}</span></div>
             <div class="spread small muted"><span>GST</span><span class="num">${formatINR(tax)}</span></div>
             ${deliveryFee > 0 ? html`<div class="spread small muted"><span>Delivery fee</span><span class="num">${formatINR(deliveryFee)}</span></div>` : ''}
-            ${coupon.discount > 0 ? html`<div class="spread small" style="color:var(--success)"><span>Coupon discount</span><span class="num">−${formatINR(coupon.discount)}</span></div>` : ''}
-            <div class="spread" style="margin:var(--space-2) 0 var(--space-3)"><strong>Total</strong><span class="money" style="font-size:var(--text-lg)">${formatINR(finalTotal)}</span></div>
+            ${checkout.coupon?.valid ? html`<div class="spread small" style="color:var(--brand)"><span>Coupon ${checkout.coupon.code}</span><span class="num">−${formatINR(Math.min(checkout.coupon.discount, total))}</span></div>` : ''}
+            <div class="spread" style="margin:var(--space-2) 0 var(--space-3)"><strong>Total</strong><span class="money" style="font-size:var(--text-lg)">${formatINR(preview.total - (checkout.coupon?.valid ? Math.min(checkout.coupon.discount, total) : 0))}</span></div>
             <button class="btn primary block large" id="place" ${entries.length && canOrder() && preview.canPlace ? '' : 'disabled'}>Place order</button>
             ${canOrder() ? '' : html`<p class="muted small center" style="margin-top:var(--space-2)">Ordering unlocks after approval.</p>`}
           </div>
@@ -215,40 +196,21 @@ async function start() {
     on(overlay, 'change', '[name="pay"]', (_e, el) => { checkout.payment = el.value; });
     on(overlay, 'input', '#notes', (_e, el) => { checkout.notes = el.value; });
     on(overlay, 'input', '#po', (_e, el) => { checkout.poReference = el.value; });
-    on(overlay, 'input', '#coupon-input', (_e, el) => { checkout.couponCode = el.value.trim().toUpperCase(); });  // P2-2
-
-    // P2-2: Apply coupon
-    on(overlay, 'click', '#apply-coupon-btn', async () => {
-      const code = checkout.couponCode;
-      if (!code) { coupon.error = 'Enter a coupon code.'; coupon.applied = null; coupon.discount = 0; draw(); return; }
-      const preview = orderPreview(state.byId, state.terms);
-      try {
-        const result = await validateCoupon(code, preview.subtotal);
-        coupon.applied = result;
-        coupon.discount = Number(result.discount_amount ?? 0);
-        coupon.error = '';
-        draw();
-      } catch (err) {
-        coupon.applied = null; coupon.discount = 0;
-        coupon.error = err.message ?? 'Invalid coupon code.';
-        draw();
-      }
+    on(overlay, 'input', '#coupon', (_e, el) => { checkout.couponCode = el.value.toUpperCase(); });
+    on(overlay, 'click', '#apply-coupon', async (_e, button) => {
+      const code = checkout.couponCode.trim();
+      if (!code) { checkout.coupon = null; draw(); return; }
+      try { checkout.coupon = await withBusy(button, () => validateCoupon(code, orderPreview(state.byId, state.terms).subtotal)); draw(); }
+      catch (error) { reportError(error); }
     });
-
-    // P2-2: Remove coupon
-    on(overlay, 'click', '#remove-coupon-btn', () => {
-      coupon.applied = null; coupon.discount = 0; coupon.error = '';
-      checkout.couponCode = '';
-      draw();
-    });
-
+    on(overlay, 'click', '#save-standing', () => standingOrderDialog(state, null, () => { close(); location.hash = '#plus'; }));
     on(overlay, 'click', '#place', async (_e, button) => {
       if (needsPo && !checkout.poReference.trim()) { toast('Enter your purchase order / indent number first.', 'error'); return; }
       try {
         const order = await withBusy(button, () => placeOrder(toOrderItems(), {
           notes: checkout.notes, deliveryDate: checkout.date, slot: checkout.slot, paymentMethod: checkout.payment,
           poReference: checkout.poReference, outletId: outlets.length > 1 ? checkout.outletId : null,
-          couponCode: coupon.applied ? checkout.couponCode : null,   // P2-2
+          couponCode: checkout.coupon?.valid ? checkout.coupon.code : null,
         }));
         clearCart();
         close();
@@ -270,14 +232,14 @@ async function start() {
     fallback: '#catalogue',
     onRoute: (key) => shell.setActive(key === '#product/' ? '#catalogue' : key),
     routes: {
-      '#catalogue':     withBanner((c)     => renderCatalogue(c, state)),
-      '#product/':      withBanner((c, id) => renderProduct(c, state, id)),
-      '#orders':        withBanner((c)     => renderOrders(c, state)),
-      '#payments':      withBanner((c)     => renderPayments(c, state)),
-      '#approvals':     withBanner((c)     => renderApprovals(c, state, (n) => shell.setBadge('#approvals', n))),
-      '#help':          withBanner((c)     => renderHelp(c, state)),
-      '#account':       withBanner((c)     => renderAccount(c, state)),
-      '#ordering-plus': withBanner((c)     => renderOrderingPlus(c, me)),  // P2-2
+      '#catalogue': withBanner((c) => renderCatalogue(c, state)),
+      '#product/': withBanner((c, id) => renderProduct(c, state, id)),
+      '#orders': withBanner((c) => renderOrders(c, state)),
+      '#payments': withBanner((c) => renderPayments(c, state)),
+      '#approvals': withBanner((c) => renderApprovals(c, state, (n) => shell.setBadge('#approvals', n))),
+      '#plus': withBanner((c) => renderOrderingPlus(c, state)),
+      '#help': withBanner((c) => renderHelp(c, state)),
+      '#account': withBanner((c) => renderAccount(c, state)),
     },
   });
 }

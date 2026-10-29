@@ -52,44 +52,23 @@ export function renderShell({ me, subtitle, links = [], extra = '' }) {
 /**
  * Minimal hash router. routes: { '#orders': renderFn }. renderFn(container)
  * may be async. Unknown hashes fall back to `fallback`.
- *
- * Module-level ref to the active hashchange listener so we can remove it when
- * startRouter is called again (e.g. across test runs where importFresh re-runs
- * main.js but shell.js is a cached static import shared across all invocations).
  */
-let _removeCurrentListener = null;
-
 export function startRouter({ container, routes, fallback, onRoute }) {
-  if (_removeCurrentListener) { _removeCurrentListener(); _removeCurrentListener = null; }
-
-  // Prevent a hashchange event that fires during the initial go() call from
-  // starting a second concurrent render (race condition visible in tests where
-  // `document.defaultView.location.hash` is set before importFresh, which causes
-  // jsdom to fire a hashchange event while go() is already awaiting a route render).
-  let _rendering = false;
-
   async function go() {
-    if (_rendering) return;
-    _rendering = true;
+    // Exact match first; a route key ending in "/" matches a prefix and gets the rest
+    // as a parameter ('#product/' → '#product/abc' → 'abc').
+    const key = routes[location.hash] ? location.hash
+      : Object.keys(routes).find((k) => k.endsWith('/') && location.hash.startsWith(k)) ?? fallback;
+    const param = key.endsWith('/') ? decodeURIComponent(location.hash.slice(key.length)) : undefined;
+    onRoute?.(key);
+    mount(container, html`<div class="loading"><span class="spinner"></span> Loading…</div>`);
     try {
-      // Exact match first; a route key ending in "/" matches a prefix and gets the rest
-      // as a parameter ('#product/' → '#product/abc' → 'abc').
-      const key = routes[location.hash] ? location.hash
-        : Object.keys(routes).find((k) => k.endsWith('/') && location.hash.startsWith(k)) ?? fallback;
-      const param = key.endsWith('/') ? decodeURIComponent(location.hash.slice(key.length)) : undefined;
-      onRoute?.(key);
-      mount(container, html`<div class="loading"><span class="spinner"></span> Loading…</div>`);
-      try {
-        await routes[key](container, param);
-      } catch (error) {
-        console.error(error);
-        mount(container, html`<div class="banner error">${error.message || 'Failed to load this page.'}</div>`);
-      }
-    } finally {
-      _rendering = false;
+      await routes[key](container, param);
+    } catch (error) {
+      console.error(error);
+      mount(container, html`<div class="banner error">${error.message || 'Failed to load this page.'}</div>`);
     }
   }
   window.addEventListener('hashchange', go);
-  _removeCurrentListener = () => window.removeEventListener('hashchange', go);
   return go();
 }

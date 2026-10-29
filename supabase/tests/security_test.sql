@@ -2,8 +2,8 @@
 -- Security & business-rule regression test
 --
 -- HOW TO RUN: paste into the Supabase SQL Editor and click Run (or run with
--- psql). It creates throw-away users, impersonates each role, checks 293
--- rules (205 + 34 for launch control and payments & credit + 3 for customer access + 6 for the edit window + 15 for notifications & support + 15 for reports & dashboard + 15 for customer organisation), then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
+-- psql). It creates throw-away users, impersonates each role, checks 308
+-- rules (205 + 34 for launch control and payments & credit + 3 for customer access + 6 for the edit window + 15 for notifications & support + 15 for reports & dashboard + 15 for customer organisation + 15 for ordering +), then ABORTS ON PURPOSE so nothing is saved. The "error" you get back
 -- is the report: every line should start with PASS.
 --
 -- Run this after ANY change to RLS policies or the functions in migrations.
@@ -44,6 +44,8 @@ declare
   v_rcid uuid; v_og jsonb; v_oh jsonb; v_pay jsonb; v_bal jsonb; v_stockc numeric; v_today date := (now() at time zone 'Asia/Kolkata')::date;
   -- Migration 020 (customer organisation)
   v_mgr uuid := gen_random_uuid(); v_appr uuid := gen_random_uuid(); v_out2 uuid; v_oi jsonb; v_oj jsonb;
+  -- Migration 021 (ordering +)
+  v_coupon uuid; v_so uuid; v_quote jsonb; v_ok jsonb; v_ol jsonb;
 begin
   select id into v_city from public.cities where name = 'Visakhapatnam';
   select id into v_wh from public.warehouses where city_id = v_city and is_default;
@@ -2007,6 +2009,123 @@ begin
     then 'PASS T65o another customer sees no outlets or members of the account; staff list its members' else 'FAIL T65o ' || v_n || '/' || v_num end);
   reset role;
   update public.sectors set needs_po_reference = true where code = 'defence';   -- restore for anything after
+
+  -- T66 ordering + (migration 021)
+  reset role;
+  update public.sectors set needs_order_approval = false where code = 'defence';
+  update public.restaurants set sector_code = 'restaurant' where id = v_rcid;
+  -- Coupons: settings:edit creates; a picker cannot; the customer previews and the order applies it once.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  insert into public.coupons (code, kind, value, min_order_value, max_discount, once_per_customer) values ('WELCOME10', 'percent', 10, 100, 50, true) returning id into v_coupon;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    insert into public.coupons (code, kind, value) values ('HACK', 'amount', 500);
+    v_res := v_res || jsonb_build_array('FAIL T66a picker created a coupon');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T66a a picker cannot create coupons (settings:edit)');
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_json := public.validate_coupon('welcome10', 320);
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'valid')::boolean and (v_json ->> 'discount')::numeric = 32 and (v_json ->> 'code') = 'WELCOME10'
+    then 'PASS T66b validate_coupon previews 10 % of the subtotal (case-insensitive code)' else 'FAIL T66b ' || v_json::text end);
+  v_json := public.validate_coupon('WELCOME10', 50);
+  v_res := v_res || jsonb_build_array(case when not (v_json ->> 'valid')::boolean and (v_json ->> 'reason') like 'This code needs an order%' then 'PASS T66c below the coupon''s minimum the preview says why' else 'FAIL T66c ' || v_json::text end);
+  v_ok := public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod', null, null, 'WELCOME10');
+  v_res := v_res || jsonb_build_array(case when (v_ok ->> 'discount_amount')::numeric > 0
+      and (select total_amount = subtotal + tax_amount + delivery_fee - discount_amount and coupon_code = 'WELCOME10' from public.orders where id = (v_ok ->> 'id')::uuid)
+      and (select count(*) from public.coupon_redemptions where order_id = (v_ok ->> 'id')::uuid) = 1
+    then 'PASS T66d place_order applies the coupon: total = subtotal + GST + fee − discount, redemption recorded' else 'FAIL T66d ' || v_ok::text end);
+  begin
+    perform public.place_order(jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), null, null, 'morning', 'cod', null, null, 'WELCOME10');
+    v_res := v_res || jsonb_build_array('FAIL T66e once-per-customer coupon used twice');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when sqlerrm like '%already used%' then 'PASS T66e a once-per-customer coupon is refused the second time (and the order rolls back)' else 'FAIL T66e ' || sqlerrm end);
+  end;
+  -- Editing keeps the discount (re-checked on the new subtotal).
+  v_json := public.edit_order((v_ok ->> 'id')::uuid, jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 20)));
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'discount_amount')::numeric = (select discount_amount from public.orders where id = (v_ok ->> 'id')::uuid)
+      and (v_json ->> 'discount_amount')::numeric > 0 and (select coupon_code from public.orders where id = (v_ok ->> 'id')::uuid) = 'WELCOME10'
+    then 'PASS T66f editing an order keeps its coupon (discount recomputed, capped)' else 'FAIL T66f ' || v_json::text end);
+  -- Standing orders: saved by the customer, placed by the daily run for tomorrow's weekday, idempotent.
+  v_so := public.save_standing_order(null, 'Daily veg', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), array[0,1,2,3,4,5,6], 'morning', 'cod');
+  v_res := v_res || jsonb_build_array(case when v_so is not null and (select is_active and outlet_id is not null from public.standing_orders where id = v_so) then 'PASS T66g the customer saves a standing order for every weekday' else 'FAIL T66g' end);
+  begin
+    perform public.save_standing_order(null, 'Bad', jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10)), array[1], 'express');
+    v_res := v_res || jsonb_build_array('FAIL T66h express standing order accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T66h a standing order cannot use the express slot');
+  end;
+  reset role;
+  set local role service_role;
+  v_json := public.run_standing_orders();
+  v_stats := public.run_standing_orders();
+  reset role;
+  v_res := v_res || jsonb_build_array(case when (v_json ->> 'placed')::int >= 1 and (v_stats ->> 'placed')::int = 0
+      and (select status = 'placed' and delivery_date = v_today + 1 and placed_by = v_rc from public.orders where id = (select last_order_id from public.standing_orders where id = v_so))
+    then 'PASS T66i run_standing_orders places tomorrow''s order once as the creator (second run does nothing)' else 'FAIL T66i ' || v_json::text || ' ' || v_stats::text end);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.run_standing_orders();
+    v_res := v_res || jsonb_build_array('FAIL T66j picker ran standing orders');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T66j run_standing_orders is service-role only');
+  end;
+  reset role;
+  -- Quotes: staff price a basket; the customer sees it only once sent, accepts at the quoted price.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_quote := public.save_quote(null, v_rcid, jsonb_build_array(jsonb_build_object('product_id', v_p1, 'quantity', 10, 'unit_price', 1)), v_today + 7, 'special rate');
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  select count(*) into v_n from public.quotes where id = (v_quote ->> 'id')::uuid;
+  begin
+    perform public.accept_quote((v_quote ->> 'id')::uuid);
+    v_res := v_res || jsonb_build_array('FAIL T66k draft quote accepted');
+  exception when others then
+    v_res := v_res || jsonb_build_array(case when v_n = 0 then 'PASS T66k a draft quote is invisible to the customer and cannot be accepted' else 'FAIL T66k sees ' || v_n end);
+  end;
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_admin, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  perform public.set_quote_status((v_quote ->> 'id')::uuid, 'sent');
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_rc, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_ol := public.accept_quote((v_quote ->> 'id')::uuid, null, 'morning', 'cod');
+  v_res := v_res || jsonb_build_array(case when (select unit_price from public.order_items where order_id = (v_ol ->> 'id')::uuid and product_id = v_p1) = 1
+      and (select subtotal from public.orders where id = (v_ol ->> 'id')::uuid) = 10
+      and (select status || '/' || accepted_order_id::text from public.quotes where id = (v_quote ->> 'id')::uuid) = 'accepted/' || (v_ol ->> 'id')
+    then 'PASS T66l accepting a sent quote places the order at the quoted price (₹1 instead of the list price)' else 'FAIL T66l ' || v_ol::text end);
+  begin
+    perform public.accept_quote((v_quote ->> 'id')::uuid);
+    v_res := v_res || jsonb_build_array('FAIL T66m quote accepted twice');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T66m a quote can be accepted only once');
+  end;
+  -- Spend report: my own account only, by month and by product.
+  v_json := public.my_spend_report(v_today - 30, v_today + 7, 'month');
+  v_stats := public.my_spend_report(v_today - 30, v_today + 7, 'product');
+  select coalesce(sum(total_amount), 0) into v_num from public.orders where restaurant_id = v_rcid and status <> 'cancelled' and created_at >= (v_today - 30)::timestamp at time zone 'Asia/Kolkata';
+  v_res := v_res || jsonb_build_array(case when (select sum((x ->> 'total')::numeric) from jsonb_array_elements(v_json) x) = v_num
+      and exists (select 1 from jsonb_array_elements(v_stats) x where x ->> 'key' = v_p1::text and (x ->> 'quantity') is not null)
+    then 'PASS T66n my_spend_report by month adds up to the account''s non-cancelled orders; by product carries quantity' else 'FAIL T66n ' || v_json::text end);
+  reset role;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    perform public.my_spend_report(v_today - 7, v_today, 'month');
+    v_res := v_res || jsonb_build_array('FAIL T66o staff ran the customer spend report');
+  exception when others then
+    v_res := v_res || jsonb_build_array('PASS T66o my_spend_report is for customer accounts only');
+  end;
+  reset role;
 
   -- Abort on purpose so no test data is ever saved. The message IS the report.
   raise exception E'SECURITY TEST REPORT (rolled back, no data kept)\n%', jsonb_pretty(v_res);

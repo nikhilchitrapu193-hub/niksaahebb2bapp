@@ -1,7 +1,7 @@
 // =============================================================================
 // fake-supabase.js — a tiny in-memory stand-in for the supabase-js client, so
 // page tests run offline. It supports exactly the calls the app makes:
-//   from(table).select/eq/neq/not/in/gte/lte/order/limit/maybeSingle/single/insert/update/upsert/delete
+//   from(table).select/eq/neq/in/gte/lte/is/order/limit/maybeSingle/single/insert/update/upsert/delete
 //   rpc(name, args), auth.*, functions.invoke, storage.from().getPublicUrl/upload
 //
 // Usage:
@@ -20,10 +20,10 @@ export function createFake({ tables = {}, rpc = {}, session = null } = {}) {
       select() { return builder; },
       eq(column, value) { q.filters.push([column, value]); return builder; },
       neq(column, value) { q.filters.push([column, value, 'neq']); return builder; },
-      not() { return builder; },
       in(column, values) { q.filters.push([column, values, 'in']); return builder; },
       gte(column, value) { q.filters.push([column, value, 'gte']); return builder; },
       lte(column, value) { q.filters.push([column, value, 'lte']); return builder; },
+      is(column, value) { q.filters.push([column, value ?? null, 'is']); return builder; },   // .is('col', null)
       order() { return builder; },
       limit() { return builder; },
       maybeSingle() { q.one = 'maybe'; return builder; },
@@ -38,7 +38,7 @@ export function createFake({ tables = {}, rpc = {}, session = null } = {}) {
       if (q.op !== 'select') calls.push({ type: q.op, table, payload: q.payload, filters: q.filters });
       const rows = (tables[table] ?? []).filter((row) => q.filters.every(([c, v, op]) =>
         op === 'in' ? v.includes(row[c]) : op === 'neq' ? row[c] !== v
-          : op === 'gte' ? row[c] >= v : op === 'lte' ? row[c] <= v : row[c] === v));
+          : op === 'gte' ? row[c] >= v : op === 'lte' ? row[c] <= v : op === 'is' ? (row[c] ?? null) === v : row[c] === v));
       if (q.op !== 'select') return { data: q.one ? q.payload : (Array.isArray(q.payload) ? q.payload : null), error: null };
       if (q.one) return { data: rows[0] ?? null, error: null };
       return { data: rows, error: null };

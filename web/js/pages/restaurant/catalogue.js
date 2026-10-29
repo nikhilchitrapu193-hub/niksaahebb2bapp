@@ -6,6 +6,7 @@
 // list (main.js applied it); a different published price is shown struck through.
 // =============================================================================
 
+import { bulkUploadDialog } from './ordering-plus.js';
 import { html, mount, $, on, formatINR } from '../../core/ui.js';
 import { photoUrl } from '../../core/api.js';
 import { CATALOGUE_SORTS, VEG_TYPES } from '../../core/config.js';
@@ -31,7 +32,8 @@ export function renderCatalogue(container, state) {
   const chosenPack = {};   // main product id → variant id picked on the card
 
   mount(container, html`
-    <div class="page-head"><div><h1>Catalogue</h1><p>Wholesale prices. Minimum order quantities apply.</p></div></div>
+    <div class="page-head"><div><h1>Catalogue</h1><p>Wholesale prices. Minimum order quantities apply.</p></div>
+      <button class="btn" id="bulk-upload" title="Upload a CSV of SKUs and quantities">Upload order (CSV)</button></div>
     <div class="toolbar">
       <input class="input search" type="search" id="search" placeholder="Search products or brands…" aria-label="Search products">
       <select class="select" id="sort" aria-label="Sort">${Object.entries(CATALOGUE_SORTS).map(([k, v]) => html`<option value="${k}">${v.label}</option>`)}</select>
@@ -67,6 +69,7 @@ export function renderCatalogue(container, state) {
     mount(grid, html`<div class="product-grid">${groupVariants(visible).map((g) => productCard(g, state.settings, chosenPack))}</div>`);
   }
 
+  on(container, 'click', '#bulk-upload', () => bulkUploadDialog(state));   // migration 021: CSV → cart
   on(container, 'input', '#search', (_e, el) => { f.search = el.value; drawGrid(); });
   on(container, 'change', '#sort', (_e, el) => { f.sort = el.value; drawGrid(); });
   on(container, 'change', '#brand', (_e, el) => { f.brand = el.value; drawGrid(); });

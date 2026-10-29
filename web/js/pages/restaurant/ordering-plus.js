@@ -1,307 +1,199 @@
 // =============================================================================
-// ordering-plus.js — restaurant: Standing orders, Quotes & Spend report tabs.
-//
-// Customers manage their own standing orders (repeat schedules), view and
-// accept quotes sent by admin, and see their spend history.
+// ordering-plus.js — customer app → Standing orders · Quotes · Spend (migration
+// 021). One route (#plus) with three tabs, plus the "save as standing order"
+// dialog the cart opens and the CSV upload dialog the catalogue opens.
+//   Standing orders: saved baskets that place themselves for chosen weekdays.
+//   Quotes: priced baskets our team sent; accept into an order or decline.
+//   Spend: what the account bought, by month / product / outlet, with CSV.
 // =============================================================================
 
-import { html, mount, on, toast, modal, money, badge } from '../../core/ui.js';
-import {
-  listStandingOrders, saveStandingOrder, setStandingOrderActive,
-  listQuotes, acceptQuote, declineQuote,
-  getMySpendReport, listProducts,
-} from '../../core/api.js';
-import { WEEKDAYS, QUOTE_STATUSES, DELIVERY_SLOTS } from '../../core/config.js';
+import { html, mount, on, $, formatINR, formatDate, formatDateTime, formatQty, openModal, reportError, toast, withBusy, confirmDialog } from '../../core/ui.js';
+import { listStandingOrders, saveStandingOrder, setStandingOrderActive, listQuotes, acceptQuote, declineQuote, getMySpendReport } from '../../core/api.js';
+import { DELIVERY_SLOTS, PAYMENT_METHODS, QUOTE_STATUSES, WEEKDAYS } from '../../core/config.js';
+import { csvToCartLines, bulkOrderTemplate } from '../../core/bulk-order.js';
+import { parseCsv, downloadCsv } from '../../core/csv.js';
+import { lastNDays, reportTotals } from '../../core/reports.js';
+import { cartEntries, setQty } from './cart.js';
 
-/** Render the Ordering Plus section. Route: #ordering-plus (restaurant app) */
-export async function renderOrderingPlus(container, me) {
-  mount(container, html`
-    <div class="page-header"><h2>Orders Plus</h2></div>
-    <div class="tabs" id="op-tabs">
-      <button class="tab active" data-tab="standing">Standing orders</button>
-      <button class="tab" data-tab="quotes">Quotes</button>
-      <button class="tab" data-tab="spend">Spend report</button>
-    </div>
-    <div id="tab-standing"></div>
-    <div id="tab-quotes"   hidden></div>
-    <div id="tab-spend"    hidden></div>
-  `);
+const dayLabels = (days) => WEEKDAYS.filter((d) => days.includes(d.value)).map((d) => d.label).join(', ');
 
-  on(container, 'click', '.tab', e => {
-    container.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    e.target.classList.add('active');
-    const tab = e.target.dataset.tab;
-    ['standing', 'quotes', 'spend'].forEach(t => {
-      container.querySelector(`#tab-${t}`).hidden = (t !== tab);
-    });
-    if (tab === 'quotes') loadQuotes();
-    else if (tab === 'spend') loadSpend();
+export async function renderOrderingPlus(container, state, tab = 'standing') {
+  const terms = state.terms ?? {};
+  const outlets = (terms.outlets ?? []).filter((o) => o.is_active);
+  let standing = [];
+  let quotes = [];
+  let spend = { groupBy: 'month', ...lastNDays(90), rows: [] };
+  let current = tab;
+
+  async function load() {
+    if (current === 'standing') standing = await listStandingOrders();
+    else if (current === 'quotes') quotes = await listQuotes();
+    else spend.rows = await getMySpendReport({ from: spend.from, to: spend.to, groupBy: spend.groupBy });
+    draw();
+  }
+
+  function tabs() {
+    const t = [['standing', 'Standing orders'], ['quotes', `Quotes${quotes.filter((q) => q.status === 'sent').length ? ` (${quotes.filter((q) => q.status === 'sent').length})` : ''}`], ['spend', 'Spend']];
+    return html`<div class="tabs" role="tablist">${t.map(([k, l]) => html`<a role="tab" href="#plus" aria-selected="${String(k === current)}" data-tab="${k}">${l}</a>`)}</div>`;
+  }
+
+  function standingTab() {
+    return html`
+      <div class="row" style="justify-content:flex-end;margin-bottom:var(--space-3)"><button class="btn primary" id="new-standing">New standing order</button></div>
+      ${standing.length === 0 ? html`<div class="empty"><strong>No standing orders yet</strong>Save a basket once and it places itself every week — from the cart ("Save as standing order") or here.</div>`
+        : standing.map((s) => html`<article class="card order-card" data-standing="${s.id}">
+          <div class="spread"><div><strong>${s.name}</strong> <span class="muted small">· ${dayLabels(s.days_of_week)} · ${DELIVERY_SLOTS[s.delivery_slot]?.label ?? s.delivery_slot}${outlets.length > 1 && s.outlets?.name ? ` · ${s.outlets.name}` : ''}</span></div>
+            ${s.is_active ? html`<span class="badge delivered">active</span>` : html`<span class="badge inactive">paused</span>`}</div>
+          <div class="muted small" style="margin:var(--space-2) 0">${s.items.length} line${s.items.length === 1 ? '' : 's'} · ${PAYMENT_METHODS[s.payment_method]?.label ?? ''}${s.po_reference ? ` · PO ${s.po_reference}` : ''}
+            ${s.last_run_at ? html` · last placed ${formatDateTime(s.last_run_at)} for ${formatDate(s.last_run_date)}` : ' · not placed yet'}</div>
+          ${s.last_error ? html`<div class="banner warn">Last attempt failed: ${s.last_error}</div>` : ''}
+          <div class="row" style="justify-content:flex-end;gap:var(--space-2)">
+            <button class="btn small" data-edit-standing="${s.id}">Edit</button>
+            <button class="btn small ${s.is_active ? 'danger' : 'primary'}" data-toggle-standing="${s.id}" data-active="${s.is_active}">${s.is_active ? 'Pause' : 'Resume'}</button></div>
+        </article>`)}`;
+  }
+
+  function quotesTab() {
+    return quotes.length === 0 ? html`<div class="empty"><strong>No quotes</strong>When our team prices a basket for you it appears here.</div>`
+      : quotes.map((q) => html`<article class="card order-card" data-quote="${q.id}">
+          <div class="spread"><div><strong>${q.quote_number}</strong> <span class="muted small">· ${formatDate(q.created_at)} · valid until ${formatDate(q.valid_until)}</span></div>
+            <span class="badge ${QUOTE_STATUSES[q.status]?.badge ?? ''}">${QUOTE_STATUSES[q.status]?.label ?? q.status}</span></div>
+          <ul class="small" style="margin:var(--space-2) 0;padding-left:1.1rem">${q.items.map((i) => html`<li>${i.product_name} — ${formatQty(i.quantity)} ${i.unit} × ${formatINR(i.unit_price)} = ${formatINR(i.unit_price * i.quantity)}</li>`)}</ul>
+          <div class="spread small"><span class="muted">${q.notes ?? ''}</span><span><span class="muted">Subtotal ${formatINR(q.subtotal)} · GST ${formatINR(q.tax_amount)} · </span><strong class="money">${formatINR(q.total_amount)}</strong></span></div>
+          ${q.status === 'sent' ? html`<div class="row" style="justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-3)">
+            <button class="btn danger" data-decline-quote="${q.id}">Decline</button>
+            ${terms.can_approve ? html`<button class="btn primary" data-accept-quote="${q.id}">Accept &amp; order</button>` : html`<span class="muted small">The account owner or an approver can accept it.</span>`}</div>` : ''}
+          ${q.status === 'accepted' ? html`<p class="muted small" style="margin-top:var(--space-2)">Ordered — see <a href="#orders">My orders</a>.</p>` : ''}
+        </article>`);
+  }
+
+  function spendTab() {
+    const totals = reportTotals(spend.rows);
+    const byProduct = spend.groupBy === 'product';
+    return html`
+      <div class="toolbar">
+        <label class="field"><span class="label">From</span><input class="input" type="date" data-s="from" value="${spend.from}"></label>
+        <label class="field"><span class="label">To</span><input class="input" type="date" data-s="to" value="${spend.to}"></label>
+        <label class="field"><span class="label">Group</span><select class="select" data-s="groupBy">
+          ${[['month', 'By month'], ['product', 'By product'], ['outlet', 'By outlet']].map(([k, l]) => html`<option value="${k}" ${k === spend.groupBy ? 'selected' : ''}>${l}</option>`)}</select></label>
+        <span class="muted small">${totals.orders} orders · ${formatINR(totals.total)}</span>
+        <button class="btn" id="spend-csv">Export CSV</button></div>
+      <div class="card"><div class="table-wrap"><table class="table">
+        <thead><tr><th>${byProduct ? 'Product' : spend.groupBy === 'month' ? 'Month' : 'Outlet'}</th><th class="right">Orders</th>${byProduct ? html`<th class="right">Quantity</th>` : ''}<th class="right">Spend</th></tr></thead>
+        <tbody>${spend.rows.length === 0 ? html`<tr><td colspan="4"><div class="empty">No orders in this range.</div></td></tr>` : spend.rows.map((r) => html`<tr><td>${r.label}</td><td class="right num">${r.orders}</td>${byProduct ? html`<td class="right num">${Number(r.quantity)}</td>` : ''}<td class="right money">${formatINR(r.total)}</td></tr>`)}</tbody>
+      </table></div></div>`;
+  }
+
+  function draw() {
+    mount(container, html`
+      <div class="page-head"><div><h1>Standing orders, quotes &amp; spend</h1><p>Baskets that place themselves, prices our team quoted you, and what you have bought.</p></div></div>
+      ${tabs()}
+      ${current === 'standing' ? standingTab() : current === 'quotes' ? quotesTab() : spendTab()}`);
+  }
+
+  on(container, 'click', '[data-tab]', (_e, el) => { current = el.dataset.tab; load().catch(reportError); });
+  on(container, 'click', '#new-standing', () => standingOrderDialog(state, null, () => load().catch(reportError)));
+  on(container, 'click', '[data-edit-standing]', (_e, b) => standingOrderDialog(state, standing.find((s) => s.id === b.dataset.editStanding), () => load().catch(reportError)));
+  on(container, 'click', '[data-toggle-standing]', async (_e, b) => {
+    try { await setStandingOrderActive(b.dataset.toggleStanding, b.dataset.active !== 'true'); toast(b.dataset.active === 'true' ? 'Paused' : 'Resumed', 'success'); await load(); } catch (error) { reportError(error); }
   });
+  on(container, 'click', '[data-decline-quote]', async (_e, b) => {
+    const reason = window.prompt('Reason (optional)'); if (reason === null) return;
+    try { await declineQuote(b.dataset.declineQuote, reason); toast('Quote declined', 'info'); await load(); } catch (error) { reportError(error); }
+  });
+  on(container, 'click', '[data-accept-quote]', (_e, b) => acceptQuoteDialog(quotes.find((q) => q.id === b.dataset.acceptQuote), state, () => load().catch(reportError)));
+  on(container, 'change', '[data-s]', (_e, el) => { spend[el.dataset.s] = el.value; if (spend.from && spend.to) load().catch(reportError); });
+  on(container, 'click', '#spend-csv', () => downloadCsv(`spend-${spend.groupBy}-${spend.from}-to-${spend.to}.csv`, spend.rows,
+    [{ key: 'label', label: 'Group' }, { key: 'orders', label: 'Orders' }, { key: 'quantity', label: 'Quantity' }, { key: 'total', label: 'Spend (₹)' }]));
 
-  loadStanding();
-
-  // ---- Standing orders -------------------------------------------------------
-
-  async function loadStanding() {
-    const el = container.querySelector('#tab-standing');
-    mount(el, html`<div class="loading">Loading…</div>`);
-
-    const orders = await listStandingOrders().catch(e => { toast(e.message, 'error'); return []; });
-    const dayLabels = Object.fromEntries(WEEKDAYS.map(d => [d.value, d.label]));
-
-    mount(el, html`
-      <div class="page-sub-header">
-        <p class="muted">Standing orders place automatically every week on the days you choose.</p>
-        <button class="btn btn-primary" id="new-standing-btn">+ New standing order</button>
-      </div>
-      ${!orders.length ? html`<p class="muted">No standing orders yet.</p>` : html`
-        <div class="card-list">
-          ${orders.map(o => html`
-            <div class="card">
-              <div class="card-header">
-                <strong>${o.label || 'Standing order'}</strong>
-                ${badge(o.is_active ? 'Active' : 'Paused', o.is_active ? 'delivered' : 'cancelled')}
-              </div>
-              <div class="card-body">
-                <p>Days: ${(o.days || []).map(d => dayLabels[d] ?? d).join(', ')}</p>
-                <p>Slot: ${DELIVERY_SLOTS[o.slot]?.label ?? o.slot}</p>
-                <p>Items: ${(o.standing_order_items || []).length}</p>
-                ${o.start_date ? html`<p class="muted">From ${o.start_date.slice(0, 10)}${o.end_date ? ' to ' + o.end_date.slice(0, 10) : ''}</p>` : ''}
-              </div>
-              <div class="card-footer actions">
-                <button class="btn btn-sm" data-edit-so="${o.id}">Edit</button>
-                <button class="btn btn-sm ${o.is_active ? 'btn-danger' : 'btn-primary'}" data-toggle-so="${o.id}" data-active="${o.is_active}">
-                  ${o.is_active ? 'Pause' : 'Resume'}
-                </button>
-              </div>
-            </div>
-          `)}
-        </div>
-      `}
-    `);
-
-    on(el, 'click', '#new-standing-btn', () => openStandingForm(null, me, loadStanding));
-
-    on(el, 'click', '[data-edit-so]', e => {
-      const o = orders.find(x => x.id === e.target.dataset.editSo);
-      if (o) openStandingForm(o, me, loadStanding);
-    });
-
-    on(el, 'click', '[data-toggle-so]', async e => {
-      const id = e.target.dataset.toggleSo;
-      const active = e.target.dataset.active === 'true';
-      try {
-        await setStandingOrderActive(id, !active);
-        toast(active ? 'Standing order paused' : 'Standing order resumed');
-        loadStanding();
-      } catch (err) { toast(err.message, 'error'); }
-    });
-  }
-
-  // ---- Quotes ----------------------------------------------------------------
-
-  async function loadQuotes() {
-    const el = container.querySelector('#tab-quotes');
-    mount(el, html`<div class="loading">Loading…</div>`);
-    const quotes = await listQuotes().catch(e => { toast(e.message, 'error'); return []; });
-
-    if (!quotes.length) { mount(el, html`<p class="muted">No quotes from us yet.</p>`); return; }
-
-    mount(el, html`
-      <div class="card-list">
-        ${quotes.map(q => {
-          const total = (q.quote_items || []).reduce((s, i) => s + i.unit_price * i.qty, 0);
-          const st = QUOTE_STATUSES[q.status] ?? { label: q.status, badge: 'pending' };
-          return html`
-            <div class="card">
-              <div class="card-header">
-                <strong>${q.quote_number}</strong>
-                ${badge(st.label, st.badge)}
-              </div>
-              <div class="card-body">
-                <p>${(q.quote_items || []).length} item(s) · Total: ${money(total)}</p>
-                ${q.note ? html`<p class="muted">${q.note}</p>` : ''}
-                ${q.expires_at ? html`<p class="muted">Valid until ${q.expires_at.slice(0, 10)}</p>` : ''}
-              </div>
-              ${q.status === 'sent' ? html`
-                <div class="card-footer actions">
-                  <button class="btn btn-primary" data-accept-quote="${q.id}">Accept &amp; order</button>
-                  <button class="btn btn-sm btn-danger" data-decline-quote="${q.id}">Decline</button>
-                </div>
-              ` : ''}
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `);
-
-    on(el, 'click', '[data-accept-quote]', async e => {
-      const id = e.target.dataset.acceptQuote;
-      try {
-        const orderId = await acceptQuote(id);
-        toast('Quote accepted — order placed');
-        loadQuotes();
-      } catch (err) { toast(err.message, 'error'); }
-    });
-
-    on(el, 'click', '[data-decline-quote]', async e => {
-      const id = e.target.dataset.declineQuote;
-      const reason = prompt('Reason for declining? (optional)');
-      if (reason === null) return; // cancelled
-      try { await declineQuote(id, reason); toast('Quote declined'); loadQuotes(); }
-      catch (err) { toast(err.message, 'error'); }
-    });
-  }
-
-  // ---- Spend report ----------------------------------------------------------
-
-  async function loadSpend() {
-    const el = container.querySelector('#tab-spend');
-    const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const today = now.toISOString().slice(0, 10);
-
-    mount(el, html`
-      <div class="filters row gap-sm mb-md">
-        <label>From <input type="date" id="spend-from" value="${firstDay}"></label>
-        <label>To   <input type="date" id="spend-to"   value="${today}"></label>
-        <button class="btn" id="spend-go-btn">Load</button>
-      </div>
-      <div id="spend-result"><p class="muted">Select a date range and click Load.</p></div>
-    `);
-
-    on(el, 'click', '#spend-go-btn', async () => {
-      const from = el.querySelector('#spend-from').value;
-      const to   = el.querySelector('#spend-to').value;
-      const res  = el.querySelector('#spend-result');
-      mount(res, html`<div class="loading">Loading…</div>`);
-      try {
-        const rows = await getMySpendReport({ from, to });
-        if (!rows || !rows.length) { mount(res, html`<p class="muted">No orders in this period.</p>`); return; }
-        const grandTotal = rows.reduce((s, r) => s + (r.total || 0), 0);
-        mount(res, html`
-          <table class="data-table">
-            <thead><tr><th>Date</th><th>Orders</th><th>Total spend</th></tr></thead>
-            <tbody>${rows.map(r => html`
-              <tr>
-                <td>${r.period ?? r.day ?? '—'}</td>
-                <td>${r.orders ?? '—'}</td>
-                <td>${money(r.total)}</td>
-              </tr>
-            `)}
-            <tr class="total-row"><td colspan="2"><strong>Total</strong></td><td><strong>${money(grandTotal)}</strong></td></tr>
-            </tbody>
-          </table>
-        `);
-      } catch (err) { toast(err.message, 'error'); mount(res, html`<p class="error">${err.message}</p>`); }
-    });
-  }
+  await load();
 }
 
-// ---- Standing order form ----------------------------------------------------
-
-async function openStandingForm(so, me, onSave) {
-  const products = await listProducts().catch(() => []);
-
-  const existingItems = so?.standing_order_items ?? [{ product_id: '', qty: 1 }];
-  const existingDays  = so?.days ?? [];
-
-  modal(html`
-    <h3>${so ? 'Edit standing order' : 'New standing order'}</h3>
-    <form id="so-form">
-      <label>Label (optional)
-        <input name="label" type="text" value="${so?.label ?? ''}" placeholder="e.g. Daily vegetables">
-      </label>
-      <fieldset>
-        <legend>Repeat days</legend>
-        <div class="checkbox-group">
-          ${WEEKDAYS.map(d => html`
-            <label class="checkbox-inline">
-              <input type="checkbox" name="days" value="${d.value}" ${existingDays.includes(d.value) ? 'checked' : ''}>
-              ${d.label}
-            </label>
-          `)}
-        </div>
-      </fieldset>
-      <label>Delivery slot
-        <select name="slot">
-          ${Object.entries(DELIVERY_SLOTS).map(([k, v]) => `<option value="${k}" ${(so?.slot ?? 'morning') === k ? 'selected' : ''}>${v.label} (${v.time})</option>`)}
-        </select>
-      </label>
-      <div class="form-row">
-        <label>Start date (optional)
-          <input name="start_date" type="date" value="${so?.start_date?.slice(0, 10) ?? ''}">
-        </label>
-        <label>End date (optional)
-          <input name="end_date" type="date" value="${so?.end_date?.slice(0, 10) ?? ''}">
-        </label>
-      </div>
-      <fieldset>
-        <legend>Items</legend>
-        <div id="so-items">
-          ${existingItems.map((item, i) => html`
-            <div class="form-row so-item">
-              <select name="product_id_${i}" required>
-                <option value="${item.product_id ?? ''}">— select product —</option>
-                ${products.map(p => `<option value="${p.id}" ${p.id === item.product_id ? 'selected' : ''}>${p.name}</option>`)}
-              </select>
-              <input name="qty_${i}" type="number" min="0.01" step="0.01" value="${item.qty ?? 1}" required>
-              <button type="button" class="btn btn-sm remove-so-item">✕</button>
-            </div>
-          `)}
-        </div>
-        <button type="button" class="btn btn-sm" id="add-so-item-btn">+ Add item</button>
-      </fieldset>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Save standing order</button>
-      </div>
-    </form>
-  `);
-
-  const form = document.querySelector('#so-form');
-  if (!form) return;
-
-  form.querySelector('#add-so-item-btn')?.addEventListener('click', () => {
-    const div = document.createElement('div');
-    div.className = 'form-row so-item';
-    const idx = form.querySelectorAll('.so-item').length;
-    div.innerHTML = `
-      <select name="product_id_${idx}" required>
-        <option value="">— select product —</option>
-        ${products.map(p => `<option value="${p.id}">${p.name}</option>`)}
-      </select>
-      <input name="qty_${idx}" type="number" min="0.01" step="0.01" value="1" required>
-      <button type="button" class="btn btn-sm remove-so-item">✕</button>
-    `;
-    form.querySelector('#so-items')?.appendChild(div);
-  });
-
-  on(form, 'click', '.remove-so-item', e => e.target.closest('.so-item')?.remove());
-
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    const f = new FormData(form);
-    const days = [...form.querySelectorAll('[name="days"]:checked')].map(el => Number(el.value));
-    if (!days.length) { toast('Select at least one day', 'error'); return; }
-
-    const items = [];
-    let i = 0;
-    while (f.get(`product_id_${i}`) !== null) {
-      const pid = f.get(`product_id_${i}`);
-      if (pid) items.push({ product_id: pid, qty: Number(f.get(`qty_${i}`)) });
-      i++;
-    }
-    if (!items.length) { toast('Add at least one item', 'error'); return; }
-
+/** Save the cart (or an existing template) as a standing order. Exported: the cart drawer opens it too. */
+export function standingOrderDialog(state, existing, onSaved) {
+  const products = state.byId ?? {};
+  const outlets = (state.terms?.outlets ?? []).filter((o) => o.is_active);
+  const items = existing ? existing.items : cartEntries().map(({ productId, quantity }) => ({ product_id: productId, quantity }));
+  if (!items.length) { toast('Add products to the cart first.', 'error'); return; }
+  const days = new Set(existing?.days_of_week ?? [1, 2, 3, 4, 5, 6]);
+  const { el, close } = openModal(html`<form id="standing-form" class="stack" novalidate>
+    <label class="field"><span class="label">Name</span><input class="input" name="name" maxlength="120" value="${existing?.name ?? ''}" placeholder="Daily veg, Weekend dairy…" required></label>
+    <div class="field"><span class="label">Deliver on</span><div class="row-wrap" id="days">${WEEKDAYS.map((d) => html`<label class="check"><input type="checkbox" name="day" value="${d.value}" ${days.has(d.value) ? 'checked' : ''}> ${d.label}</label>`)}</div>
+      <span class="hint">The order is placed the evening before, for the next morning / slot.</span></div>
+    <div class="form-grid">
+      <label class="field"><span class="label">Slot</span><select class="select" name="slot">${Object.entries(DELIVERY_SLOTS).filter(([k]) => k !== 'express').map(([k, v]) => html`<option value="${k}" ${k === (existing?.delivery_slot ?? 'morning') ? 'selected' : ''}>${v.label}</option>`)}</select></label>
+      <label class="field"><span class="label">Payment</span><select class="select" name="payment">${Object.entries(PAYMENT_METHODS).map(([k, v]) => html`<option value="${k}" ${k === (existing?.payment_method ?? 'cod') ? 'selected' : ''}>${v.label}</option>`)}</select></label>
+      ${outlets.length > 1 ? html`<label class="field"><span class="label">Outlet</span><select class="select" name="outlet">${outlets.map((o) => html`<option value="${o.id}" ${o.id === (existing?.outlet_id ?? outlets.find((x) => x.is_primary)?.id) ? 'selected' : ''}>${o.name}</option>`)}</select></label>` : ''}
+      ${state.terms?.needs_po_reference ? html`<label class="field"><span class="label">PO / indent number</span><input class="input" name="po" maxlength="60" value="${existing?.po_reference ?? ''}" required></label>` : ''}
+    </div>
+    <div class="card card-pad"><strong class="small">Basket</strong><ul class="small" style="margin:var(--space-2) 0 0;padding-left:1.1rem">${items.map((i) => html`<li>${products[i.product_id]?.name ?? i.product_id} — ${formatQty(i.quantity)} ${products[i.product_id]?.unit ?? ''}</li>`)}</ul></div>
+    <p class="form-error" id="standing-error" role="alert"></p>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">${existing ? 'Save' : 'Create standing order'}</button></div>
+  </form>`, { title: existing ? `Edit ${existing.name}` : 'Save as standing order' });
+  const form = $('#standing-form', el);
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const chosen = [...form.querySelectorAll('[name="day"]:checked')].map((c) => Number(c.value));
+    if (!form.elements.name.value.trim()) { $('#standing-error', el).textContent = 'Give it a name.'; return; }
+    if (!chosen.length) { $('#standing-error', el).textContent = 'Choose at least one weekday.'; return; }
     try {
-      await saveStandingOrder({
-        id: so?.id, items, days,
-        slot: f.get('slot'), label: f.get('label') || null,
-        startDate: f.get('start_date') || null, endDate: f.get('end_date') || null,
-      });
-      toast(so ? 'Standing order updated' : 'Standing order created');
-      document.querySelector('.modal-overlay')?.remove();
-      onSave();
-    } catch (err) { toast(err.message, 'error'); }
-  });
+      await withBusy($('button[type="submit"]', form), () => saveStandingOrder({ id: existing?.id, name: form.elements.name.value, items, days: chosen, slot: form.elements.slot.value,
+        paymentMethod: form.elements.payment.value, outletId: form.elements.outlet?.value, poReference: form.elements.po?.value, isActive: existing?.is_active ?? true }));
+      toast(existing ? 'Standing order saved' : 'Standing order created — it places itself the evening before each delivery day', 'success'); close(); onSaved?.();
+    } catch (error) { $('#standing-error', el).textContent = error.message; }
+  };
+}
+
+function acceptQuoteDialog(quote, state, onDone) {
+  const needsPo = Boolean(state.terms?.needs_po_reference);
+  const { el, close } = openModal(html`<form id="accept-form" class="stack" novalidate>
+    <p>Order <strong>${quote.quote_number}</strong> at the quoted prices — <strong>${formatINR(quote.total_amount)}</strong> before any delivery fee.</p>
+    <div class="form-grid">
+      <label class="field"><span class="label">Slot</span><select class="select" name="slot">${Object.entries(DELIVERY_SLOTS).map(([k, v]) => html`<option value="${k}">${v.label}</option>`)}</select></label>
+      <label class="field"><span class="label">Date</span><input class="input" type="date" name="date"><span class="hint">Blank = tomorrow (today for express)</span></label>
+      <label class="field"><span class="label">Payment</span><select class="select" name="payment">${Object.entries(PAYMENT_METHODS).map(([k, v]) => html`<option value="${k}" ${k === 'credit' && state.terms?.credit_blocked_reason ? 'disabled' : ''}>${v.label}</option>`)}</select></label>
+      ${needsPo ? html`<label class="field"><span class="label">PO / indent number</span><input class="input" name="po" maxlength="60" required></label>` : ''}
+    </div>
+    <p class="form-error" id="accept-error" role="alert"></p>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Place order</button></div>
+  </form>`, { title: `Accept ${quote.quote_number}` });
+  $('#accept-form', el).onsubmit = async (event) => {
+    event.preventDefault();
+    const f = event.target;
+    if (needsPo && !f.elements.po.value.trim()) { $('#accept-error', el).textContent = 'Enter the PO / indent number.'; return; }
+    try {
+      const r = await withBusy($('button[type="submit"]', f), () => acceptQuote(quote.id, { deliveryDate: f.elements.date.value || null, slot: f.elements.slot.value, paymentMethod: f.elements.payment.value, poReference: f.elements.po?.value }));
+      toast(`Order ${r.order_number} placed — ${formatINR(r.total_amount)}`, 'success'); close(); onDone?.();
+    } catch (error) { $('#accept-error', el).textContent = error.message; }
+  };
+}
+
+/** "Upload your order (CSV)": parse → preview → add to cart. Exported for the catalogue page. */
+export function bulkUploadDialog(state) {
+  const products = state.products ?? [];
+  const { el, close } = openModal(html`<div class="stack">
+    <p class="small muted">A CSV with columns <code>sku</code> (or <code>product</code>) and <code>quantity</code>. <a href="#" id="bulk-template">Download the template</a> with your first products.</p>
+    <input class="input" type="file" id="bulk-file" accept=".csv,text/csv">
+    <div id="bulk-preview"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" id="bulk-add" disabled>Add to cart</button></div>
+  </div>`, { title: 'Upload your order' });
+  let prepared = { lines: [], problems: [] };
+  $('#bulk-template', el).onclick = (e) => {
+    e.preventDefault();
+    const blob = new Blob(['﻿' + bulkOrderTemplate(products)], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'order-template.csv'; a.click(); URL.revokeObjectURL(a.href);
+  };
+  $('#bulk-file', el).onchange = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    prepared = csvToCartLines(parseCsv(await file.text()), products);
+    mount($('#bulk-preview', el), html`
+      ${prepared.problems.length ? html`<div class="banner warn"><strong>${prepared.problems.length} note${prepared.problems.length === 1 ? '' : 's'}</strong><ul class="small" style="margin:var(--space-1) 0 0;padding-left:1.1rem">${prepared.problems.map((p) => html`<li>${p}</li>`)}</ul></div>` : ''}
+      ${prepared.lines.length ? html`<ul class="small" style="padding-left:1.1rem">${prepared.lines.map((l) => html`<li>${l.name} — ${formatQty(l.quantity)}</li>`)}</ul>` : html`<p class="muted small">Nothing to add.</p>`}`);
+    $('#bulk-add', el).disabled = prepared.lines.length === 0;
+  };
+  $('#bulk-add', el).onclick = () => {
+    for (const l of prepared.lines) setQty(l.product_id, l.quantity);
+    toast(`${prepared.lines.length} line${prepared.lines.length === 1 ? '' : 's'} added to the cart`, 'success');
+    close();
+  };
 }

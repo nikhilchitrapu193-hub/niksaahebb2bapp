@@ -1,413 +1,252 @@
 // =============================================================================
-// orders.js — Admin: Orders list and detail
-//
-// Renders the orders table with inline detail panels. Status transitions go
-// through setOrderStatus(); packed quantities go through setPacked(); payment
-// recording calls recordPayment() via getCustomerReceivables().
-//
-// ARCHITECTURE: All Supabase calls go through api.js — never directly here.
+// orders.js — all orders in the caller's scope: filter by status, city and
+// sector; open detail; advance status; assign driver; record a receipt against a
+// delivered order (payments.js receiptDialog, migration 015); export.
+// The allowed transitions are enforced by the database (set_order_status);
+// NEXT_STATUS below only decides which button to show, and the permission
+// checks only hide buttons the database would refuse anyway.
 // =============================================================================
 
-import { html, mount, on, toast, reportError, withBusy, formatINR, formatDate, statusBadge } from '../../core/ui.js';
-import {
-  listOrders, setOrderStatus, setPacked,
-  getCustomerReceivables, recordPayment, listSectors,
-  placeOrderFor, listRestaurants, listProducts,
-} from '../../core/api.js';
+import { html, mount, on, $, formatINR, formatQty, withBusy, formatDateTime, formatDate, statusBadge, openModal,
+         confirmDialog, reportError, toast, STATUS_LABELS } from '../../core/ui.js';
+import { listOrders, getOrderHistory, setOrderStatus, assignDelivery, listUsers, listCities, listSectors, setPackedQuantities,
+         placeOrderFor, listRestaurants, listProducts } from '../../core/api.js';
+import { receiptDialog } from './payments.js';
+import { DELIVERY_SLOTS, PAYMENT_METHODS, webRoot } from '../../core/config.js';
 import { can } from '../../core/permissions.js';
+import { contactLinks } from '../../core/notify.js';
+import { listOutlets } from '../../core/api.js';
+import { downloadCsv } from '../../core/csv.js';
 
-// Status transitions: given current status, what is the next action?
 const NEXT_STATUS = {
-  placed:            { to: 'confirmed',         label: 'Confirm order' },
-  confirmed:         { to: 'packed',            label: 'Mark packed' },
-  packed:            { to: 'out_for_delivery',  label: 'Dispatch' },
-  out_for_delivery:  { to: 'delivered',         label: 'Mark delivered' },
+  placed: { to: 'confirmed', label: 'Confirm order' },
+  confirmed: { to: 'packed', label: 'Mark packed' },
+  packed: { to: 'out_for_delivery', label: 'Dispatch' },
+  out_for_delivery: { to: 'delivered', label: 'Mark delivered' },
 };
 
-/** Sub-nav shown at the top of the Orders section */
-function subNav(activeHash) {
-  const tabs = [
-    { href: '#orders',  label: 'All Orders' },
-    { href: '#quotes',  label: 'Quotes'     },
-    { href: '#tickets', label: 'Tickets'    },
-    { href: '#issues',  label: 'Issues'     },
-  ];
-  return html`
-    <nav class="sub-nav">
-      ${tabs.map((t) =>
-        html`<a href="${t.href}" class="sub-nav-link${activeHash === t.href ? ' active' : ''}">${t.label}</a>`
-      )}
-    </nav>
-  `;
-}
-
 export async function renderOrders(container, me) {
-  mount(container, html`<div class="loading">Loading orders…</div>`);
+  const filter = { status: '', cityId: '', sectorCode: '', approvalStatus: '' };
+  const [drivers, cities, sectors] = await Promise.all([
+    can(me, 'team', 'view') ? listUsers().then((u) => u.filter((x) => x.role === 'delivery' && x.is_active)) : Promise.resolve([]),
+    listCities(),
+    listSectors(),
+  ]);
+  const cityName = Object.fromEntries(cities.map((c) => [c.id, c.name]));
+  const sectorName = Object.fromEntries(sectors.map((s) => [s.code, s.name]));
+  let orders = [];
 
-  // Load sectors once so we can resolve sector_code → name in the detail panel.
-  const sectors = await listSectors().catch(() => []);
-  const sectorName = (code) => {
-    if (!code) return null;
-    return sectors.find((s) => s.code === code)?.name ?? code;
-  };
-
-  // Filters held in closure so re-renders can apply them.
-  let filterStatus = '';
-  let filterApproval = '';
-
-  async function reload() {
-    const opts = {};
-    if (filterStatus) opts.status = filterStatus;
-    if (filterApproval) opts.approvalStatus = filterApproval;
-    const orders = await listOrders(opts).catch((err) => { reportError(err); return []; });
-    renderList(orders);
-  }
-
-  mount(container, html`
-    ${subNav('#orders')}
-    <div class="page-head">
-      <div><h1>Orders</h1></div>
-      <div class="row gap-2">
-      ${can(me, 'orders', 'edit') ? html`<button class="btn primary" id="new-order">+ New order</button>` : ''}
-      <div class="filters row gap-2">
-        <select class="select-sm" data-filter="status">
+  async function draw() {
+    orders = await listOrders({ status: filter.status || undefined, cityId: filter.cityId || undefined, sectorCode: filter.sectorCode || undefined, approvalStatus: filter.approvalStatus || undefined });
+    mount(container, html`
+      <div class="page-head"><div><h1>Orders</h1><p>${orders.length} shown</p></div>
+        <div class="row">
+          <a class="btn" href="#issues">Issues &amp; credits</a>
+          <a class="btn" href="#tickets">Support tickets</a>
+          <a class="btn" href="#quotes">Quotes &amp; standing</a>
+          ${can(me, 'orders', 'edit') ? html`<button class="btn" id="new-order">New order for a customer</button>` : ''}
+          ${can(me, 'orders', 'export') ? html`<button class="btn" id="export">Export CSV</button>` : ''}
+        </div></div>
+      <div class="toolbar">
+        <select class="select" data-filter="status" aria-label="Filter by status">
           <option value="">All statuses</option>
-          <option value="placed">Placed</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="packed">Packed</option>
-          <option value="out_for_delivery">Out for delivery</option>
-          <option value="delivered">Delivered</option>
-          <option value="cancelled">Cancelled</option>
+          ${Object.keys(NEXT_STATUS).concat(['delivered', 'cancelled']).map((s) =>
+            html`<option value="${s}" ${s === filter.status ? 'selected' : ''}>${STATUS_LABELS[s]}</option>`)}
         </select>
-        <select class="select-sm" data-filter="approvalStatus">
-          <option value="">All approval</option>
-          <option value="pending">Awaiting approval</option>
-          <option value="not_required">No approval needed</option>
-          <option value="approved">Approved</option>
+        ${cities.length > 1 ? html`<select class="select" data-filter="cityId" aria-label="Filter by city">
+          <option value="">All cities</option>
+          ${cities.map((c) => html`<option value="${c.id}" ${c.id === filter.cityId ? 'selected' : ''}>${c.name}</option>`)}
+        </select>` : ''}
+        <select class="select" data-filter="sectorCode" aria-label="Filter by sector">
+          <option value="">All sectors</option>
+          ${sectors.map((s) => html`<option value="${s.code}" ${s.code === filter.sectorCode ? 'selected' : ''}>${s.name}</option>`)}
+        </select>
+        <select class="select" data-filter="approvalStatus" aria-label="Filter by customer approval">
+          <option value="">Any approval state</option>
+          <option value="pending" ${filter.approvalStatus === 'pending' ? 'selected' : ''}>Awaiting customer approval</option>
+          <option value="approved" ${filter.approvalStatus === 'approved' ? 'selected' : ''}>Approved by customer</option>
+          <option value="rejected" ${filter.approvalStatus === 'rejected' ? 'selected' : ''}>Rejected by customer</option>
         </select>
       </div>
-      </div>
-    </div>
-    <div id="po-for" hidden class="card card-pad mb-md">
-      <h3>Place order for a restaurant</h3>
-      <form id="po-form" class="stack" novalidate>
-        <label class="field"><span class="label">Restaurant</span>
-          <input class="input" name="restaurant" list="po-restaurant-list" placeholder="Restaurant name or ID" required>
-          <datalist id="po-restaurant-list"></datalist>
-        </label>
-        <div id="po-items">
-          <div class="po-item row gap-2">
-            <input class="input" data-field="product_id" list="po-product-list" placeholder="Product name or ID" required>
-            <datalist id="po-product-list"></datalist>
-            <input class="input" type="number" data-field="quantity" min="1" placeholder="Qty" required>
-          </div>
-        </div>
-        <div class="row gap-2">
-          <button class="btn primary" type="submit" id="po-submit">Place order</button>
-          <button class="btn ghost" type="button" id="po-cancel">Cancel</button>
-        </div>
-      </form>
-    </div>
-    <div id="orders-list"></div>
-    <div id="order-detail"></div>
-  `);
+      <div class="card"><div class="table-wrap"><table class="table">
+        <thead><tr><th>Order</th><th>Customer</th><th>Deliver</th><th class="right">Total</th><th>Payment</th><th>Status</th></tr></thead>
+        <tbody>${orders.length === 0
+          ? html`<tr><td colspan="6"><div class="empty">No orders.</div></td></tr>`
+          : orders.map((o) => html`<tr class="clickable" data-order="${o.id}">
+              <td><strong>${o.order_number}</strong><div class="muted tiny nowrap">${formatDateTime(o.created_at)}</div></td>
+              <td>${o.restaurant_name}<div class="muted tiny">${sectorName[o.sector_code] ?? ''}${cities.length > 1 ? ` · ${cityName[o.city_id] ?? ''}` : ''}${o.po_reference ? html` · PO ${o.po_reference}` : ''}</div></td>
+              <td class="nowrap">${formatDate(o.delivery_date)}<div class="muted tiny">${DELIVERY_SLOTS[o.delivery_slot]?.label ?? ''}</div></td>
+              <td class="right money">${formatINR(o.total_amount)}</td>
+              <td><span class="badge ${o.payment_status === 'paid' ? 'approved' : 'pending'}">${o.payment_status === 'paid' ? 'Paid' : PAYMENT_METHODS[o.payment_method]?.label ?? 'Unpaid'}</span></td>
+              <td>${o.approval_status === 'pending' ? html`<span class="badge pending" title="The customer's approver has not signed this off yet">Awaiting approval</span> ` : ''}${statusBadge(o.status)}</td></tr>`)}
+        </tbody></table></div></div>`);
 
-  on(container, 'change', '[data-filter="status"]', (e) => {
-    filterStatus = e.target.value;
-    reload();
-  });
-  on(container, 'change', '[data-filter="approvalStatus"]', (e) => {
-    filterApproval = e.target.value;
-    reload();
-  });
-
-  // New order form
-  on(container, 'click', '#new-order', async () => {
-    const poFor = container.querySelector('#po-for');
-    poFor.hidden = false;
-    // Populate selects
-    const [restaurants, products] = await Promise.all([
-      listRestaurants().catch(() => []),
-      listProducts().catch(() => []),
-    ]);
-    const restList = poFor.querySelector('#po-restaurant-list');
-    restaurants.forEach((r) => {
-      const opt = document.createElement('option');
-      opt.value = r.id; opt.label = r.name;
-      restList.appendChild(opt);
+    container.querySelectorAll('[data-filter]').forEach((select) => {
+      select.onchange = () => { filter[select.dataset.filter] = select.value; draw().catch(reportError); };
     });
-    const prodList = poFor.querySelector('#po-product-list');
-    products.forEach((p) => {
-      const opt = document.createElement('option');
-      opt.value = p.id; opt.label = `${p.name} (${p.unit})`;
-      prodList.appendChild(opt);
-    });
-  });
-
-  on(container, 'click', '#po-cancel', () => {
-    container.querySelector('#po-for').hidden = true;
-  });
-
-  on(container, 'submit', '#po-for', async (e, poFor) => {
-    e.preventDefault();
-    const restaurantId = poFor.querySelector('[name=restaurant]').value;
-    const productId = poFor.querySelector('[data-field="product_id"]').value;
-    const quantity = Number(poFor.querySelector('[data-field="quantity"]').value);
-    const btn = poFor.querySelector('#po-submit');
-    try {
-      await withBusy(btn, () => placeOrderFor(restaurantId, [{ product_id: productId, quantity }]));
-      toast('Order placed', 'success');
-      container.querySelector('#po-for').hidden = true;
-      poFor.querySelector('#po-form').reset();
-      await reload();
-    } catch (err) { reportError(err); }
-  });
-
-  function renderList(orders) {
-    const listEl = container.querySelector('#orders-list');
-    if (!orders.length) {
-      mount(listEl, html`<p class="muted">No orders found.</p>`);
-      return;
-    }
-
-    mount(listEl, html`
-      <table class="data-table">
-        <thead><tr>
-          <th>Order #</th><th>Customer</th><th>Total</th>
-          <th>Delivery</th><th>Status</th>
-        </tr></thead>
-        <tbody>
-          ${orders.map((o) => {
-            const isPendingApproval = o.approval_status === 'pending';
-            const statusText = isPendingApproval ? 'Awaiting approval' : (o.status ?? '');
-            return html`
-              <tr class="clickable" data-order="${o.id}">
-                <td><strong>${o.order_number ?? o.id.slice(0, 8)}</strong></td>
-                <td>${o.restaurant_name ?? o.outlets?.name ?? '—'}</td>
-                <td>${formatINR(o.total_amount)}</td>
-                <td>${o.delivery_date ? formatDate(o.delivery_date) : '—'}${o.delivery_slot ? ' · ' + o.delivery_slot : ''}</td>
-                <td>${statusBadge(isPendingApproval ? 'pending_approval' : o.status)} ${isPendingApproval ? html`<span class="muted">${statusText}</span>` : ''}</td>
-              </tr>
-            `;
-          })}
-        </tbody>
-      </table>
-    `);
-
-    on(listEl, 'click', 'tr.clickable[data-order]', (_, row) => {
-      const orderId = row.dataset.order;
-      const order = orders.find((o) => o.id === orderId);
-      if (order) openDetail(order);
+    container.querySelectorAll('[data-order]').forEach((row) => {
+      row.onclick = () => showOrder(orders.find((o) => o.id === row.dataset.order), drivers, me, () => draw().catch(reportError));
     });
   }
 
-  function openDetail(order) {
-    const detailEl = container.querySelector('#order-detail');
-    const canEdit = can(me, 'orders', 'edit');
-    const nextStep = NEXT_STATUS[order.status];
-    const isConfirmed = order.status === 'confirmed';
-    const isDeliveredCredit = order.status === 'delivered' && order.payment_method === 'credit' && order.payment_status !== 'paid';
-    const isPendingApproval = order.approval_status === 'pending';
-    const secName = sectorName(order.sector_code);
+  on(container, 'click', '#export', () => downloadCsv('orders.csv', orders, [
+    { key: 'order_number', label: 'Order' },
+    { key: 'created_at', label: 'Placed' },
+    { key: 'restaurant_name', label: 'Customer' },
+    { label: 'Sector', value: (o) => sectorName[o.sector_code] ?? o.sector_code },
+    { label: 'City', value: (o) => cityName[o.city_id] ?? '' },
+    { key: 'po_reference', label: 'PO ref' },
+    { key: 'delivery_date', label: 'Delivery date' },
+    { key: 'delivery_slot', label: 'Slot' },
+    { key: 'status', label: 'Status' },
+    { key: 'payment_method', label: 'Payment' },
+    { key: 'payment_status', label: 'Paid?' },
+    { key: 'due_date', label: 'Due date' },
+    { key: 'subtotal', label: 'Subtotal' },
+    { key: 'tax_amount', label: 'GST' },
+    { key: 'delivery_fee', label: 'Delivery fee' },
+    { key: 'total_amount', label: 'Total' },
+  ]));
 
-    const items = order.order_items ?? [];
+  on(container, 'click', '#new-order', () => newOrderDialog(() => draw().catch(reportError)));
 
-    mount(detailEl, html`
-      <div class="detail-panel card">
-        <div class="between">
-          <h3>Order ${order.order_number ?? order.id.slice(0, 8)}</h3>
-          <button class="btn ghost small" id="close-detail">✕ Close</button>
-        </div>
-
-        ${isPendingApproval ? html`
-          <div class="banner warn">
-            Awaiting the customer's approval before this order can be confirmed.
-            ${order.outlets?.name ? html` — <strong>${order.outlets.name}</strong>` : ''}
-          </div>
-        ` : ''}
-
-        <dl class="kv">
-          <dt>Customer</dt>
-          <dd>${order.restaurant_name ?? '—'}${order.outlets?.name ? html` <span class="muted">(${order.outlets.name})</span>` : ''}</dd>
-
-          <dt>Delivery address</dt>
-          <dd>${order.delivery_address ?? '—'}</dd>
-
-          ${order.po_reference ? html`<dt>PO reference</dt><dd>${order.po_reference}</dd>` : ''}
-
-          ${order.delivery_fee != null && order.delivery_fee > 0 ? html`
-            <dt>Delivery fee</dt><dd>${formatINR(order.delivery_fee)}</dd>
-          ` : ''}
-
-          ${secName ? html`<dt>Sector</dt><dd>${secName}</dd>` : ''}
-
-          <dt>Payment</dt>
-          <dd>${order.payment_method ?? '—'} · ${order.payment_status ?? '—'}
-            ${isDeliveredCredit ? html`
-              <span class="muted">${order.due_date ? ` · due ${formatDate(order.due_date)}` : ''}</span>
-              ${canEdit ? html`<button class="btn small primary" data-pay style="margin-left:var(--space-2)">Record payment</button>` : ''}
-            ` : ''}
-          </dd>
-
-          <dt>Total</dt>
-          <dd><strong>${formatINR(order.total_amount)}</strong></dd>
-        </dl>
-
-        ${items.length ? html`
-          <table class="data-table">
-            <thead><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th>
-              ${isConfirmed && canEdit ? html`<th>Packed qty</th>` : ''}
-            </tr></thead>
-            <tbody>
-              ${items.map((item) => html`
-                <tr>
-                  <td>${item.product_name ?? '—'}</td>
-                  <td>${item.quantity}</td>
-                  <td>${item.unit ?? '—'}</td>
-                  <td>${formatINR(item.unit_price)}</td>
-                  <td>${formatINR(item.line_total ?? item.quantity * item.unit_price)}</td>
-                  ${isConfirmed && canEdit && item.id ? html`
-                    <td><input class="input-sm" type="number" min="0" step="0.01"
-                      data-packed="${item.id}"
-                      data-ordered="${item.ordered_quantity ?? item.quantity}"
-                      value="${item.ordered_quantity ?? item.quantity}"
-                      style="width:80px"></td>
-                  ` : (isConfirmed && canEdit ? html`<td>—</td>` : '')}
-                </tr>
-              `)}
-            </tbody>
-          </table>
-        ` : ''}
-
-        ${isConfirmed && canEdit ? html`
-          <div class="row gap-2" style="margin-top:var(--space-3)">
-            <button class="btn primary" data-save-packed>Save packed quantities</button>
-          </div>
-        ` : ''}
-
-        ${canEdit && nextStep && !isPendingApproval ? html`
-          <div class="row gap-2" style="margin-top:var(--space-3)">
-            <button class="btn primary" data-next data-to="${nextStep.to}" data-order-id="${order.id}">${nextStep.label}</button>
-          </div>
-        ` : ''}
-
-        <div id="receipt-area"></div>
-      </div>
-    `);
-
-    on(detailEl, 'click', '#close-detail', () => mount(detailEl, html``));
-
-    // Advance status
-    if (canEdit && nextStep) {
-      on(detailEl, 'click', '[data-next]', async (_, btn) => {
-        try {
-          await withBusy(btn, () => setOrderStatus(order.id, nextStep.to));
-          toast(`Order ${nextStep.label.toLowerCase()}`, 'success');
-          order.status = nextStep.to;
-          await reload();
-          openDetail({ ...order, status: nextStep.to });
-        } catch (err) { reportError(err); }
-      });
-    }
-
-    // Save packed quantities
-    if (isConfirmed && canEdit) {
-      on(detailEl, 'click', '[data-save-packed]', async (_, btn) => {
-        const inputs = detailEl.querySelectorAll('[data-packed]');
-        // Only send lines where packed qty differs from ordered qty
-        const changed = [];
-        inputs.forEach((inp) => {
-          const packed = parseFloat(inp.value);
-          const ordered = parseFloat(inp.dataset.ordered);
-          if (!isNaN(packed) && packed !== ordered) {
-            changed.push({ order_item_id: inp.dataset.packed, packed_quantity: packed });
-          }
-        });
-        // If nothing changed, send all
-        const toSend = changed.length ? changed : [...inputs].map((inp) => ({
-          order_item_id: inp.dataset.packed,
-          packed_quantity: parseFloat(inp.value) || 0,
-        }));
-        try {
-          await withBusy(btn, () => setPacked(order.id, toSend));
-          toast('Packed quantities saved', 'success');
-          await reload();
-        } catch (err) { reportError(err); }
-      });
-    }
-
-    // Record payment button → load receivables → show receipt form
-    if (isDeliveredCredit && canEdit) {
-      on(detailEl, 'click', '[data-pay]', async () => {
-        const receiptArea = detailEl.querySelector('#receipt-area');
-        mount(receiptArea, html`<div class="loading">Loading account…</div>`);
-        try {
-          const recv = await getCustomerReceivables(order.restaurant_id);
-          const openItems = recv?.open_items ?? [];
-          // Pre-tick the invoice for this order
-          const amount = openItems.find((i) => i.id === order.id)?.balance ?? order.total_amount ?? 0;
-
-          mount(receiptArea, html`
-            <hr>
-            <h4>Record payment</h4>
-            <form id="receipt" class="stack" novalidate>
-              <div class="form-grid">
-                <label class="field"><span class="label">Method</span>
-                  <select class="select" name="method" required>
-                    <option value="cash">Cash</option>
-                    <option value="upi">UPI</option>
-                    <option value="neft">NEFT</option>
-                    <option value="cheque">Cheque</option>
-                    <option value="credit_note">Credit note</option>
-                  </select></label>
-                <label class="field"><span class="label">Amount (₹)</span>
-                  <input class="input" name="amount" type="number" min="0" step="0.01"
-                    value="${amount}" required></label>
-                <label class="field"><span class="label">Reference / UTR</span>
-                  <input class="input" name="reference" maxlength="100"></label>
-              </div>
-              <div>
-                <p class="label">Apply to invoices:</p>
-                ${openItems.map((item) => html`
-                  <label class="checkbox-row">
-                    <input type="checkbox" data-item="${item.id}" checked="${item.id === order.id ? 'true' : 'false'}"
-                      ${item.id === order.id ? 'checked' : ''} value="${item.balance}">
-                    ${item.number ?? item.id} — ${formatINR(item.balance)}
-                    ${item.days_overdue > 0 ? html` <span class="badge cancelled">${item.days_overdue}d overdue</span>` : ''}
-                  </label>
-                `)}
-              </div>
-              <div><button class="btn primary" type="submit">Record payment</button></div>
-            </form>
-          `);
-
-          on(receiptArea, 'submit', '#receipt', async (e, form) => {
-            e.preventDefault();
-            const fd = new FormData(form);
-            const allocs = [];
-            receiptArea.querySelectorAll('[data-item]:checked').forEach((cb) => {
-              allocs.push({ order_id: cb.dataset.item, amount: parseFloat(cb.value) });
-            });
-            try {
-              await recordPayment(order.restaurant_id, {
-                amount: parseFloat(fd.get('amount')),
-                method: fd.get('method'),
-                reference: fd.get('reference') || null,
-                allocations: allocs,
-              });
-              toast('Payment recorded', 'success');
-              mount(receiptArea, html``);
-              await reload();
-            } catch (err) { reportError(err); }
-          });
-        } catch (err) {
-          reportError(err);
-          mount(receiptArea, html`<p class="error">Could not load account details.</p>`);
-        }
-      });
-    }
-  }
-
-  await reload();
+  await draw();
 }
 
+/** Staff place an order on behalf of a customer (place_order_for; bypasses the slot cut-off). */
+async function newOrderDialog(onPlaced) {
+  const { el, close } = openModal(html`<div class="loading"><span class="spinner"></span> Loading…</div>`, { title: 'New order for a customer', wide: true });
+  try {
+    const [restaurants, products, outlets] = await Promise.all([listRestaurants(), listProducts(), listOutlets().catch(() => [])]);
+    const approved = restaurants.filter((r) => r.status === 'approved');
+    let chosenRestaurant = '';
+    const active = products.filter((p) => p.is_active && !p.parent_product_id);
+    const lines = [{ product_id: '', quantity: '' }];
+    const draw = () => {
+      mount(el, html`
+        <form id="po-for" class="stack" novalidate>
+          <div class="form-grid">
+            <label class="field"><span class="label">Customer</span><select class="select" name="restaurant" required><option value="">Choose a customer…</option>${approved.map((r) => html`<option value="${r.id}" ${r.id === chosenRestaurant ? 'selected' : ''}>${r.name}</option>`)}</select></label>
+            ${outlets.filter((o) => o.restaurant_id === chosenRestaurant && o.is_active).length > 1 ? html`<label class="field"><span class="label">Outlet</span><select class="select" name="outlet">
+              ${outlets.filter((o) => o.restaurant_id === chosenRestaurant && o.is_active).map((o) => html`<option value="${o.id}">${o.name} — ${o.address}</option>`)}</select></label>` : ''}
+            <label class="field"><span class="label">Payment</span><select class="select" name="payment">${Object.entries(PAYMENT_METHODS).map(([k, v]) => html`<option value="${k}">${v.label}</option>`)}</select></label>
+            <label class="field"><span class="label">Deliver on</span><input class="input" name="date" type="date"></label>
+            <label class="field"><span class="label">Slot</span><select class="select" name="slot">${Object.entries(DELIVERY_SLOTS).map(([k, v]) => html`<option value="${k}" ${k === 'morning' ? 'selected' : ''}>${v.label}</option>`)}</select></label>
+            <label class="field span-2"><span class="label">PO / indent reference (if the sector needs one)</span><input class="input" name="po" maxlength="60"></label>
+          </div>
+          <table class="table small-table"><thead><tr><th>Product</th><th class="right">Quantity</th><th></th></tr></thead>
+            <tbody>${lines.map((l, i) => html`<tr data-line="${i}">
+              <td><select class="select small" data-field="product_id"><option value="">Choose…</option>${active.map((p) => html`<option value="${p.id}" ${p.id === l.product_id ? 'selected' : ''}>${p.name} (${p.unit})</option>`)}</select></td>
+              <td class="right"><input class="input small num right" type="number" min="0" step="any" data-field="quantity" value="${l.quantity}" style="width:100px"></td>
+              <td class="right"><button type="button" class="btn ghost small" data-remove="${i}" ${lines.length === 1 ? 'disabled' : ''}>✕</button></td></tr>`)}</tbody></table>
+          <div><button type="button" class="btn small" id="add-line">+ Add line</button></div>
+          <p class="form-error" id="po-for-error" role="alert"></p>
+          <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Place order</button></div>
+        </form>`);
+    };
+    on(el, 'change', '[data-field]', (_e, input) => { lines[Number(input.closest('[data-line]').dataset.line)][input.dataset.field] = input.value; });
+    on(el, 'change', '[name="restaurant"]', (_e, sel) => { chosenRestaurant = sel.value; draw(); });
+    on(el, 'click', '#add-line', () => { lines.push({ product_id: '', quantity: '' }); draw(); });
+    on(el, 'click', '[data-remove]', (_e, b) => { lines.splice(Number(b.dataset.remove), 1); draw(); });
+    draw();
+    el.querySelector('#po-for').onsubmit = async (event) => {
+      event.preventDefault();
+      const form = event.target;
+      if (!form.elements.restaurant.value) { $('#po-for-error', el).textContent = 'Choose a customer.'; return; }
+      const items = lines.filter((l) => l.product_id && Number(l.quantity) > 0).map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity) }));
+      if (!items.length) { $('#po-for-error', el).textContent = 'Add at least one line.'; return; }
+      try {
+        const r = await withBusy($('button[type="submit"]', form), () => placeOrderFor(form.elements.restaurant.value, items, {
+          deliveryDate: form.elements.date.value || null, slot: form.elements.slot.value, paymentMethod: form.elements.payment.value, poReference: form.elements.po.value,
+          outletId: form.elements.outlet?.value || null,
+        }));
+        toast(`${r.order_number} placed (${formatINR(r.total_amount)})`, 'success'); close(); onPlaced();
+      } catch (error) { $('#po-for-error', el).textContent = error.message; }
+    };
+  } catch (error) { close(); reportError(error); }
+}
+
+async function showOrder(order, drivers, me, refresh) {
+  const { el, close } = openModal(html`<div class="loading"><span class="spinner"></span></div>`,
+    { title: order.order_number, wide: true });
+  try {
+    const history = await getOrderHistory(order.id);
+    const next = NEXT_STATUS[order.status];
+    const final = order.status === 'delivered' || order.status === 'cancelled';
+    const canEdit = can(me, 'orders', 'edit');
+    const canPay = can(me, 'payments', 'edit');
+    // Packed quantities (actual weight / short supply) are entered while the order is confirmed or packed.
+    const packable = canEdit && (order.status === 'confirmed' || order.status === 'packed');
+
+    mount(el, html`
+      <div class="spread">${statusBadge(order.status)}<span class="muted small">${formatDateTime(order.created_at)}</span></div>
+      ${order.approval_status === 'pending' ? html`<div class="banner warn" style="margin-top:var(--space-3)">Awaiting the customer's approval (their owner / approver signs off in their app). It can be cancelled but not confirmed until then.</div>` : ''}
+      ${order.approval_status === 'rejected' ? html`<div class="banner info" style="margin-top:var(--space-3)">Rejected by the customer's approver.</div>` : ''}
+      <dl class="kv" style="margin:var(--space-4) 0">
+        <dt>Restaurant</dt><dd>${order.restaurant_name}${order.outlets?.name ? html` · <span class="muted">${order.outlets.name}</span>` : ''}</dd>
+        <dt>Address</dt><dd>${order.delivery_address || '—'}</dd>
+        <dt>Phone</dt><dd>${order.contact_phone || '—'}${contactLinks(order.contact_phone, `Hello, about your order ${order.order_number}`)}</dd>
+        <dt>Delivery</dt><dd>${DELIVERY_SLOTS[order.delivery_slot]?.label ?? '—'} (${DELIVERY_SLOTS[order.delivery_slot]?.time ?? ''}), ${formatDate(order.delivery_date)}</dd>
+        <dt>Payment</dt><dd>${PAYMENT_METHODS[order.payment_method]?.label ?? '—'} ·
+          ${order.payment_status === 'paid' ? html`Paid ${formatDateTime(order.paid_at)}` : html`<strong>Unpaid</strong>${order.due_date ? html` · due ${formatDate(order.due_date)}` : ''}`}
+          ${canPay && order.payment_status !== 'paid' ? (order.status === 'delivered'
+            ? html`<button class="btn small" data-pay>Record payment</button>`
+            : html`<span class="muted tiny">(receipts are recorded once delivered; see <a href="#payments">Payments</a>)</span>`) : ''}</dd>
+        ${order.po_reference ? html`<dt>PO / indent</dt><dd>${order.po_reference}</dd>` : ''}
+        ${order.notes ? html`<dt>Notes</dt><dd>${order.notes}</dd>` : ''}
+      </dl>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Item</th><th class="right">Qty</th>${packable ? html`<th class="right">Packed</th>` : ''}<th class="right">Price</th><th class="right">Total</th></tr></thead>
+        <tbody>${order.order_items.map((i) => html`<tr><td>${i.product_name}${i.hsn_code ? html` <span class="muted tiny">HSN ${i.hsn_code}</span>` : ''}</td>
+          <td class="right num">${formatQty(i.quantity)} ${i.unit}${i.ordered_quantity != null && Number(i.ordered_quantity) !== Number(i.quantity) ? html`<div class="muted tiny">ordered ${formatQty(i.ordered_quantity)}</div>` : ''}</td>
+          ${packable ? html`<td class="right"><input class="input small num right" type="number" min="0.01" step="any" data-packed="${i.id}" value="${i.quantity}" style="width:96px" aria-label="Packed ${i.product_name}"></td>` : ''}
+          <td class="right num">${formatINR(i.unit_price)}</td><td class="right money">${formatINR(i.line_total)}</td></tr>`)}</tbody>
+        <tfoot>
+          <tr><td colspan="${packable ? 4 : 3}" class="right muted">Subtotal</td><td class="right num">${formatINR(order.subtotal)}</td></tr>
+          <tr><td colspan="${packable ? 4 : 3}" class="right muted">GST</td><td class="right num">${formatINR(order.tax_amount)}</td></tr>
+          ${Number(order.delivery_fee) > 0 ? html`<tr><td colspan="${packable ? 4 : 3}" class="right muted">Delivery fee (below minimum order)</td><td class="right num">${formatINR(order.delivery_fee)}</td></tr>` : ''}
+          ${Number(order.discount_amount) > 0 ? html`<tr><td colspan="${packable ? 4 : 3}" class="right muted">Coupon ${order.coupon_code ?? ''}</td><td class="right num">−${formatINR(order.discount_amount)}</td></tr>` : ''}
+          <tr><td colspan="${packable ? 4 : 3}" class="right"><strong>Total</strong></td><td class="right money">${formatINR(order.total_amount)}</td></tr></tfoot>
+      </table></div>
+
+      ${packable ? html`<div class="row" style="justify-content:flex-end;margin-top:var(--space-2)"><span class="muted small">Weighed items may differ within their tolerance; other items may only be short.</span><button class="btn" data-save-packed>Save packed quantities</button></div>` : ''}
+      ${final || !canEdit ? '' : html`<label class="field" style="margin-top:var(--space-4)"><span class="label">Delivery driver</span>
+        <select class="select" id="driver">
+          <option value="">— Unassigned —</option>
+          ${drivers.map((d) => html`<option value="${d.id}" ${d.id === order.assigned_to ? 'selected' : ''}>${d.full_name || d.email}</option>`)}
+        </select>
+        ${drivers.length === 0 ? html`<span class="hint">No delivery staff yet. Add them in Team.</span>` : ''}</label>`}
+
+      <h3 style="margin:var(--space-4) 0 var(--space-3)">History</h3>
+      <ul class="timeline">${history.map((h) => html`<li><strong>${STATUS_LABELS[h.to_status]}</strong>
+        <span class="muted"> · ${formatDateTime(h.created_at)}</span>${h.note ? html`<div class="muted">${h.note}</div>` : ''}</li>`)}</ul>
+
+      <div class="row" style="justify-content:flex-end;margin-top:var(--space-5)">
+        <a class="btn" target="_blank" rel="noopener" href="${webRoot}invoice.html?order=${order.id}">Invoice</a>
+        ${final || !canEdit ? '' : html`<button class="btn danger" data-cancel>Cancel order</button>
+        ${next ? html`<button class="btn primary" data-next>${next.label}</button>` : ''}`}</div>`);
+
+    async function run(action, message) {
+      try { await action(); toast(message, 'success'); close(); refresh(); } catch (error) { reportError(error); }
+    }
+    const driverSelect = $('#driver', el);
+    if (driverSelect) driverSelect.onchange = () => {
+      if (!driverSelect.value) return;
+      assignDelivery(order.id, driverSelect.value).then(() => { order.assigned_to = driverSelect.value; toast('Driver assigned', 'success'); }).catch(reportError);
+    };
+    on(el, 'click', '[data-pay]', () => receiptDialog({ restaurantId: order.restaurant_id, restaurantName: order.restaurant_name,
+      prefill: { amount: order.total_amount, orderId: order.id } }, me, () => { close(); refresh(); }));
+    on(el, 'click', '[data-save-packed]', (_e, b) => {
+      const lines = [...el.querySelectorAll('[data-packed]')]
+        .filter((input) => input.value !== '' && Number(input.value) !== Number(order.order_items.find((i) => i.id === input.dataset.packed)?.quantity))
+        .map((input) => ({ order_item_id: input.dataset.packed, packed_quantity: Number(input.value) }));
+      if (!lines.length) { toast('No quantity changed', 'info'); return; }
+      run(() => withBusy(b, () => setPackedQuantities(order.id, lines)), 'Packed quantities saved; order re-totalled');
+    });
+    on(el, 'click', '[data-next]', () => run(() => setOrderStatus(order.id, next.to), `Order ${STATUS_LABELS[next.to].toLowerCase()}`));
+    on(el, 'click', '[data-cancel]', async () => {
+      if (await confirmDialog('Cancel this order? The restaurant will see it as cancelled.', { confirmText: 'Cancel order', danger: true }))
+        run(() => setOrderStatus(order.id, 'cancelled', 'Cancelled by admin'), 'Order cancelled');
+    });
+  } catch (error) { close(); reportError(error); }
+}

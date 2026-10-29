@@ -1723,7 +1723,8 @@ test('admin: Customers shows who cannot sign in yet and Access confirms the emai
 });
 
 // ---------- Notifications & support (migration 018) ---------------------------
-const NOTIFY_SETTING = { id: 'ns1', event: 'order_placed', sector_code: null, sms_enabled: true, email_enabled: false,
+const NOTIFY_SETTING = { event: 'order_placed',   // no id column: rows are keyed by (event, sector_code)
+  sector_code: null, sms_enabled: true, email_enabled: false,
   sms_template: '{company}: order {order} received, total {total}.', email_subject: '', email_template: '', updated_at: '2026-10-27T00:00:00Z' };
 const NOTIFICATION = { id: 'n1', event: 'order_placed', channel: 'sms', restaurant_id: 'r1', to_address: '919900011111', subject: null,
   body: 'Fresh Supply: order ORD-1 received', status: 'skipped', provider: 'none', error: 'SMS_PROVIDER is not set (none): message skipped', attempts: 1, created_at: '2026-10-27T05:00:00Z', restaurants: { name: 'Spice Hut' } };
@@ -1743,9 +1744,9 @@ test('admin: Settings → Notifications edits a template with a live preview and
   document.defaultView.location.hash = '#notifications';   // tabs are same-page anchors: keep jsdom's real hash in step so a tab click fires no hashchange
   await new Promise((r) => setTimeout(r, 0));              // let jsdom's own hashchange pass before the router exists
   await importFresh('web/js/pages/admin/main.js');
-  await waitFor(() => document.querySelector('[data-edit="ns1"]'));
+  await waitFor(() => document.querySelector('[data-edit="order_placed|"]'));   // key = "event|sector"; the default row has no sector
   assert.match(document.body.textContent, /Order placed/);
-  document.querySelector('[data-edit="ns1"]').click();
+  document.querySelector('[data-edit="order_placed|"]').click();
   const form = await waitFor(() => document.querySelector('#tpl'));
   assert.match(document.querySelector('#sms-preview').textContent, /Fresh Supply: order ORD-1042 received, total ₹4,250.00/);
   form.elements.sms_template.value = 'Order {order} {oops}';
@@ -1753,7 +1754,9 @@ test('admin: Settings → Notifications edits a template with a live preview and
   assert.match(document.querySelector('#sms-preview').textContent, /unknown: \{oops\}/);
   form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => fake.calls.some((c) => c.type === 'update' && c.table === 'notification_settings'));
-  assert.equal(fake.calls.find((c) => c.table === 'notification_settings').payload.sms_template, 'Order {order} {oops}');
+  const saved = fake.calls.find((c) => c.table === 'notification_settings');
+  assert.equal(saved.payload.sms_template, 'Order {order} {oops}');
+  assert.deepEqual(saved.filters, [['event', 'order_placed'], ['sector_code', null, 'is']]);   // updates the default row, not by a non-existent id
   // The log tab
   document.querySelector('[data-tab="log"]').click();
   await waitFor(() => document.querySelector('[data-retry="n1"]'));
