@@ -9,10 +9,10 @@
 //
 // Install: add <link rel="manifest" href="/manifest.json"> and register this
 // file in each app's index.html:
-//   <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+//   <script src="../js/core/sw-register.js"></script>  (a file, because the CSP blocks inline scripts)
 // =============================================================================
 
-const SHELL_CACHE   = 'fs-shell-v1';
+const SHELL_CACHE   = 'fs-shell-v2';   // v2: shells load base.css + components.css (main.css no longer)
 const IMAGE_CACHE   = 'fs-images-v1';
 const FALLBACK_CACHE = 'fs-fallback-v1';
 
@@ -22,14 +22,15 @@ const SHELL_ASSETS = [
   '/restaurant/index.html',
   '/admin/',
   '/admin/index.html',
-  '/css/main.css',
+  '/css/base.css',
+  '/css/components.css',
+  '/vendor/supabase.js',
   '/js/core/config.js',
   '/js/core/ui.js',
   '/js/core/auth.js',
   '/js/core/api.js',
   '/js/core/shell.js',
   '/js/core/permissions.js',
-  '/offline.html',
 ];
 
 // ── Install ──────────────────────────────────────────────────────────────────

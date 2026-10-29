@@ -378,3 +378,28 @@ details.more .form-grid { margin-top: var(--space-2); }
 .bar-label { font-size: 10px; color: var(--ink-muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .danger-text { color: var(--danger); }
 .nav-link[hidden] { display: none; }   /* a tab the account does not need (Approvals, migration 020) */
+
+/* ---------- Phase 2 screens (quotes, suppliers, warehouse, reports, ordering+) ----------
+   These screens use a few helper classes that were only in main.css. They are defined here
+   with the app's own tokens so every app loads one design system (base.css + components.css). */
+.gap-sm { gap: var(--space-2); }
+.mb-md { margin-bottom: var(--space-5); }
+.btn-sm { padding: var(--space-1) var(--space-2); font-size: var(--text-sm); }
+.btn-secondary, .btn.secondary { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+.btn-ghost { background: transparent; color: var(--ink); border-color: transparent; }
+.select-sm { padding: var(--space-1) var(--space-2); font-size: var(--text-sm); border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); background: var(--surface); }
+.data-table th, .data-table td { padding: var(--space-2) var(--space-3); text-align: left; border-bottom: 1px solid var(--line); }
+.data-table th { font-weight: 600; color: var(--ink-muted); background: var(--surface-sunk); }
+.empty-state { text-align: center; padding: var(--space-7) var(--space-5) !important; color: var(--ink-muted); }
+.page-header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); margin-bottom: var(--space-5); flex-wrap: wrap; }
+.page-header h2 { margin: 0; }
+.modal-inner { padding: var(--space-5); }
+.modal-footer { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.total-row { text-align: right; margin-top: var(--space-3); font-size: var(--text-lg); }
+.sub-nav { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--line); margin-bottom: var(--space-4); overflow-x: auto; }
+.sub-nav-link { padding: 0.45rem 0.8rem; font-weight: 600; color: var(--ink-muted); text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; margin-bottom: -1px; }
+.sub-nav-link.active, .sub-nav-link[aria-current="page"] { color: var(--brand-strong); border-bottom-color: var(--brand); }
+/* Reports uses <button class="tab"> inside .tabs (other screens use <a>). */
+.tabs .tab { padding: 0.55rem 0.9rem; font: inherit; font-weight: 600; color: var(--ink-muted); background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
+.tabs .tab.active { color: var(--brand-strong); border-bottom-color: var(--brand); }

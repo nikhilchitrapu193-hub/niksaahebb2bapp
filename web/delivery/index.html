@@ -1,14 +1,17 @@
 <!doctype html>
+<!-- delivery/index.html — the Delivery app shell. shell.js mounts the menu into #app-header;
+     the router renders each screen into #view. supabase.js (vendored) must load before the module. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Fresh Supply — Delivery</title>
-  <!-- Security: CSP (AIGuard fix) -->
+  <!-- Security: CSP. script-src 'self' blocks inline scripts (so the service worker is registered from a file).
+       style-src allows inline style attributes, which the screens use for small layout tweaks. -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
                  script-src 'self';
-                 style-src 'self' https://fonts.googleapis.com;
+                 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
                  font-src 'self' https://fonts.gstatic.com;
                  img-src 'self' data: https:;
                  connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co;
@@ -16,11 +19,13 @@
                  form-action 'self';">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
-  <link rel="stylesheet" href="../css/main.css">
+  <link rel="stylesheet" href="../css/base.css">
+  <link rel="stylesheet" href="../css/components.css">
 </head>
 <body>
-  <div id="root"></div>
-  <div id="view"></div>
+  <header class="app-header" id="app-header"></header>
+  <main class="page" id="view"><div class="loading"><span class="spinner"></span> Loading…</div></main>
+  <script src="../vendor/supabase.js"></script>
   <script type="module" src="../js/pages/delivery/main.js"></script>
 </body>
 </html>

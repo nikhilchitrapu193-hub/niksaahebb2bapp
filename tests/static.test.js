@@ -27,6 +27,25 @@ test('HTML pages reference existing scripts and stylesheets', () => {
   }
 });
 
+// The page tests build their own DOM, so they never load these HTML files. A shell missing
+// the vendored client or the #app-header / #view mount points shows a blank page in the
+// browser while every other test passes (this happened on 2026-10-28).
+test('app shells load the Supabase client and have the header and view mount points', () => {
+  for (const role of ['admin', 'restaurant', 'delivery']) {
+    const source = readFileSync(join(WEB, role, 'index.html'), 'utf8');
+    const vendor = source.indexOf('vendor/supabase.js');
+    const module = source.indexOf(`js/pages/${role}/main.js`);
+    assert.ok(vendor !== -1 && vendor < module, `${role}/index.html must load ../vendor/supabase.js before main.js`);
+    assert.match(source, /id="app-header"/, `${role}/index.html needs <header id="app-header">`);
+    assert.match(source, /id="view"/, `${role}/index.html needs <main id="view">`);
+    assert.match(source, /css\/components\.css/, `${role}/index.html must load components.css`);
+    assert.ok(!/<script>(?!\s*<\/script>)/.test(source), `${role}/index.html has an inline script the CSP blocks`);
+  }
+  for (const page of ['supplier/index.html', 'supplier/login.html']) {
+    assert.match(readFileSync(join(WEB, page), 'utf8'), /vendor\/supabase\.js/, `${page} must load ../vendor/supabase.js`);
+  }
+});
+
 test('relative JS imports resolve to real files', () => {
   for (const file of files.filter((f) => f.endsWith('.js'))) {
     const source = readFileSync(file, 'utf8');
