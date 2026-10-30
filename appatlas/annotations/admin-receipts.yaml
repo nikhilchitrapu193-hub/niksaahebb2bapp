@@ -1,0 +1,22 @@
+# admin-receipts.yaml — AppAtlas guide for "Goods receipts (GRN)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-receipts --by "Your name"
+feature_id: "admin-receipts"
+name: "Goods receipts (GRN)"
+module: "procurement"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#receipts"
+admin:
+  what_is_this: "Every goods receipt (GRN) and the one form used to receive goods anywhere: against a PO, a mandi cash purchase with a photo of the bill, or a direct delivery. Accepted stock enters the warehouse; rejected stock never does."
+  why_it_exists: "Every bag that enters the warehouse has a numbered receipt with its cost and quality, so stock and costs can be traced."
+  what_if_i_change_it: "Receiving raises stock in that warehouse immediately and records the unit cost used by the price board."
+  what_if_wrong: "Wrong warehouse or quantity puts stock in the wrong place; fix it with adjustments. A missing cost leaves \"No cost on file\" on the board."
+  prerequisites: "Inventory edit to receive. A warehouse in your scope or a default warehouse for the city."
+  workflow:
+    - "Procurement → Receipts"
+    - "Mandi cash purchase: lines, bill amount, Paid in cash, photo of the bill"
+    - "Or receive from a PO (opens with outstanding quantities)"
+    - "Type accepted, rejected (with reason), grade and actual cost"
+    - "Save; a GRN number is given"
+  when_to_call_developer: "If a receipt saved but stock did not change."

@@ -1,0 +1,21 @@
+# page-invoice.yaml — AppAtlas guide for "Tax invoice". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review page-invoice --by "Your name"
+feature_id: "page-invoice"
+name: "Tax invoice"
+module: "page"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "page#invoice"
+admin:
+  who_uses_it: "The customer who placed the order, and staff who can see that order (Row Level Security decides)."
+  what_is_this: "The printable GST tax invoice for one order, with HSN codes and the tax split, for the customer and for staff."
+  why_it_exists: "Customers need a valid GST invoice for every delivery."
+  what_if_i_change_it: "Company details come from Settings; lines and prices come from the order and never change."
+  what_if_wrong: "Wrong GSTIN or address means Settings is wrong; wrong tax means the product's HSN or GST was wrong when ordered."
+  prerequisites: "Signed in as the customer who ordered, or as staff who can see the order."
+  workflow:
+    - "Open an order"
+    - "Click Invoice"
+    - "Print or save as PDF from the browser"
+  when_to_call_developer: "If the invoice total differs from the order total."

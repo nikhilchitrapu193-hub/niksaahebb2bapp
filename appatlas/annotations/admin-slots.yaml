@@ -1,0 +1,21 @@
+# admin-slots.yaml — AppAtlas guide for "Delivery slots". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-slots --by "Your name"
+feature_id: "admin-slots"
+name: "Delivery slots"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#slots"
+admin:
+  what_is_this: "The cut-off hour for each delivery slot (when it stops taking orders) and an optional daily capacity, per city and slot. No row means always open and uncapped."
+  why_it_exists: "The kitchen needs time to buy and pack; the van can carry only so much."
+  what_if_i_change_it: "Applies to orders placed after saving. Staff ordering on behalf of a customer may go past the cut-off."
+  what_if_wrong: "A cut-off too early refuses orders customers expected to place; a capacity too low turns away business."
+  prerequisites: "Settings edit."
+  workflow:
+    - "Pick a city and slot"
+    - "Set the cut-off hour"
+    - "Set a capacity if needed"
+    - "Save"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

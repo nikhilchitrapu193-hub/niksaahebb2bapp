@@ -1,0 +1,22 @@
+# delivery-app.yaml — AppAtlas guide for "Driver app". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review delivery-app --by "Your name"
+feature_id: "delivery-app"
+name: "Driver app"
+module: "delivery"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "delivery#app"
+admin:
+  what_is_this: "The phone app for drivers: the orders assigned to them, a loading photo before leaving the warehouse, Start delivery, and Complete delivery with a photo, the customer's 4-digit code and any items refused at the door. COD orders show the cash to collect."
+  why_it_exists: "Proof of delivery (photo and code) protects both the business and the customer, and records cash collected."
+  what_if_i_change_it: "Completing a delivery marks it delivered, takes refused items back into stock, lowers the bill, and for COD records the cash receipt in the driver's name."
+  what_if_wrong: "Without the loading photo the driver cannot start; without a delivery photo or the right code the delivery cannot be completed."
+  prerequisites: "A delivery account invited from Team. Orders assigned or dispatched on a trip."
+  workflow:
+    - "Sign in on the delivery login page"
+    - "Upload the loading photo before leaving"
+    - "Start delivery"
+    - "At the door: take a photo, enter the customer's code, note refused items"
+    - "Mark delivered and collect cash for COD"
+  when_to_call_developer: "If photos fail to upload on a good connection, or a correct code is refused."

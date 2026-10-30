@@ -1,0 +1,21 @@
+# admin-reports.yaml — AppAtlas guide for "Reports". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-reports --by "Your name"
+feature_id: "admin-reports"
+name: "Reports"
+module: "reports"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#reports"
+admin:
+  what_is_this: "Sales for a date range grouped by day, city, sector, customer, product or category, and the receivables trend by week."
+  why_it_exists: "To see what sells, to whom, and whether customers pay on time."
+  what_if_i_change_it: "Nothing changes data here."
+  what_if_wrong: "Ranges longer than a year are refused; split them."
+  prerequisites: "Reports view; Reports export for CSV. A city manager sees only their city."
+  workflow:
+    - "Pick a date range and grouping"
+    - "Read totals (cancelled orders in their own column)"
+    - "Export CSV"
+    - "Open the receivables trend for weekly owed and overdue"
+  when_to_call_developer: "If report totals disagree with Payments or Orders for the same range."

@@ -1,0 +1,22 @@
+# admin-launch.yaml — AppAtlas guide for "Launch switches". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-launch --by "Your name"
+feature_id: "admin-launch"
+name: "Launch switches"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#launch"
+admin:
+  what_is_this: "The \"lite mode\" switches: which customer sectors are live, whether prices are simple (typed on the product) or advanced (pricing engine), and whether stock is simple (in / out) or counted (the ledger). Shows sign-ups and orders per sector."
+  why_it_exists: "To launch with one sector (army cantonments) and a simple setup, then switch on more sectors and the full engine when ready, without changing code."
+  what_if_i_change_it: "Switching a sector off stops its sign-ups and orders; its customers see \"not taking orders yet\". Changing a mode reloads the page and hides or shows the Pricing, Inventory and Procurement menus. Permissions still apply on top."
+  what_if_wrong: "Counted stock with no stock received makes every order fail with \"Only 0 available\". Switching the live sector off by mistake stops all its orders."
+  prerequisites: "Settings edit permission."
+  workflow:
+    - "Open Settings → Launch"
+    - "Switch on the sectors you serve"
+    - "Choose Simple or Advanced pricing"
+    - "Choose Simple or Counted stock"
+    - "Save; the page reloads with the new menu"
+  when_to_call_developer: "If a switched-off sector can still order, or a module stays hidden after switching its mode on."

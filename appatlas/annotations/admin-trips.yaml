@@ -1,0 +1,21 @@
+# admin-trips.yaml — AppAtlas guide for "Trips". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-trips --by "Your name"
+feature_id: "admin-trips"
+name: "Trips"
+module: "fulfilment"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#trips"
+admin:
+  what_is_this: "Trip sheets: a driver, a vehicle and a set of confirmed or packed orders. Dispatch sends every packed order out for delivery with a 4-digit delivery code; close the trip when done. Staff can also complete a delivery here when the driver cannot."
+  why_it_exists: "One van, one route, one driver accountable for the cash and the delivery codes."
+  what_if_i_change_it: "Dispatch changes every order on the trip to out for delivery and messages the customers. Completing a delivery here needs the photo and code just like the driver app."
+  what_if_wrong: "Dispatch fails when an order has no driver. The driver needs a loading photo before starting deliveries on the trip."
+  prerequisites: "Fulfilment view / edit. A driver account and a vehicle."
+  workflow:
+    - "New trip: day, slot, driver and vehicle"
+    - "Tick the confirmed or packed orders"
+    - "Open the draft and Dispatch"
+    - "Close the trip once everything is delivered"
+  when_to_call_developer: "If a dispatched order does not show in the driver's app."

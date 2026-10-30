@@ -1,0 +1,21 @@
+# admin-website.yaml — AppAtlas guide for "Website pages". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-website --by "Your name"
+feature_id: "admin-website"
+name: "Website pages"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#website"
+admin:
+  what_is_this: "The public pages (About, Terms, Privacy, Refund policy and any others), which appear in the footer, and the home page's search title and description."
+  why_it_exists: "Legal pages and a clear search listing are needed before taking orders from the public."
+  what_if_i_change_it: "Published pages change on the website at once."
+  what_if_wrong: "A changed slug breaks old links (\"Page not found\"). Unpublished pages are hidden."
+  prerequisites: "Settings edit."
+  workflow:
+    - "Edit a page (blank line = paragraph, \"## \" = heading)"
+    - "Tick Link in the website footer if it should be there"
+    - "Publish"
+    - "Add the page to sitemap.xml when it is new"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

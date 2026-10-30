@@ -24,6 +24,7 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 | Customer self-edit / cancel window per sector (migration 017) | `sectors.customer_edit_window_minutes`, ADR 0021 |
 | Running, deploying, first admin | `docs/runbook.md`, `docs/deployment.md` |
 | Tests | `docs/testing.md` |
+| What a screen does, who uses it, what it touches, repo vs live, impact of a change | `npm run atlas` → `appatlas/out/index.html`; how it works: `docs/appatlas.md`, ADR 0026 |
 
 ## Rules that must not be broken
 1. **Pages never call Supabase directly.** All backend calls go through `web/js/core/api.js`.
@@ -88,6 +89,11 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
     and an order carries `outlet_id`. Approval before dispatch is `orders.approval_status`, not an order status:
     a held order is a placed order the kitchen may not confirm. New order paths go through `place_order_core`
     with `restaurant_for_outlet()`; never copy the core.
+22. **Keep the atlas in step.** A new route needs `appatlas/annotations/<feature-id>.yaml`
+    (`node tools/appatlas/cli.js annotate <id>` writes a draft); a new known problem goes into
+    `appatlas/troubleshooting.yaml` and the runbook. `npm test` fails on an invalid annotation; `npm run atlas:check`
+    lists reviewed guides your change made stale. After applying a migration or deploying an Edge Function, refresh
+    `appatlas/live-state.json` (`supabase/tests/appatlas_snapshot.sql`). AppAtlas never calls AI; drafts are labelled.
 
 ## Where things live
 ```
@@ -103,6 +109,8 @@ supabase/tests/security_test.sql   paste into Supabase SQL editor; every line mu
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres
 .cursor/rules, .cursor/skills  code rules and the fs-feature / fs-review / fs-security-check skills
 tests/                         node --test; fake Supabase client in tests/helpers/
+tools/appatlas/                AppAtlas engine (scanners, graph, site, CLI) — docs/appatlas.md
+appatlas/                      annotations/*.yaml, troubleshooting.yaml, live-state.json, review-lock.json (out/ is generated)
 ```
 
 ## How to add a feature (the usual order)

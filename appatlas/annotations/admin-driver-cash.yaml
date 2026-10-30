@@ -1,0 +1,20 @@
+# admin-driver-cash.yaml — AppAtlas guide for "Driver cash". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-driver-cash --by "Your name"
+feature_id: "admin-driver-cash"
+name: "Driver cash"
+module: "fulfilment"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#driver-cash"
+admin:
+  what_is_this: "For each driver: cash collected on delivery, what has been handed back (settled), and what is still in hand."
+  why_it_exists: "Cash on delivery must be accounted for every day."
+  what_if_i_change_it: "Settling records cash handed back by the driver; it does not change the customer's invoices (those were paid at delivery)."
+  what_if_wrong: "Settling a wrong amount makes the driver's balance wrong; record a correcting entry."
+  prerequisites: "Fulfilment approve or Payments edit to settle."
+  workflow:
+    - "Open Driver cash"
+    - "Count the cash the driver hands over"
+    - "Settle with that amount and a note"
+  when_to_call_developer: "If \"in hand\" does not equal collected minus settled."

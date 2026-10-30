@@ -1,0 +1,26 @@
+# job-online-payment-webhook.yaml — AppAtlas guide for "Online payment confirmation (Razorpay)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review job-online-payment-webhook --by "Your name"
+feature_id: "job-online-payment-webhook"
+name: "Online payment confirmation (Razorpay)"
+module: "jobs"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens: []
+admin:
+  who_uses_it: "Nobody directly: Razorpay calls it after a customer pays online."
+  what_is_this: "When a customer pays online, Razorpay calls our razorpay-webhook Edge Function, which checks Razorpay's signature and records the receipt against the customer's invoices."
+  why_it_exists: "An online payment counts only when Razorpay confirms it, not when the customer's browser says so."
+  what_if_i_change_it: "The webhook secret and keys are Edge Function secrets; changing them in one place but not the other breaks payments."
+  what_if_wrong: "Not deployed or a wrong RAZORPAY_WEBHOOK_SECRET: payments succeed at Razorpay but no receipt is recorded."
+  prerequisites: "razorpay-order and razorpay-webhook deployed, the webhook URL set in the Razorpay dashboard, keys set as secrets and razorpayKeyId in config.js."
+  workflow:
+    - "Deploy razorpay-order and razorpay-webhook"
+    - "Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET"
+    - "Point the Razorpay webhook to /functions/v1/razorpay-webhook"
+    - "Make a test payment and check Payments → Receipts"
+  when_to_call_developer: "Always for setup; and if a captured Razorpay payment has no receipt here."
+evidence:
+  edge_functions:
+    - "razorpay-webhook"
+  functions:
+    - "record_online_payment"

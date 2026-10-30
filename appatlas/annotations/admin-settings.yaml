@@ -1,0 +1,21 @@
+# admin-settings.yaml — AppAtlas guide for "Company settings". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-settings --by "Your name"
+feature_id: "admin-settings"
+name: "Company settings"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#settings"
+admin:
+  what_is_this: "The company details printed on every invoice (name, address, phone, email, GSTIN, FSSAI, invoice note) and the tabs leading to every other settings screen."
+  why_it_exists: "Invoices are legal documents; they must carry the correct GSTIN and address."
+  what_if_i_change_it: "New invoices and statements show the new details at once, including reprints of old orders."
+  what_if_wrong: "A wrong GSTIN or address makes invoices invalid for the customer's tax claim."
+  prerequisites: "Settings edit permission to save."
+  workflow:
+    - "Open Settings"
+    - "Fill or correct the company details"
+    - "Save"
+    - "Open an invoice to check how it prints"
+  when_to_call_developer: "If saved details do not appear on invoices."

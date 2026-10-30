@@ -1,0 +1,21 @@
+# admin-price-lists.yaml — AppAtlas guide for "Price lists". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-price-lists --by "Your name"
+feature_id: "admin-price-lists"
+name: "Price lists"
+module: "pricing"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#price-lists"
+admin:
+  what_is_this: "What each city and / or sector pays: a percentage over or under the published price plus fixed prices for chosen products. The most specific active list wins."
+  why_it_exists: "Hotels or institutions can get a different price from restaurants without separate products."
+  what_if_i_change_it: "Customers in that city / sector see \"Your price\" with the published price struck through and are charged it at checkout from the next order."
+  what_if_wrong: "A sign mistake (+5 instead of −5) charges a whole sector more. Two lists at the same level confuse which wins; keep one per level."
+  prerequisites: "Pricing edit permission."
+  workflow:
+    - "Add a list for a city, a sector or both"
+    - "Set the % adjustment"
+    - "Add fixed prices for chosen products"
+    - "Activate it"
+  when_to_call_developer: "If the cart and catalogue show different prices after a reload."

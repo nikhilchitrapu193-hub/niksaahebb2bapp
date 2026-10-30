@@ -1329,10 +1329,20 @@ test('delivery: driver completes a delivery with the OTP and a doorstep return',
   form.querySelector('[name=otp]').value = '1234';
   form.querySelector('[data-ret="oi1"]').value = '2';
   form.querySelector('[data-ret="oi1"]').dispatchEvent(new document.defaultView.Event('input', { bubbles: true }));
+  // Migration 023: a delivery cannot be marked done without a POD photo.
+  form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await waitFor(() => /photo of the delivered items/.test(document.querySelector('#pod-error').textContent));
+  assert.ok(!fake.calls.some((c) => c.name === 'complete_delivery'), 'refused without a photo');
+  const photo = document.querySelector('#pod-photo');
+  Object.defineProperty(photo, 'files', { value: [new document.defaultView.File(['jpg'], 'pod.jpg', { type: 'image/jpeg' })] });
+  photo.dispatchEvent(new document.defaultView.Event('change'));
+  await waitFor(() => fake.calls.some((c) => c.type === 'upload'));
+  await waitFor(() => /Photo attached/.test(document.querySelector('#pod-preview').textContent));
   form.dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => fake.calls.some((c) => c.name === 'complete_delivery'));
   const call = fake.calls.find((c) => c.name === 'complete_delivery').args;
   assert.equal(call.p_otp, '1234');
+  assert.match(call.p_photo_path ?? '', /\.jpg$/);
   assert.deepEqual(call.p_returns, [{ order_item_id: 'oi1', qty: 2 }]);
 });
 

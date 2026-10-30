@@ -1,0 +1,22 @@
+# admin-pricing-rules.yaml — AppAtlas guide for "Pricing rules". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-pricing-rules --by "Your name"
+feature_id: "admin-pricing-rules"
+name: "Pricing rules"
+module: "pricing"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#pricing-rules"
+admin:
+  what_is_this: "The pricing variables per category (markup, minimum markup, wastage, transport, packing, market fee, rounding, benchmark cap, cost method, margin guard). A sub-category without its own rule uses its parent's, then the global default."
+  why_it_exists: "The suggested price on the board comes from these numbers; changing a rule re-prices a whole category consistently."
+  what_if_i_change_it: "A change creates a new rule from a chosen date and closes the old one, so history is kept and changes can be prepared ahead. Prices only change for customers when someone publishes."
+  what_if_wrong: "A markup typed as 140 instead of 14 suggests absurd prices; a missing margin guard lets below-cost prices through."
+  prerequisites: "Pricing edit permission. Advanced pricing mode."
+  workflow:
+    - "Open Pricing → Rules"
+    - "Pick the category card"
+    - "Change and choose the start date"
+    - "Use the Test box to see what ₹100 of cost would sell for"
+    - "Save, then publish prices from the board"
+  when_to_call_developer: "If the Test box and the price board disagree for the same cost."

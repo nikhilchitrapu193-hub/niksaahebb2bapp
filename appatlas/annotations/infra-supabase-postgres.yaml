@@ -1,0 +1,34 @@
+# infra-supabase-postgres.yaml — AppAtlas guide for "Database (Supabase Postgres)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review infra-supabase-postgres --by "Your name"
+feature_id: "infra-supabase-postgres"
+name: "Database (Supabase Postgres)"
+module: "infrastructure"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens: []
+admin:
+  who_uses_it: "Every screen reads and writes it; only a developer changes its structure, through migrations."
+  what_does_it_affect: "Everything: all business data and all security rules live here."
+  what_is_this: "The database: products, orders, customers, payments, stock and prices all live here. It also holds the security rules (who can see which rows) and the business rules (database functions)."
+  why_it_exists: "There is no separate server: the database itself checks every write, so the rules cannot be skipped by a clever browser."
+  what_if_i_change_it: "Never change tables by hand; every change is a new migration file applied in order and tested with security_test.sql."
+  what_if_wrong: "A hand edit can break rules the app relies on (for example stock that no longer matches the ledger)."
+  prerequisites: "Daily backups are on (7 days on the free tier); download a weekly dump as well."
+  workflow:
+    - "Apply migrations in order"
+    - "Run security_test.sql (it rolls back)"
+    - "Refresh the schema snapshot for the tests"
+    - "Download a weekly backup"
+  when_to_call_developer: "For any schema change, restore, or if Supabase Advisors show something other than the intentional SECURITY DEFINER warnings."
+  migration_guide:
+    alternatives:
+      - "Neon"
+      - "Railway / Render Postgres"
+      - "Self-hosted Postgres"
+    effort: "low to medium"
+    what_changes_for_admin: "Nothing visible; a short downtime while data moves."
+    what_stays_same: "Every table, rule and report — the migrations are plain Postgres."
+infrastructure: true
+developer:
+  code_to_replace:
+    - "web/js/core/supabase.js (PostgREST client) — or add PostgREST in front of the new database"

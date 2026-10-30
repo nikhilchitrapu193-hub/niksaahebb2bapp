@@ -1,0 +1,3085 @@
+{
+ "_comment": "What is live in production. database: from supabase/tests/appatlas_snapshot.sql. edge_functions: from Dashboard -> Edge Functions or `supabase functions list` (SQL cannot see them).",
+ "project": {
+  "id": "bzxygscjhvcwahwqgqin",
+  "name": "niksaahebb2bapp",
+  "region": "ap-south-1"
+ },
+ "database": {
+  "tables": {
+   "trips": {
+    "rls": true,
+    "rows": 0
+   },
+   "cities": {
+    "rls": true,
+    "rows": 0
+   },
+   "orders": {
+    "rls": true,
+    "rows": 4
+   },
+   "quotes": {
+    "rls": true,
+    "rows": 0
+   },
+   "coupons": {
+    "rls": true,
+    "rows": 0
+   },
+   "outlets": {
+    "rls": true,
+    "rows": 0
+   },
+   "sectors": {
+    "rls": true,
+    "rows": 0
+   },
+   "payments": {
+    "rls": true,
+    "rows": 0
+   },
+   "products": {
+    "rls": true,
+    "rows": 26
+   },
+   "profiles": {
+    "rls": true,
+    "rows": 2
+   },
+   "vehicles": {
+    "rls": true,
+    "rows": 0
+   },
+   "audit_log": {
+    "rls": true,
+    "rows": 121
+   },
+   "hsn_codes": {
+    "rls": true,
+    "rows": 0
+   },
+   "suppliers": {
+    "rls": true,
+    "rows": 0
+   },
+   "categories": {
+    "rls": true,
+    "rows": 8
+   },
+   "team_roles": {
+    "rls": true,
+    "rows": 0
+   },
+   "warehouses": {
+    "rls": true,
+    "rows": 0
+   },
+   "debit_notes": {
+    "rls": true,
+    "rows": 0
+   },
+   "driver_cash": {
+    "rls": true,
+    "rows": 0
+   },
+   "order_items": {
+    "rls": true,
+    "rows": 0
+   },
+   "price_lists": {
+    "rls": true,
+    "rows": 0
+   },
+   "restaurants": {
+    "rls": true,
+    "rows": 0
+   },
+   "slot_config": {
+    "rls": true,
+    "rows": 0
+   },
+   "trip_orders": {
+    "rls": true,
+    "rows": 0
+   },
+   "credit_notes": {
+    "rls": true,
+    "rows": 0
+   },
+   "order_issues": {
+    "rls": true,
+    "rows": 0
+   },
+   "content_pages": {
+    "rls": true,
+    "rows": 0
+   },
+   "help_articles": {
+    "rls": true,
+    "rows": 0
+   },
+   "notifications": {
+    "rls": true,
+    "rows": 0
+   },
+   "price_history": {
+    "rls": true,
+    "rows": 0
+   },
+   "pricing_rules": {
+    "rls": true,
+    "rows": 0
+   },
+   "service_zones": {
+    "rls": true,
+    "rows": 0
+   },
+   "stock_batches": {
+    "rls": true,
+    "rows": 0
+   },
+   "customer_users": {
+    "rls": true,
+    "rows": 0
+   },
+   "goods_receipts": {
+    "rls": true,
+    "rows": 0
+   },
+   "product_pricing": {
+    "rls": true,
+    "rows": 0
+   },
+   "purchase_orders": {
+    "rls": true,
+    "rows": 0
+   },
+   "standing_orders": {
+    "rls": true,
+    "rows": 0
+   },
+   "stock_movements": {
+    "rls": true,
+    "rows": 0
+   },
+   "support_tickets": {
+    "rls": true,
+    "rows": 0
+   },
+   "ticket_messages": {
+    "rls": true,
+    "rows": 0
+   },
+   "warehouse_stock": {
+    "rls": true,
+    "rows": 26
+   },
+   "benchmark_prices": {
+    "rls": true,
+    "rows": 0
+   },
+   "cash_settlements": {
+    "rls": true,
+    "rows": 0
+   },
+   "company_settings": {
+    "rls": true,
+    "rows": 0
+   },
+   "delivery_returns": {
+    "rls": true,
+    "rows": 0
+   },
+   "order_line_costs": {
+    "rls": true,
+    "rows": 0
+   },
+   "price_list_items": {
+    "rls": true,
+    "rows": 0
+   },
+   "role_permissions": {
+    "rls": true,
+    "rows": 75
+   },
+   "scheduled_prices": {
+    "rls": true,
+    "rows": 0
+   },
+   "benchmark_sources": {
+    "rls": true,
+    "rows": 0
+   },
+   "supplier_products": {
+    "rls": true,
+    "rows": 0
+   },
+   "coupon_redemptions": {
+    "rls": true,
+    "rows": 0
+   },
+   "goods_receipt_items": {
+    "rls": true,
+    "rows": 0
+   },
+   "payment_allocations": {
+    "rls": true,
+    "rows": 0
+   },
+   "order_status_history": {
+    "rls": true,
+    "rows": 0
+   },
+   "purchase_order_items": {
+    "rls": true,
+    "rows": 0
+   },
+   "delivery_charge_rules": {
+    "rls": true,
+    "rows": 0
+   },
+   "notification_settings": {
+    "rls": true,
+    "rows": 0
+   },
+   "product_city_availability": {
+    "rls": true,
+    "rows": 0
+   }
+  },
+  "buckets": [
+   {
+    "id": "customer-documents",
+    "public": false
+   },
+   {
+    "id": "delivery-pod",
+    "public": false
+   },
+   {
+    "id": "product-photos",
+    "public": true
+   },
+   {
+    "id": "purchase-bills",
+    "public": false
+   },
+   {
+    "id": "trip-photos",
+    "public": false
+   }
+  ],
+  "policies": {
+   "trips": [
+    {
+     "cmd": "SELECT",
+     "name": "trips_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "cities": [
+    {
+     "cmd": "SELECT",
+     "name": "cities_public_select",
+     "roles": [
+      "anon"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "cities_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "cities_settings_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "orders": [
+    {
+     "cmd": "SELECT",
+     "name": "orders_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "quotes": [
+    {
+     "cmd": "SELECT",
+     "name": "quotes_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "coupons": [
+    {
+     "cmd": "SELECT",
+     "name": "coupons_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "coupons_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "outlets": [
+    {
+     "cmd": "SELECT",
+     "name": "outlets_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "sectors": [
+    {
+     "cmd": "SELECT",
+     "name": "sectors_public_select",
+     "roles": [
+      "anon"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "sectors_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "UPDATE",
+     "name": "sectors_settings_update",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "payments": [
+    {
+     "cmd": "SELECT",
+     "name": "payments_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "products": [
+    {
+     "cmd": "ALL",
+     "name": "products_admin_write",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "products_public_select",
+     "roles": [
+      "anon"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "products_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "profiles": [
+    {
+     "cmd": "SELECT",
+     "name": "profiles_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "vehicles": [
+    {
+     "cmd": "SELECT",
+     "name": "vehicles_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "vehicles_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "audit_log": [
+    {
+     "cmd": "SELECT",
+     "name": "audit_log_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "hsn_codes": [
+    {
+     "cmd": "SELECT",
+     "name": "hsn_codes_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "hsn_codes_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "suppliers": [
+    {
+     "cmd": "ALL",
+     "name": "suppliers_admin_all",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "categories": [
+    {
+     "cmd": "ALL",
+     "name": "categories_admin_write",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "categories_public_select",
+     "roles": [
+      "anon"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "categories_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "team_roles": [
+    {
+     "cmd": "SELECT",
+     "name": "team_roles_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "warehouses": [
+    {
+     "cmd": "SELECT",
+     "name": "warehouses_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "warehouses_settings_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "debit_notes": [
+    {
+     "cmd": "SELECT",
+     "name": "debit_notes_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "driver_cash": [
+    {
+     "cmd": "SELECT",
+     "name": "driver_cash_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "order_items": [
+    {
+     "cmd": "SELECT",
+     "name": "order_items_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "price_lists": [
+    {
+     "cmd": "SELECT",
+     "name": "price_lists_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "price_lists_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "restaurants": [
+    {
+     "cmd": "UPDATE",
+     "name": "restaurants_admin_update",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "restaurants_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "slot_config": [
+    {
+     "cmd": "SELECT",
+     "name": "slot_config_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "slot_config_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "trip_orders": [
+    {
+     "cmd": "SELECT",
+     "name": "trip_orders_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "credit_notes": [
+    {
+     "cmd": "SELECT",
+     "name": "credit_notes_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "order_issues": [
+    {
+     "cmd": "SELECT",
+     "name": "order_issues_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "content_pages": [
+    {
+     "cmd": "SELECT",
+     "name": "content_pages_public_select",
+     "roles": [
+      "anon"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "content_pages_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "content_pages_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "help_articles": [
+    {
+     "cmd": "SELECT",
+     "name": "help_articles_public_select",
+     "roles": [
+      "anon"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "help_articles_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "help_articles_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "notifications": [
+    {
+     "cmd": "SELECT",
+     "name": "notifications_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "price_history": [
+    {
+     "cmd": "SELECT",
+     "name": "price_history_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "pricing_rules": [
+    {
+     "cmd": "SELECT",
+     "name": "pricing_rules_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "pricing_rules_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "service_zones": [
+    {
+     "cmd": "SELECT",
+     "name": "service_zones_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "service_zones_settings_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "stock_batches": [
+    {
+     "cmd": "SELECT",
+     "name": "stock_batches_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "customer_users": [
+    {
+     "cmd": "SELECT",
+     "name": "customer_users_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "goods_receipts": [
+    {
+     "cmd": "SELECT",
+     "name": "goods_receipts_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "product_pricing": [
+    {
+     "cmd": "SELECT",
+     "name": "product_pricing_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "product_pricing_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "purchase_orders": [
+    {
+     "cmd": "SELECT",
+     "name": "purchase_orders_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "standing_orders": [
+    {
+     "cmd": "SELECT",
+     "name": "standing_orders_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "stock_movements": [
+    {
+     "cmd": "SELECT",
+     "name": "stock_movements_admin_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "support_tickets": [
+    {
+     "cmd": "SELECT",
+     "name": "support_tickets_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "ticket_messages": [
+    {
+     "cmd": "SELECT",
+     "name": "ticket_messages_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "warehouse_stock": [
+    {
+     "cmd": "SELECT",
+     "name": "warehouse_stock_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "benchmark_prices": [
+    {
+     "cmd": "SELECT",
+     "name": "benchmark_prices_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "benchmark_prices_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "cash_settlements": [
+    {
+     "cmd": "SELECT",
+     "name": "cash_settlements_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "company_settings": [
+    {
+     "cmd": "UPDATE",
+     "name": "company_settings_admin_update",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "company_settings_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "delivery_returns": [
+    {
+     "cmd": "SELECT",
+     "name": "delivery_returns_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "order_line_costs": [
+    {
+     "cmd": "SELECT",
+     "name": "order_line_costs_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "price_list_items": [
+    {
+     "cmd": "SELECT",
+     "name": "price_list_items_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "price_list_items_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "role_permissions": [
+    {
+     "cmd": "SELECT",
+     "name": "role_permissions_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "role_permissions_super_admin_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "scheduled_prices": [
+    {
+     "cmd": "SELECT",
+     "name": "scheduled_prices_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "benchmark_sources": [
+    {
+     "cmd": "SELECT",
+     "name": "benchmark_sources_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "benchmark_sources_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "supplier_products": [
+    {
+     "cmd": "SELECT",
+     "name": "supplier_products_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "supplier_products_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "coupon_redemptions": [
+    {
+     "cmd": "SELECT",
+     "name": "coupon_redemptions_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "goods_receipt_items": [
+    {
+     "cmd": "SELECT",
+     "name": "goods_receipt_items_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "payment_allocations": [
+    {
+     "cmd": "SELECT",
+     "name": "payment_allocations_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "order_status_history": [
+    {
+     "cmd": "SELECT",
+     "name": "order_history_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "purchase_order_items": [
+    {
+     "cmd": "SELECT",
+     "name": "purchase_order_items_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "delivery_charge_rules": [
+    {
+     "cmd": "SELECT",
+     "name": "delivery_charge_rules_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "delivery_charge_rules_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "notification_settings": [
+    {
+     "cmd": "SELECT",
+     "name": "notification_settings_select",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "ALL",
+     "name": "notification_settings_write",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "product_city_availability": [
+    {
+     "cmd": "ALL",
+     "name": "availability_products_write",
+     "roles": [
+      "authenticated"
+     ]
+    },
+    {
+     "cmd": "SELECT",
+     "name": "availability_select",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ]
+  },
+  "postgres": "17.11",
+  "triggers": [
+   {
+    "name": "audit_benchmark_sources",
+    "table": "benchmark_sources",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_cash_settlements",
+    "table": "cash_settlements",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_categories",
+    "table": "categories",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "categories_check_tree",
+    "table": "categories",
+    "function": "check_category_tree"
+   },
+   {
+    "name": "audit_cities",
+    "table": "cities",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_company_settings",
+    "table": "company_settings",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "company_settings_updated_at",
+    "table": "company_settings",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_content_pages",
+    "table": "content_pages",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "content_pages_set_updated_at",
+    "table": "content_pages",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_coupons",
+    "table": "coupons",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "coupons_set_updated_at",
+    "table": "coupons",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_credit_notes",
+    "table": "credit_notes",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "credit_notes_apply",
+    "table": "credit_notes",
+    "function": "credit_notes_apply"
+   },
+   {
+    "name": "audit_customer_users",
+    "table": "customer_users",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "customer_users_set_updated_at",
+    "table": "customer_users",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_debit_notes",
+    "table": "debit_notes",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_delivery_charge_rules",
+    "table": "delivery_charge_rules",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "delivery_charge_rules_set_updated_at",
+    "table": "delivery_charge_rules",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_goods_receipts",
+    "table": "goods_receipts",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_help_articles",
+    "table": "help_articles",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "help_articles_set_updated_at",
+    "table": "help_articles",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_hsn_codes",
+    "table": "hsn_codes",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_notification_settings",
+    "table": "notification_settings",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "notification_settings_set_updated_at",
+    "table": "notification_settings",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_order_issues",
+    "table": "order_issues",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_orders",
+    "table": "orders",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "orders_after_delivered",
+    "table": "orders",
+    "function": "orders_after_delivered"
+   },
+   {
+    "name": "orders_before_delivered",
+    "table": "orders",
+    "function": "orders_before_delivered"
+   },
+   {
+    "name": "orders_notify",
+    "table": "orders",
+    "function": "notify_order_status"
+   },
+   {
+    "name": "orders_paid_receipt",
+    "table": "orders",
+    "function": "orders_paid_receipt"
+   },
+   {
+    "name": "orders_set_updated_at",
+    "table": "orders",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_outlets",
+    "table": "outlets",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "outlets_set_updated_at",
+    "table": "outlets",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "outlets_sync_restaurant",
+    "table": "outlets",
+    "function": "sync_restaurant_from_primary_outlet"
+   },
+   {
+    "name": "audit_payment_allocations",
+    "table": "payment_allocations",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_payments",
+    "table": "payments",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "payments_notify",
+    "table": "payments",
+    "function": "notify_receipt"
+   },
+   {
+    "name": "audit_price_list_items",
+    "table": "price_list_items",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_price_lists",
+    "table": "price_lists",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "price_lists_set_updated_at",
+    "table": "price_lists",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_pricing_rules",
+    "table": "pricing_rules",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "pricing_rules_set_updated_at",
+    "table": "pricing_rules",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_product_pricing",
+    "table": "product_pricing",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "product_pricing_set_updated_at",
+    "table": "product_pricing",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_products",
+    "table": "products",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "products_check_variant",
+    "table": "products",
+    "function": "check_product_variant"
+   },
+   {
+    "name": "products_set_updated_at",
+    "table": "products",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_profiles",
+    "table": "profiles",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "profiles_default_team_role",
+    "table": "profiles",
+    "function": "default_team_role"
+   },
+   {
+    "name": "profiles_set_updated_at",
+    "table": "profiles",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_purchase_order_items",
+    "table": "purchase_order_items",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_purchase_orders",
+    "table": "purchase_orders",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "purchase_orders_set_updated_at",
+    "table": "purchase_orders",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_quotes",
+    "table": "quotes",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "quotes_set_updated_at",
+    "table": "quotes",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_restaurants",
+    "table": "restaurants",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "restaurants_notify_approved",
+    "table": "restaurants",
+    "function": "notify_customer_approved"
+   },
+   {
+    "name": "restaurants_set_updated_at",
+    "table": "restaurants",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "restaurants_sync_primary_outlet",
+    "table": "restaurants",
+    "function": "sync_primary_outlet_from_restaurant"
+   },
+   {
+    "name": "audit_role_permissions",
+    "table": "role_permissions",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_sectors",
+    "table": "sectors",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "sectors_set_updated_at",
+    "table": "sectors",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_service_zones",
+    "table": "service_zones",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_slot_config",
+    "table": "slot_config",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "slot_config_set_updated_at",
+    "table": "slot_config",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_standing_orders",
+    "table": "standing_orders",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "standing_orders_set_updated_at",
+    "table": "standing_orders",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_supplier_products",
+    "table": "supplier_products",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "supplier_products_set_updated_at",
+    "table": "supplier_products",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_suppliers",
+    "table": "suppliers",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "suppliers_updated_at",
+    "table": "suppliers",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_support_tickets",
+    "table": "support_tickets",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "support_tickets_set_updated_at",
+    "table": "support_tickets",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_trips",
+    "table": "trips",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "trips_set_updated_at",
+    "table": "trips",
+    "function": "set_updated_at"
+   },
+   {
+    "name": "audit_vehicles",
+    "table": "vehicles",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "audit_warehouses",
+    "table": "warehouses",
+    "function": "write_audit_log"
+   },
+   {
+    "name": "warehouses_set_updated_at",
+    "table": "warehouses",
+    "function": "set_updated_at"
+   }
+  ],
+  "functions": {
+   "app_role": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "pick_list": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "slot_open": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "edit_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_city_id": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "price_calc": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "save_quote": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_ticket": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "stock_mode": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "buying_list": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "create_trip": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "in_my_scope": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "open_ticket": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "price_board": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "round_price": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "save_outlet": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "update_trip": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "accept_quote": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "adjust_stock": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "apply_prices": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "cancel_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "coupon_check": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_outlet_id": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "reply_ticket": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "report_issue": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "sales_report": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "void_payment": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "approve_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "category_path": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "check_pincode": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "compute_price": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "decline_quote": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "delivery_pins": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "dispatch_trip": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "launch_status": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_price_list": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "phone_for_sms": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "publish_price": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "receive_goods": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "receive_stock": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "resolve_issue": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "customer_price": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "has_permission": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "is_super_admin": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_order_terms": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "notify_receipt": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "preferred_rate": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "pricing_inputs": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "record_payment": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_updated_at": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "assign_delivery": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "handle_new_user": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_spend_report": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_for": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "render_template": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "reset_test_data": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_trip_status": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "validate_coupon": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "write_audit_log": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "admin_list_users": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "allocate_payment": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "customer_balance": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "delivery_fee_for": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "expiring_batches": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_customer_role": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_restaurant_id": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_core": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "raise_debit_note": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_order_status": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_quote_status": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "statement_events": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "support_channels": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "claim_first_admin": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "complete_delivery": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "customer_users_of": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "default_team_role": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "mark_notification": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "my_customer_users": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "receivables_trend": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_customer_user": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "update_my_profile": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "write_off_expired": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "allocated_to_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "compute_price_from": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "credit_notes_apply": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "customer_statement": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "publish_due_prices": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "queue_notification": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "retry_notification": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "settle_driver_cash": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "update_my_location": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "adjust_stock_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "admin_set_user_role": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "check_category_tree": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "claim_notifications": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "driver_cash_summary": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "notify_order_status": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "orders_paid_receipt": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "payment_unallocated": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "rebuild_order_lines": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "receivables_summary": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "run_standing_orders": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "save_standing_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_customer_status": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "apply_stock_movement": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "customer_receivables": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "default_warehouse_id": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_standing_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "receive_stock_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "update_my_restaurant": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "admin_customer_logins": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "admin_dashboard_stats": {
+    "trigger": false,
+    "overloads": 2,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "admin_set_team_member": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "apply_coupon_to_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "check_product_variant": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "create_purchase_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "customer_credit_limit": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_v2_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_v3_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_v4_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_v5_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_v6_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_v7_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "record_online_payment": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "record_trip_departure": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "restaurant_for_outlet": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "set_customer_document": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_packed_quantities": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "update_purchase_order": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "warehouse_for_pincode": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "cancel_scheduled_price": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "effective_pricing_rule": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "orders_after_delivered": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "admin_list_users_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "allocated_to_debit_note": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "credit_note_unallocated": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "customer_needs_approval": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "orders_before_delivered": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": false
+   },
+   "queue_payment_reminders": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "support_channels_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "update_my_delivery_area": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "notify_customer_approved": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_order_payment_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "allocate_customer_credits": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "place_order_for_v1_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "price_list_for_restaurant": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_purchase_order_status": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "set_standing_order_active": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "sync_order_payment_status": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "admin_outstanding_balances": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "apply_stock_movement_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "update_my_restaurant_legacy": {
+    "trigger": false,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "sync_primary_outlet_from_restaurant": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   },
+   "sync_restaurant_from_primary_outlet": {
+    "trigger": true,
+    "overloads": 1,
+    "search_path_set": true,
+    "security_definer": true
+   }
+  },
+  "generated": "2026-10-30",
+  "migrations": [
+   {
+    "name": "core_schema",
+    "version": "20261005053838"
+   },
+   {
+    "name": "auth_and_rls",
+    "version": "20261005053906"
+   },
+   {
+    "name": "functions_and_storage",
+    "version": "20261005054016"
+   },
+   {
+    "name": "inventory_and_checkout",
+    "version": "20261005061720"
+   },
+   {
+    "name": "first_admin",
+    "version": "20261005133333"
+   },
+   {
+    "name": "procurement",
+    "version": "20261015000006"
+   },
+   {
+    "name": "fulfilment",
+    "version": "20261015000007"
+   },
+   {
+    "name": "orders_plus",
+    "version": "20261015000008"
+   },
+   {
+    "name": "foundation_cities_sectors_roles",
+    "version": "20261015102207"
+   },
+   {
+    "name": "revoke_anon_on_inventory_tables",
+    "version": "20261015102537"
+   },
+   {
+    "name": "sectors_open_sign_up",
+    "version": "20261015132536"
+   },
+   {
+    "name": "pricing_engine",
+    "version": "20261015133336"
+   },
+   {
+    "name": "catalogue_plus",
+    "version": "20261015145813"
+   },
+   {
+    "name": "launch_control",
+    "version": "20261020000001"
+   },
+   {
+    "name": "payments_credit",
+    "version": "20261020000002"
+   },
+   {
+    "name": "customer_access",
+    "version": "20261022051641"
+   },
+   {
+    "name": "customer_edit_window",
+    "version": "20261022134136"
+   },
+   {
+    "name": "notifications_support",
+    "version": "20261027052010"
+   },
+   {
+    "name": "reports_dashboard",
+    "version": "20261027054033"
+   },
+   {
+    "name": "customer_organisation",
+    "version": "20261027060327"
+   },
+   {
+    "name": "customer_organisation_v2",
+    "version": "20261028000001"
+   },
+   {
+    "name": "20261028000002_ordering_plus",
+    "version": "20261028092918"
+   },
+   {
+    "name": "support_channels_full",
+    "version": "20261029044858"
+   },
+   {
+    "name": "delivery_photos",
+    "version": "20261030033758"
+   }
+  ],
+  "team_roles": [
+   {
+    "code": "super_admin",
+    "name": "Super admin",
+    "description": "The owner. Can do everything and grant access."
+   },
+   {
+    "code": "city_manager",
+    "name": "City manager",
+    "description": "Runs one city: orders, customers, stock, prices, reports."
+   },
+   {
+    "code": "warehouse_manager",
+    "name": "Warehouse manager",
+    "description": "Runs one warehouse: receiving, counts, wastage, packing."
+   },
+   {
+    "code": "procurement_buyer",
+    "name": "Procurement buyer",
+    "description": "Buys from suppliers and mandis; records receipts and costs."
+   },
+   {
+    "code": "pricing_manager",
+    "name": "Pricing manager",
+    "description": "Sets and approves selling prices."
+   },
+   {
+    "code": "finance",
+    "name": "Finance",
+    "description": "Payments, credit, invoices, statements, GST."
+   },
+   {
+    "code": "sales",
+    "name": "Sales / key accounts",
+    "description": "Signs up and approves customers; manages their terms."
+   },
+   {
+    "code": "support",
+    "name": "Support agent",
+    "description": "Answers customers; edits and cancels orders."
+   },
+   {
+    "code": "dispatcher",
+    "name": "Dispatcher",
+    "description": "Assigns drivers and dispatches orders."
+   },
+   {
+    "code": "logistics_partner",
+    "name": "Logistics partner",
+    "description": "A third-party delivery partner: sees fulfilment for its city only."
+   },
+   {
+    "code": "picker",
+    "name": "Picker / packer",
+    "description": "Picks and packs orders in the warehouse."
+   },
+   {
+    "code": "driver",
+    "name": "Driver",
+    "description": "Uses the delivery app only."
+   }
+  ],
+  "role_permissions": [
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "audit"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "audit"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "customers"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "customers"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "customers"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "customers"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "dashboard"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "dashboard"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "fulfilment"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "fulfilment"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "fulfilment"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "fulfilment"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "inventory"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "inventory"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "inventory"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "inventory"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "orders"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "orders"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "orders"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "orders"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "payments"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "payments"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "payments"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "payments"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "pricing"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "pricing"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "pricing"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "pricing"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "procurement"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "procurement"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "procurement"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "procurement"
+   },
+   {
+    "role": "city_manager",
+    "action": "approve",
+    "module": "products"
+   },
+   {
+    "role": "city_manager",
+    "action": "edit",
+    "module": "products"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "products"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "products"
+   },
+   {
+    "role": "city_manager",
+    "action": "export",
+    "module": "reports"
+   },
+   {
+    "role": "city_manager",
+    "action": "view",
+    "module": "reports"
+   },
+   {
+    "role": "dispatcher",
+    "action": "edit",
+    "module": "fulfilment"
+   },
+   {
+    "role": "dispatcher",
+    "action": "view",
+    "module": "fulfilment"
+   },
+   {
+    "role": "dispatcher",
+    "action": "view",
+    "module": "inventory"
+   },
+   {
+    "role": "dispatcher",
+    "action": "edit",
+    "module": "orders"
+   },
+   {
+    "role": "dispatcher",
+    "action": "view",
+    "module": "orders"
+   },
+   {
+    "role": "finance",
+    "action": "export",
+    "module": "audit"
+   },
+   {
+    "role": "finance",
+    "action": "view",
+    "module": "audit"
+   },
+   {
+    "role": "finance",
+    "action": "export",
+    "module": "customers"
+   },
+   {
+    "role": "finance",
+    "action": "view",
+    "module": "customers"
+   },
+   {
+    "role": "finance",
+    "action": "export",
+    "module": "dashboard"
+   },
+   {
+    "role": "finance",
+    "action": "view",
+    "module": "dashboard"
+   },
+   {
+    "role": "finance",
+    "action": "approve",
+    "module": "fulfilment"
+   },
+   {
+    "role": "finance",
+    "action": "export",
+    "module": "fulfilment"
+   },
+   {
+    "role": "finance",
+    "action": "view",
+    "module": "fulfilment"
+   },
+   {
+    "role": "finance",
+    "action": "export",
+    "module": "orders"
+   },
+   {
+    "role": "finance",
+    "action": "view",
+    "module": "orders"
+   },
+   {
+    "role": "finance",
+    "action": "approve",
+    "module": "payments"
+   },
+   {
+    "role": "finance",
+    "action": "edit",
+    "module": "payments"
+   },
+   {
+    "role": "finance",
+    "action": "export",
+    "module": "payments"
+   },
+   {
+    "role": "finance",
+    "action": "view",
+    "module": "payments"
+   },
+   {
+    "role": "finance",
+    "action": "export",
+    "module": "reports"
+   },
+   {
+    "role": "finance",
+    "action": "view",
+    "module": "reports"
+   },
+   {
+    "role": "logistics_partner",
+    "action": "edit",
+    "module": "fulfilment"
+   },
+   {
+    "role": "logistics_partner",
+    "action": "view",
+    "module": "fulfilment"
+   },
+   {
+    "role": "picker",
+    "action": "edit",
+    "module": "orders"
+   },
+   {
+    "role": "picker",
+    "action": "view",
+    "module": "orders"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "export",
+    "module": "dashboard"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "view",
+    "module": "dashboard"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "approve",
+    "module": "pricing"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "edit",
+    "module": "pricing"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "export",
+    "module": "pricing"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "view",
+    "module": "pricing"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "approve",
+    "module": "products"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "edit",
+    "module": "products"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "export",
+    "module": "products"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "view",
+    "module": "products"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "export",
+    "module": "reports"
+   },
+   {
+    "role": "pricing_manager",
+    "action": "view",
+    "module": "reports"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "edit",
+    "module": "inventory"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "export",
+    "module": "inventory"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "view",
+    "module": "inventory"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "edit",
+    "module": "pricing"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "view",
+    "module": "pricing"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "edit",
+    "module": "procurement"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "export",
+    "module": "procurement"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "view",
+    "module": "procurement"
+   },
+   {
+    "role": "procurement_buyer",
+    "action": "view",
+    "module": "products"
+   },
+   {
+    "role": "sales",
+    "action": "approve",
+    "module": "customers"
+   },
+   {
+    "role": "sales",
+    "action": "edit",
+    "module": "customers"
+   },
+   {
+    "role": "sales",
+    "action": "export",
+    "module": "customers"
+   },
+   {
+    "role": "sales",
+    "action": "view",
+    "module": "customers"
+   },
+   {
+    "role": "sales",
+    "action": "view",
+    "module": "dashboard"
+   },
+   {
+    "role": "sales",
+    "action": "view",
+    "module": "orders"
+   },
+   {
+    "role": "sales",
+    "action": "view",
+    "module": "products"
+   },
+   {
+    "role": "support",
+    "action": "view",
+    "module": "customers"
+   },
+   {
+    "role": "support",
+    "action": "edit",
+    "module": "orders"
+   },
+   {
+    "role": "support",
+    "action": "view",
+    "module": "orders"
+   },
+   {
+    "role": "support",
+    "action": "view",
+    "module": "products"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "view",
+    "module": "dashboard"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "edit",
+    "module": "fulfilment"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "export",
+    "module": "fulfilment"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "view",
+    "module": "fulfilment"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "edit",
+    "module": "inventory"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "export",
+    "module": "inventory"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "view",
+    "module": "inventory"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "edit",
+    "module": "orders"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "view",
+    "module": "orders"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "view",
+    "module": "procurement"
+   },
+   {
+    "role": "warehouse_manager",
+    "action": "view",
+    "module": "products"
+   }
+  ]
+ },
+ "edge_functions": [
+  {
+   "slug": "invite-staff",
+   "version": 2,
+   "verify_jwt": true
+  },
+  {
+   "slug": "customer-access",
+   "version": 1,
+   "verify_jwt": true
+  },
+  {
+   "slug": "send-notifications",
+   "version": 1,
+   "verify_jwt": true
+  },
+  {
+   "slug": "customer-users",
+   "version": 1,
+   "verify_jwt": true
+  }
+ ],
+ "edge_functions_checked": "2026-10-30"
+}

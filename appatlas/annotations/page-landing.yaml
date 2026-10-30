@@ -1,0 +1,21 @@
+# page-landing.yaml — AppAtlas guide for "Public home page". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review page-landing --by "Your name"
+feature_id: "page-landing"
+name: "Public home page"
+module: "page"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "page#landing"
+admin:
+  what_is_this: "The public website: categories and listed products for logged-out visitors, \"Do you deliver here?\", who we serve, the FAQ and the footer."
+  why_it_exists: "New customers find us, check we deliver to them and register."
+  what_if_i_change_it: "Products, FAQ articles and pages are edited in the admin app; the home page updates by itself."
+  what_if_wrong: "A pin code missing from Cities & warehouses makes the delivery check say no."
+  prerequisites: "Nothing; anyone can open it."
+  workflow:
+    - "Open the website"
+    - "Check a pin code"
+    - "Browse products"
+    - "Register or sign in from the partner login"
+  when_to_call_developer: "If the page is blank or products do not load for a logged-out visitor."

@@ -1,0 +1,38 @@
+# infra-supabase-auth.yaml — AppAtlas guide for "Authentication (Supabase Auth)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review infra-supabase-auth --by "Your name"
+feature_id: "infra-supabase-auth"
+name: "Authentication (Supabase Auth)"
+module: "infrastructure"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens: []
+admin:
+  who_uses_it: "Every person who signs in; the owner or a developer manages its settings in the Supabase dashboard."
+  what_does_it_affect: "Every sign-in. If it stops, nobody can sign in, but no data is lost."
+  what_is_this: "The login system. Every user — staff, customer, driver — has an account here. Email and password; customers confirm their email once; staff come only by invitation."
+  why_it_exists: "Who you are decides what the database shows you; every security rule starts from the signed-in user."
+  what_if_i_change_it: "Email settings (SMTP, confirm email, redirect URLs) are in Supabase → Authentication. Turning confirmation off makes approval the only gate."
+  what_if_wrong: "Wrong redirect URLs send invite and reset links to the wrong page. The built-in mailer sends only a few emails an hour."
+  prerequisites: "Site URL and redirect URLs set; custom SMTP (Resend or Brevo) before launch."
+  workflow:
+    - "Supabase → Authentication → URL configuration: set site and redirect URLs"
+    - "Authentication → SMTP: set a custom sender"
+    - "Use Customers → Access when a customer is stuck"
+  when_to_call_developer: "Before changing providers, adding Google sign-in, or if nobody can sign in."
+  migration_guide:
+    alternatives:
+      - "Clerk"
+      - "Auth.js"
+      - "Firebase Auth"
+      - "Keycloak"
+    effort: "high"
+    what_changes_for_admin: "A new login address and probably a password reset for everyone; features stay the same."
+    what_stays_same: "All data, features and workflows."
+infrastructure: true
+developer:
+  code_to_replace:
+    - "web/js/core/supabase.js"
+    - "web/js/core/auth.js"
+    - "web/js/core/config.js (supabaseUrl, publishable key)"
+    - "every SQL function that calls auth.uid()"
+    - "Edge Functions customer-access, customer-users, invite-staff (admin API)"

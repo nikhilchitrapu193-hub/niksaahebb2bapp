@@ -24,6 +24,7 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
 | Customer self-edit / cancel window per sector (migration 017) | `sectors.customer_edit_window_minutes`, ADR 0021 |
 | Running, deploying, first admin | `docs/runbook.md`, `docs/deployment.md` |
 | Tests | `docs/testing.md` |
+| What a screen does, who uses it, what it touches, repo vs live, impact of a change | `npm run atlas` → `appatlas/out/index.html`; how it works: `docs/appatlas.md`, ADR 0026 |
 
 ## Rules that must not be broken
 1. **Pages never call Supabase directly.** All backend calls go through `web/js/core/api.js`.
@@ -88,6 +89,11 @@ Supabase Postgres as the backend (`supabase/`). No framework, no build step, no 
     and an order carries `outlet_id`. Approval before dispatch is `orders.approval_status`, not an order status:
     a held order is a placed order the kitchen may not confirm. New order paths go through `place_order_core`
     with `restaurant_for_outlet()`; never copy the core.
+22. **Keep the atlas in step.** A new route needs `appatlas/annotations/<feature-id>.yaml`
+    (`node tools/appatlas/cli.js annotate <id>` writes a draft); a new known problem goes into
+    `appatlas/troubleshooting.yaml` and the runbook. `npm test` fails on an invalid annotation; `npm run atlas:check`
+    lists reviewed guides your change made stale. After applying a migration or deploying an Edge Function, refresh
+    `appatlas/live-state.json` (`supabase/tests/appatlas_snapshot.sql`). AppAtlas never calls AI; drafts are labelled.
 
 ## Where things live
 ```
@@ -103,6 +109,8 @@ supabase/tests/security_test.sql   paste into Supabase SQL editor; every line mu
 supabase/tests/local_postgres_stub.sql  lets the same test run on a plain local Postgres
 .cursor/rules, .cursor/skills  code rules and the fs-feature / fs-review / fs-security-check skills
 tests/                         node --test; fake Supabase client in tests/helpers/
+tools/appatlas/                AppAtlas engine (scanners, graph, site, CLI) — docs/appatlas.md
+appatlas/                      annotations/*.yaml, troubleshooting.yaml, live-state.json, review-lock.json (out/ is generated)
 ```
 
 ## How to add a feature (the usual order)
@@ -126,7 +134,14 @@ runner cannot reach Supabase; page tests use the fake client.
 - **Latest commit**: `8497471` — super-admin reset feature
 - **Supabase project ID**: `bzxygscjhvcwahwqgqin`
 
-### Applied migrations (24 total — all on live DB)
+### Migrations vs live (checked 2026-10-30 with AppAtlas — see the Repo vs live page)
+24 files in `supabase/migrations/`. The live migration log has 24 rows, but they do not map one to one:
+* 23 files are recorded in the live log (live version numbers differ from the file names; matched by name).
+* `20261030000002_super_admin_reset.sql` is **applied by hand**: `reset_test_data()` exists live, but the migration log
+  has no row for it. To record it: `supabase migration repair --status applied 20261030000002` (changes only the log).
+* The live log has `20261028000001_customer_organisation_v2`, which has **no file** in the repo.
+* Live and repo agree on every table (60, plus 2 views), function (156), policy (91) and trigger.
+
 | File | What it does |
 |------|-------------|
 | 20261005000001_core_schema.sql | Base tables: profiles, restaurants, outlets, products, categories, orders, order_items |
@@ -152,12 +167,7 @@ runner cannot reach Supabase; page tests use the fake client.
 | 20261028000002 | Ordering+: bulk order, ordering plus features in restaurant app |
 | 20261029000001 | Support channels full: full support ticket lifecycle |
 | 20261030000001 | Delivery photos: `trips.pre_departure_photo_path`, `record_trip_departure()`, `trip-photos` bucket |
-| 20261030000002_super_admin_reset.sql | `reset_test_data()` — **WRITTEN but NOT YET APPLIED to live DB. User must paste SQL manually.** |
-
-### ⚠️ Pending manual DB action
-Migration 024 (`20261030000002_super_admin_reset.sql`) is in the repo but **not applied**.
-The user must paste it at: https://supabase.com/dashboard/project/bzxygscjhvcwahwqgqin/sql/new
-The file is at `supabase/migrations/20261030000002_super_admin_reset.sql`.
+| 20261030000002_super_admin_reset.sql | `reset_test_data()` — function live (pasted by hand), not recorded in the migration log |
 
 ### Key DB function signatures (call these exactly)
 ```sql
@@ -216,15 +226,13 @@ reset_test_data()  → jsonb  (wipes all transactional data; keeps config/produc
 Both Nikhil and Saaheb have `profiles.team_role = 'super_admin'`. No separate column needed.
 `is_super_admin()` checks `role = 'admin' AND team_role = 'super_admin'` on the profiles table.
 
-### Edge functions deployed
-- `customer-access` — token-gated customer portal link
-- `customer-users` — create customer users
-- `invite-staff` — email invites for admin/delivery staff
-- `razorpay-order` + `razorpay-webhook` — Razorpay integration (needs key config)
-- `send-notifications` — SMS/email dispatch
+### Edge functions (checked 2026-10-30)
+Deployed: `customer-access`, `customer-users`, `invite-staff`, `send-notifications`.
+**Not deployed:** `razorpay-order`, `razorpay-webhook` — so "Pay online" cannot work yet even with keys set.
+Deploy with `supabase functions deploy razorpay-order` and `supabase functions deploy razorpay-webhook`.
 
 ### Go-live blockers (as of 2026-10-30)
-- 🔴 Razorpay keys: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` edge function secrets + `razorpayKeyId` in `config.js`
+- 🔴 Razorpay: deploy `razorpay-order` + `razorpay-webhook`; set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` secrets + `razorpayKeyId` in `config.js`
 - 🔴 SMS/email provider secrets for `send-notifications` edge function
 - 🟡 Static hosting: serve `web/` from Cloudflare Pages / Netlify (no build step)
 - 🟡 Seed data: city, warehouse, product, admin user, launch mode config

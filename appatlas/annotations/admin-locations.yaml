@@ -1,0 +1,22 @@
+# admin-locations.yaml — AppAtlas guide for "Cities & warehouses". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-locations --by "Your name"
+feature_id: "admin-locations"
+name: "Cities & warehouses"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#locations"
+admin:
+  what_is_this: "Cities, their warehouses and the pin codes each warehouse delivers to. This is how a new city is switched on."
+  why_it_exists: "A customer is served from the warehouse whose pin codes include theirs. The website's \"Do you deliver here?\" box answers from the same list."
+  what_if_i_change_it: "Adding a pin code lets customers there be approved and served. Removing one leaves customers there without a warehouse until reassigned."
+  what_if_wrong: "A pin code under the wrong warehouse sends orders to the wrong kitchen. A missing pin code makes customers there impossible to approve."
+  prerequisites: "Settings view to open, Settings edit to change."
+  workflow:
+    - "Add city (name, GST state code)"
+    - "Add a warehouse under it and tick Default warehouse for this city"
+    - "Add every pin code the warehouse delivers to"
+    - "Receive stock into the new warehouse"
+    - "Invite a city manager scoped to the city"
+  when_to_call_developer: "If a customer with a listed pin code still shows no warehouse."

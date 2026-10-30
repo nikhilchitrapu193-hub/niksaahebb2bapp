@@ -1,0 +1,20 @@
+# restaurant-help.yaml — AppAtlas guide for "Help (customer)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-help --by "Your name"
+feature_id: "restaurant-help"
+name: "Help (customer)"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#help"
+admin:
+  what_is_this: "Call, WhatsApp and email buttons, help articles, and support tickets: open one (optionally about an order), read replies, reply and close."
+  why_it_exists: "Customers get answers in writing and on record."
+  what_if_i_change_it: "Opening a ticket puts it in Orders → Support tickets for staff."
+  what_if_wrong: "Missing contact buttons mean the support channels are not set (Settings → Notifications → Channels)."
+  prerequisites: "A signed-in customer."
+  workflow:
+    - "Read the articles"
+    - "Open a ticket with a subject and message"
+    - "Reply when staff answer; close it when done"
+  when_to_call_developer: "If the app shows a message not explained in Help or this guide, or an order you placed does not appear under Orders."

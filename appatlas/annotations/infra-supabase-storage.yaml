@@ -1,0 +1,33 @@
+# infra-supabase-storage.yaml — AppAtlas guide for "File storage (Supabase Storage)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review infra-supabase-storage --by "Your name"
+feature_id: "infra-supabase-storage"
+name: "File storage (Supabase Storage)"
+module: "infrastructure"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens: []
+admin:
+  who_uses_it: "Staff uploading product photos and bills, drivers uploading delivery photos, customers uploading documents."
+  what_does_it_affect: "Photos on the catalogue and invoices, bills, delivery proof and customer documents."
+  what_is_this: "Files: product photos (public), purchase bills, proof-of-delivery photos, customer documents and trip loading photos (private, opened through short-lived links)."
+  why_it_exists: "Photos and documents are evidence; private buckets keep customer documents away from the public."
+  what_if_i_change_it: "Bucket privacy is set in migrations; do not make a private bucket public."
+  what_if_wrong: "A public documents bucket would expose customers' licences."
+  prerequisites: "Storage space (1 GB on the free tier). Keep originals of product photos elsewhere."
+  workflow:
+    - "Upload photos from the admin app"
+    - "Watch the storage quota in Supabase"
+  when_to_call_developer: "If uploads fail for everyone, or before moving files to another provider."
+  migration_guide:
+    alternatives:
+      - "Cloudflare R2"
+      - "AWS S3"
+      - "UploadThing"
+    effort: "low"
+    what_changes_for_admin: "Nothing visible."
+    what_stays_same: "Every photo and document after the copy."
+infrastructure: true
+developer:
+  code_to_replace:
+    - "the upload / signed-URL wrappers in web/js/core/api.js"
+    - "storage policies in the migrations"

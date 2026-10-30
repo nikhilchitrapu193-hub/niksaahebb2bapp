@@ -1,0 +1,22 @@
+# restaurant-cart.yaml — AppAtlas guide for "Cart & checkout". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-cart --by "Your name"
+feature_id: "restaurant-cart"
+name: "Cart & checkout"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#cart"
+admin:
+  what_is_this: "The cart drawer: lines, delivery outlet, date and slot, payment method (cash on delivery or pay later within the credit rules), PO number when the sector needs one, coupon, and Place order. Can also save the basket as a standing order."
+  why_it_exists: "This is where an order is actually placed. The database recalculates every price, fee and rule when the order is placed."
+  what_if_i_change_it: "Placing an order reserves stock (counted mode), queues an \"order placed\" message and shows the order under Orders."
+  what_if_wrong: "Below the minimum order the fee is added, or the order is refused if the fee is ₹0. Pay later is refused while an invoice is overdue or the limit is reached; cash on delivery is offered instead."
+  prerequisites: "Approved account, a warehouse serving the outlet's pin code, a live sector, and an open slot."
+  workflow:
+    - "Open the cart"
+    - "Pick the outlet, date and slot"
+    - "Choose cash on delivery or pay later"
+    - "Enter the PO number if asked, and a coupon if you have one"
+    - "Place order"
+  when_to_call_developer: "If the cart total and the placed order's total differ by more than a price-list change explains."

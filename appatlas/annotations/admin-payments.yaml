@@ -1,0 +1,22 @@
+# admin-payments.yaml — AppAtlas guide for "Receivables". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-payments --by "Your name"
+feature_id: "admin-payments"
+name: "Receivables"
+module: "payments"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#payments"
+admin:
+  what_is_this: "Every customer with money open or on account, aged current / 1–30 / 31–60 / 61–90 / 90+ days overdue. Open a customer to see open invoices, apply credit, record a receipt, raise a debit note or open a statement."
+  why_it_exists: "Credit customers must pay on time; this shows who owes what and how late."
+  what_if_i_change_it: "Recording a receipt reduces what the customer owes (applied to the invoices you tick, or oldest-due-first). A debit note adds a charge."
+  what_if_wrong: "A receipt on the wrong customer makes two accounts wrong; void it (nothing is deleted) and record it again."
+  prerequisites: "Payments view; Payments edit to record; UPI, bank and cheque receipts need the reference number."
+  workflow:
+    - "Open Payments"
+    - "Click a customer"
+    - "Record receipt: amount, method, reference, date"
+    - "Tick invoices or leave them for oldest-due-first"
+    - "Open Statement to send them a copy"
+  when_to_call_developer: "If an invoice stays unpaid after a receipt fully covering it was applied."

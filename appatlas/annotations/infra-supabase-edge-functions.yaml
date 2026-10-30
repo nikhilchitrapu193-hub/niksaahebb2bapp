@@ -1,0 +1,31 @@
+# infra-supabase-edge-functions.yaml — AppAtlas guide for "Server functions (Supabase Edge Functions)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review infra-supabase-edge-functions --by "Your name"
+feature_id: "infra-supabase-edge-functions"
+name: "Server functions (Supabase Edge Functions)"
+module: "infrastructure"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens: []
+admin:
+  who_uses_it: "Staff and customers trigger them through buttons (invite, Access, Send now, Pay online); a scheduler and Razorpay call some directly."
+  what_does_it_affect: "Invites, customer login rescue, every SMS and email, and online payments."
+  what_is_this: "Small server programs for the jobs the browser must not do itself: inviting staff and customer members, rescuing customer logins, sending SMS and email, and taking online payments."
+  why_it_exists: "They hold secret keys (service role, payment and SMS keys) that must never reach the browser."
+  what_if_i_change_it: "Secrets are set in Supabase → Edge Functions → Secrets; deploying a new version replaces the old one at once."
+  what_if_wrong: "A function that is not deployed makes its button fail (online payment today). A wrong secret makes messages or payments fail."
+  prerequisites: "Supabase CLI to deploy: supabase functions deploy <name>."
+  workflow:
+    - "Deploy with the Supabase CLI"
+    - "Set secrets in the dashboard"
+    - "Check logs under Edge Functions → <name> → Logs"
+  when_to_call_developer: "For any deploy or if a function's logs show errors."
+  migration_guide:
+    alternatives:
+      - "Cloudflare Workers"
+      - "Vercel functions"
+      - "Express on a VPS"
+      - "AWS Lambda"
+    effort: "medium"
+    what_changes_for_admin: "Webhook and scheduler addresses change; set them again in Razorpay and the scheduler."
+    what_stays_same: "What each job does."
+infrastructure: true

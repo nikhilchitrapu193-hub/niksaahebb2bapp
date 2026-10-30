@@ -1,0 +1,22 @@
+# admin-purchase-orders.yaml — AppAtlas guide for "Purchase orders". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-purchase-orders --by "Your name"
+feature_id: "admin-purchase-orders"
+name: "Purchase orders"
+module: "procurement"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#purchase-orders"
+admin:
+  what_is_this: "Purchase orders to suppliers: create or edit a draft, approve and send, share on WhatsApp or print, receive goods against it, close short or cancel. Draft → sent → part received → closed, or cancelled."
+  why_it_exists: "A PO is the plan of what we expect from a supplier and at what cost; receiving against it shows what actually arrived."
+  what_if_i_change_it: "A PO never changes stock itself. Approving makes it final for the supplier; only drafts can be edited."
+  what_if_wrong: "A wrong cost on a line flows into landed cost and prices once received. Cancelling after goods arrived is refused; close short instead."
+  prerequisites: "Procurement view; Procurement approve to approve and send; Inventory edit to receive."
+  workflow:
+    - "Open a draft and check lines and costs"
+    - "Edit if needed"
+    - "Approve & send"
+    - "Print / PDF or Share on WhatsApp"
+    - "When the truck arrives, Receive goods (accepted and rejected quantities)"
+  when_to_call_developer: "If a PO stays \"sent\" after everything was received."

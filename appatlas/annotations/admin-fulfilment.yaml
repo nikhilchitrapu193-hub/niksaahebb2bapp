@@ -1,0 +1,21 @@
+# admin-fulfilment.yaml — AppAtlas guide for "Pick list". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-fulfilment --by "Your name"
+feature_id: "admin-fulfilment"
+name: "Pick list"
+module: "fulfilment"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#fulfilment"
+admin:
+  what_is_this: "What to pick in a warehouse for a delivery day across confirmed orders, plus batches near expiry with a one-click write-off."
+  why_it_exists: "Pickers pick once per product for the whole day instead of order by order, and spoiled stock is written off before it is sent."
+  what_if_i_change_it: "Writing off expired stock posts wastage in the ledger and lowers stock."
+  what_if_wrong: "Picking for the wrong day or warehouse means short or wrong deliveries."
+  prerequisites: "Fulfilment view; Inventory edit to write off. Orders must be confirmed. Expiry dates come from receiving."
+  workflow:
+    - "Pick the warehouse and the delivery day"
+    - "Pick the quantity per product"
+    - "Write off expired batches"
+    - "Pack each order and type packed weights on the order"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

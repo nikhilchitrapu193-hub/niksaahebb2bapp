@@ -1,0 +1,21 @@
+# admin-dashboard.yaml — AppAtlas guide for "Dashboard". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-dashboard --by "Your name"
+feature_id: "admin-dashboard"
+name: "Dashboard"
+module: "dashboard"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#dashboard"
+admin:
+  what_is_this: "The first screen of the admin app: today's headline numbers, customers waiting for approval, money owed (receivables tiles), open support tickets and a 14-day chart of orders and revenue."
+  why_it_exists: "One glance each morning shows what needs attention before the day starts: who is waiting to be approved, how much is overdue and whether orders are coming in."
+  what_if_i_change_it: "Nothing here changes data. The city filter only changes what you are looking at."
+  what_if_wrong: "It cannot be set up wrongly; if numbers look wrong, the cause is in the screen they come from (Orders, Payments, Customers)."
+  prerequisites: "A team role with Dashboard view. A city manager sees only their city."
+  workflow:
+    - "Open the admin app; the dashboard is the start page"
+    - "Check the launch banner and pending customers"
+    - "Pick a city in the filter if you look after several"
+    - "Click a tile to go to the screen behind it"
+  when_to_call_developer: "If the dashboard numbers disagree with the Orders or Payments screens for the same city and dates."

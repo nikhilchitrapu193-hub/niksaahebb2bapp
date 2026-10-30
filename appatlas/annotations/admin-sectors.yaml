@@ -1,0 +1,22 @@
+# admin-sectors.yaml — AppAtlas guide for "Sectors & trading terms". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-sectors --by "Your name"
+feature_id: "admin-sectors"
+name: "Sectors & trading terms"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#sectors"
+admin:
+  what_is_this: "Customer types (restaurants, hotels, institutions, defence, retail) and the default terms each gets: minimum order value, delivery fee below it, credit days and limit, whether overdue invoices block pay-later, the self-edit window, PO number required, approval required and self sign-up."
+  why_it_exists: "Each sector trades differently; an army cantonment needs indent numbers and approval, a restaurant does not."
+  what_if_i_change_it: "New terms apply to the next order of every customer in the sector who has no personal override. Past orders do not change."
+  what_if_wrong: "A minimum order with a ₹0 fee refuses every order below it. No credit limit with \"block when overdue\" off lets debt grow. Edit window 0 means customers can never change their own orders."
+  prerequisites: "Settings edit permission. The Active tick is the same switch as Settings → Launch."
+  workflow:
+    - "Open Settings → Sectors & terms"
+    - "Edit a sector's minimum order, fee, credit days and limit"
+    - "Set the edit window in minutes"
+    - "Tick PO required / approval required where the sector needs it"
+    - "Save"
+  when_to_call_developer: "If orders are refused or charged in a way that does not follow the terms shown here."

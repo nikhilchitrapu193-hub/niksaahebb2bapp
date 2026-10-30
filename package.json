@@ -10,7 +10,9 @@
   "scripts": {
     "start": "node scripts/dev-server.js",
     "test": "node --test tests/*.test.js",
-    "test:log": "node --test --test-reporter=tap tests/*.test.js 2>&1 | node scripts/test-logger.js"
+    "test:log": "node --test --test-reporter=tap tests/*.test.js 2>&1 | node scripts/test-logger.js",
+    "atlas": "node tools/appatlas/cli.js build",
+    "atlas:check": "node tools/appatlas/cli.js check"
   },
   "devDependencies": {
     "jsdom": "^26.0.0"
