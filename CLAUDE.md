@@ -116,3 +116,133 @@ tests/                         node --test; fake Supabase client in tests/helper
 Node 20+, Windows-friendly (no shell scripts). `npm start` serves `web/` at http://localhost:3000.
 Supabase project URL and publishable key are in `web/js/core/config.js`. The sandboxed test
 runner cannot reach Supabase; page tests use the fake client.
+
+---
+
+## Current build state (updated 2026-10-30)
+
+### Repository
+- **GitHub**: `nikhilchitrapu193-hub/niksaahebb2bapp`
+- **Latest commit**: `8497471` — super-admin reset feature
+- **Supabase project ID**: `bzxygscjhvcwahwqgqin`
+
+### Applied migrations (24 total — all on live DB)
+| File | What it does |
+|------|-------------|
+| 20261005000001_core_schema.sql | Base tables: profiles, restaurants, outlets, products, categories, orders, order_items |
+| 20261005000002_auth_and_rls.sql | RLS policies, `app_role()`, `has_permission()`, `in_my_scope()` |
+| 20261005000003_functions_and_storage.sql | `place_order()`, `update_stock()`, storage buckets |
+| 20261005000004_inventory_and_checkout.sql | Inventory helpers, checkout flow |
+| 20261005000005_first_admin.sql | Bootstrap first admin user |
+| 20261015000001 | Cities, warehouses, sectors, team roles, role_permissions, `queue_notification()` |
+| 20261015000002 | Revoke anon on inventory tables |
+| 20261015000003 | Sectors open sign-up |
+| 20261015000004 | Pricing engine: pricing_rules, product_pricing, benchmark_sources, `compute_price_from()`, `apply_prices()` |
+| 20261015000005 | Catalogue+: HSN, pack sizes, price lists, `customer_price()`, `my_price_list()` |
+| 20261015000006 | Procurement: purchase_orders, goods_receipts, stock_movements, `receive_goods()`, `buying_list()` |
+| 20261015000007 | Fulfilment: trips, vehicles, drivers, trip_orders, `dispatch_trip()`, `complete_delivery()` |
+| 20261015000008 | Orders+: order_status_history, order_line_costs, delivery_returns, `place_order_core()` |
+| 20261020000001 | Launch control: `company_settings.pricing_mode` / `stock_mode`, `sectors.is_active` |
+| 20261020000002 | Payments+credit: payments, payment_allocations, credit_notes, debit_notes, `record_payment()`, `allocate_payment()` |
+| 20261022000001 | Customer access: `customer_users`, invite edge function, `my_restaurant_id()` |
+| 20261022000002 | Customer edit window: `sectors.customer_edit_window_minutes`, `can_edit_order()` |
+| 20261027000001 | Notifications+support: notifications, support_tickets, ticket_messages, `send_notification()` |
+| 20261027000002 | Reports+dashboard: sales report views, `sales_report()` |
+| 20261028000001 | Customer organisation: approval workflows, `orders.approval_status`, standing orders, quotes, coupons |
+| 20261028000002 | Ordering+: bulk order, ordering plus features in restaurant app |
+| 20261029000001 | Support channels full: full support ticket lifecycle |
+| 20261030000001 | Delivery photos: `trips.pre_departure_photo_path`, `record_trip_departure()`, `trip-photos` bucket |
+| 20261030000002_super_admin_reset.sql | `reset_test_data()` — **WRITTEN but NOT YET APPLIED to live DB. User must paste SQL manually.** |
+
+### ⚠️ Pending manual DB action
+Migration 024 (`20261030000002_super_admin_reset.sql`) is in the repo but **not applied**.
+The user must paste it at: https://supabase.com/dashboard/project/bzxygscjhvcwahwqgqin/sql/new
+The file is at `supabase/migrations/20261030000002_super_admin_reset.sql`.
+
+### Key DB function signatures (call these exactly)
+```sql
+-- Role checks (no uid argument — uses auth.uid() internally)
+app_role()                              → text  ('admin'|'restaurant'|'delivery')
+is_super_admin()                        → bool  (role='admin' AND team_role='super_admin')
+has_permission(p_module text, p_action text) → bool
+in_my_scope(p_city_id uuid, p_warehouse_id uuid) → bool
+my_restaurant_id()                      → uuid  (owner or member of a restaurant)
+
+-- WRONG — never pass auth.uid() as first arg:
+-- has_permission(auth.uid(), 'orders', 'view')  ← WRONG
+-- has_permission('orders', 'view')               ← CORRECT
+
+-- Orders
+place_order_core(p_outlet_id, p_items jsonb, p_delivery_date, p_notes)  → uuid (order_id)
+restaurant_for_outlet(p_outlet_id uuid)  → uuid (restaurant_id)
+
+-- Stock / procurement
+receive_goods(p_po_id, p_items jsonb, p_warehouse_id, p_received_at)
+adjust_stock(p_product_id, p_warehouse_id, p_qty_delta, p_reason)
+
+-- Fulfilment
+dispatch_trip(p_trip_id uuid)
+complete_delivery(p_order_id uuid, p_otp text, p_pod_photo_path text)
+record_trip_departure(p_trip_id uuid, p_photo_path text)
+
+-- Payments
+record_payment(p_restaurant_id, p_amount, p_method, p_reference, p_notes)
+allocate_payment(p_payment_id, p_order_ids uuid[])
+
+-- Notifications
+queue_notification(p_event text, p_restaurant_id uuid, p_order_id uuid, p_data jsonb)
+
+-- Pricing
+compute_price_from(p_cost numeric, p_rule_id uuid)  → numeric
+apply_prices(p_product_ids uuid[], p_price_list_id uuid)
+
+-- Super-admin only
+reset_test_data()  → jsonb  (wipes all transactional data; keeps config/products/users)
+
+-- Trigger function — NOT callable directly:
+-- write_audit_log()  ← fires automatically on UPDATE/INSERT/DELETE
+```
+
+### Storage buckets
+| Bucket | Access | Used for |
+|--------|--------|---------|
+| `product-photos` | **Public** | Product catalogue images (use `getPublicUrl`) |
+| `purchase-bills` | Private | PO and supplier bills (use signed URLs) |
+| `delivery-pod` | Private | Proof-of-delivery photos |
+| `customer-documents` | Private | Customer FSSAI/GST uploads |
+| `trip-photos` | Private | Pre-departure loading photos |
+
+### Super-admin accounts
+Both Nikhil and Saaheb have `profiles.team_role = 'super_admin'`. No separate column needed.
+`is_super_admin()` checks `role = 'admin' AND team_role = 'super_admin'` on the profiles table.
+
+### Edge functions deployed
+- `customer-access` — token-gated customer portal link
+- `customer-users` — create customer users
+- `invite-staff` — email invites for admin/delivery staff
+- `razorpay-order` + `razorpay-webhook` — Razorpay integration (needs key config)
+- `send-notifications` — SMS/email dispatch
+
+### Go-live blockers (as of 2026-10-30)
+- 🔴 Razorpay keys: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` edge function secrets + `razorpayKeyId` in `config.js`
+- 🔴 SMS/email provider secrets for `send-notifications` edge function
+- 🟡 Static hosting: serve `web/` from Cloudflare Pages / Netlify (no build step)
+- 🟡 Seed data: city, warehouse, product, admin user, launch mode config
+- 🟡 Supabase SMTP for staff invite emails
+- 🟡 Production domain in Auth → URL Configuration
+
+### What was REMOVED (do not re-add)
+- Fleetbase integration (deleted: edge functions, `fleetbase-trips.js`, phase-2 migration stubs)
+- PWA service worker (`manifest.json`, `sw.js`) — conflicted with ES module approach; add later
+- Supplier portal — removed, scope reduced for MVP
+- Warehouse management page (`warehouse.js`) — deleted in Fleetbase cleanup
+
+### Critical patterns that are easy to get wrong
+1. `write_audit_log()` is a **trigger**, not a callable function — never call it directly
+2. `has_permission` takes **2 args** (module, action) — no uid arg
+3. SECURITY DEFINER functions must have `SET search_path = ''` to prevent search_path injection
+4. Never `UPDATE orders SET payment_status` — use `sync_order_payment_status()` which derives it
+5. Never `UPDATE products SET stock_qty` — use `receive_goods()` / `adjust_stock()`
+6. The Supabase MCP tool `execute_sql` will **cancel** any SQL with DELETE statements — apply destructive migrations manually in the Supabase SQL editor
+7. Product photos bucket is **public** — use `supabase.storage.from('product-photos').getPublicUrl(path)`. All other buckets are private — use signed URLs.
+8. `config.js` in `web/` must NEVER contain service-role or secret keys — security is in RLS + SECURITY DEFINER functions
