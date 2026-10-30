@@ -87,9 +87,9 @@ test('can: super admin may do everything, others only what the matrix allows, cu
   assert.equal(can(customer, 'orders', 'view'), false);
   assert.equal(can(null, 'orders', 'view'), false);
   assert.deepEqual(visibleNav(picker), [{ href: '#orders', label: 'Orders' }]);
-  assert.equal(visibleNav(superAdmin).length, 13, 'every module with a nav entry (pricing 009, procurement 011, fulfilment 012, payments 015, reports 019)');
+  assert.equal(visibleNav(superAdmin).length, 14, 'every module with a nav entry (pricing 009, procurement 011, fulfilment 012, payments 015, reports 019, knowledge_base 025)');
   // Launch modes (014) hide modules on top of the matrix.
-  assert.equal(visibleNav(superAdmin, new Set(['pricing', 'inventory', 'procurement'])).length, 10);
+  assert.equal(visibleNav(superAdmin, new Set(['pricing', 'inventory', 'procurement'])).length, 11);
   assert.deepEqual(visibleNav(picker, new Set(['orders'])), [], 'hidden beats granted');
 });
 

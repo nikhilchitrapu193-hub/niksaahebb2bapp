@@ -1,0 +1,38 @@
+# admin-atlas.yaml — AppAtlas guide for the Knowledge Base viewer screen. DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-atlas --by "Your name"
+feature_id: "admin-atlas"
+name: "Knowledge Base"
+module: "knowledge_base"
+status: "draft"
+drafted_by: "Claude (AI) 2026-10-30 from the screen source and migration 025"
+screens:
+  - "admin#atlas"
+admin:
+  what_is_this: "The Knowledge Base embeds the AppAtlas codebase viewer inside the admin app. It shows every screen, database table, function and migration in plain language, built from a static snapshot of the codebase — no AI is called at runtime."
+  why_it_exists: "New staff and developers need to understand what each screen does, what it touches and what can go wrong. Embedding it here makes it discoverable without sharing a separate URL or running a build tool."
+  who_uses_it: "Super admins and any team member a super admin has granted the knowledge_base view permission. In practice this is developers, senior ops staff and anyone onboarding to a new area of the system."
+  what_does_it_affect: "Read-only. No database writes. The viewer only reads the pre-built knowledge-graph.json file and shows the embedded atlas HTML."
+  what_if_i_change_it: "Changes to who can view it (Settings → Roles) take effect the next time the affected person loads the app. The content only changes when a developer rebuilds with npm run atlas."
+  what_if_wrong: "If the content looks stale or counts are wrong, ask a developer to rebuild the atlas with npm run atlas from the project root."
+  prerequisites: "Only team members whose role has the knowledge_base view permission (set in Settings → Roles) see this screen. Super admins have it by default."
+  workflow:
+    - "Open Knowledge Base from the admin sidebar"
+    - "Use the search bar (press / to focus) to find a screen, table or function"
+    - "Click any item in the sidebar to see its full guide"
+    - "The Overview page shows coverage stats and a health summary"
+  common_errors:
+    - symptom: "Atlas not built yet"
+      solution: "Ask a developer to run npm run atlas from the project root, then reload this page."
+    - symptom: "Counts look wrong or a screen is missing"
+      solution: "The atlas needs a rebuild after a new migration or screen is added. Ask a developer to run npm run atlas."
+  when_to_call_developer: "If the page shows Atlas not built yet, ask a developer to run npm run atlas. If counts look wrong after applying a migration, the atlas needs a rebuild."
+  migration_guide:
+    effort: "trivial"
+    alternatives:
+      - "Serve the atlas at a separate URL and remove the admin route"
+    what_changes_for_admin: "Staff would need to remember a separate developer URL."
+    what_stays_same: "The atlas HTML artefact is unchanged."
+developer:
+  notes: "Rendered inside a sandboxed iframe so the atlas router and styles do not conflict with the admin shell. The stat summary above the iframe loads knowledge-graph.json via getAtlasData() in api.js — a plain fetch, not a Supabase call. Permission: knowledge_base:view (migration 025)."
+  code_to_replace: []
+  known_issues: []

@@ -6,6 +6,7 @@
 //   #procurement (buying list) · #purchase-orders · #receipts · #rate-cards
 //   #payments (receivables) · #payments-receipts
 //   #notifications · #help-centre · #website · #coupons (settings) · #tickets · #quotes (orders) · #reports
+//   #atlas (knowledge base — knowledge_base permission required)
 //
 // The menu shows only the modules the signed-in team member may VIEW
 // (web/js/core/permissions.js) AND that are switched on under Settings → Launch
@@ -54,6 +55,7 @@ import { renderWebsite } from './website.js';
 import { renderReports } from './reports.js';
 import { renderCoupons } from './coupons.js';
 import { renderQuotes } from './quotes.js';
+import { renderAtlas } from './atlas.js';
 
 /** Sub-pages keep their parent menu item highlighted. */
 const PARENT_OF = { '#launch': '#settings', '#locations': '#settings', '#sectors': '#settings', '#roles': '#settings',
@@ -130,6 +132,7 @@ if (me) {
       '#reports': guard('reports', (c) => renderReports(c, me)),
       '#coupons': guard('settings', (c) => renderCoupons(c, me)),
       '#quotes': guard('orders', (c) => renderQuotes(c, me)),
+      '#atlas':  guard('knowledge_base', (c) => renderAtlas(c, me)),
     },
   });
 }

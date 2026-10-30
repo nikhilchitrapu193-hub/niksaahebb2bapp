@@ -1507,7 +1507,7 @@ test('admin: in lite mode the menu drops Pricing, Inventory and Procurement, #pr
   await importFresh('web/js/pages/admin/main.js');
   await waitFor(() => document.querySelector('.nav-link'));
   const labels = [...document.querySelectorAll('.nav-link')].map((a) => a.firstChild.textContent.trim());
-  assert.deepEqual(labels, ['Dashboard', 'Orders', 'Products', 'Customers', 'Payments', 'Team', 'Settings', 'Audit log', 'Reports', 'Fulfilment']);
+  assert.deepEqual(labels, ['Dashboard', 'Orders', 'Products', 'Customers', 'Payments', 'Team', 'Settings', 'Audit log', 'Reports', 'Fulfilment', 'Knowledge Base']);
   assert.match((await waitFor(() => document.querySelector('.empty'))).textContent, /Switched off/);
   // Products: no "On hand" column; the form shows the essentials and a details fold; saving marks the price a hand price.
   location.hash = '#products';
@@ -2176,4 +2176,65 @@ test('landing: "Who we serve" tiles come from live sectors with their pages and 
   const defence = tiles.find((t) => /defence|cantonment/i.test(t.textContent));
   assert.ok(defence.querySelector('a[href="page.html?slug=sector-defence"]'), 'Learn more link when the page exists');
   assert.ok(defence.querySelector('a[href="restaurant/login.html#register&sector=defence"]'));
+});
+
+// =============================================================================
+// Migration 025: knowledge_base / AppAtlas viewer (atlas.js)
+// =============================================================================
+
+test('admin: Knowledge Base screen renders stat cards and iframe when the atlas is built', async () => {
+  const ATLAS_SUPER_ADMIN = { ...ADMIN, team_role: 'super_admin' };
+  const ATLAS_PERMS = [...PICKER_PERMISSIONS, { team_role: 'super_admin', module: 'knowledge_base', action: 'view' }];
+  const atlasPayload = { meta: { generated: '2026-10-30T06:00:00.000Z', migrationsTotal: 25 }, health: { features: 42, answersFilled: 36, answersTotal: 60 } };
+  // Stub globalThis.fetch so getAtlasData() resolves with the atlas payload.
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('knowledge-graph.json')) return { ok: true, json: async () => atlasPayload };
+    return origFetch ? origFetch(url) : { ok: false, status: 404, json: async () => ({}) };
+  };
+  try {
+    const { document, location } = setup({ session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ATLAS_SUPER_ADMIN,
+      tables: { role_permissions: ATLAS_PERMS }, rpc: ADMIN_RPC });
+    location.hash = '#atlas';
+    await importFresh('web/js/pages/admin/main.js');
+    // Stat cards rendered with feature count and a heading
+    await waitFor(() => /Knowledge Base/i.test(document.body.textContent));
+    assert.match(document.body.textContent, /42/);   // feature count from atlas payload
+    assert.match(document.body.textContent, /Built/); // built-at timestamp card
+    // Iframe present and pointing at the atlas
+    const iframe = document.querySelector('#atlas-frame');
+    assert.ok(iframe, 'atlas iframe rendered');
+    assert.match(iframe.getAttribute('src'), /appatlas\/out\/index\.html/);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('admin: Knowledge Base screen shows an error card when the atlas is not built', async () => {
+  const ATLAS_SUPER_ADMIN = { ...ADMIN, team_role: 'super_admin' };
+  const ATLAS_PERMS = [...PICKER_PERMISSIONS, { team_role: 'super_admin', module: 'knowledge_base', action: 'view' }];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404 });
+  try {
+    const { document, location } = setup({ session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: ATLAS_SUPER_ADMIN,
+      tables: { role_permissions: ATLAS_PERMS }, rpc: ADMIN_RPC });
+    location.hash = '#atlas';
+    await importFresh('web/js/pages/admin/main.js');
+    await waitFor(() => /npm run atlas/i.test(document.body.textContent));
+    assert.match(document.body.textContent, /Knowledge Base/);
+    assert.ok(!document.querySelector('#atlas-frame'), 'no iframe when atlas not built');
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test('admin: Knowledge Base nav link is hidden for roles without knowledge_base:view', async () => {
+  // picker_role only has the PICKER_PERMISSIONS, which does not include knowledge_base.
+  const { document, location } = setup({ session: { user: { id: 'u-admin', email: 'a@x.com' } }, profile: { ...ADMIN, team_role: 'picker' },
+    rpc: ADMIN_RPC });
+  location.hash = '#dashboard';
+  await importFresh('web/js/pages/admin/main.js');
+  await waitFor(() => document.querySelector('nav'));
+  const navLinks = [...document.querySelectorAll('nav a')].map((a) => a.getAttribute('href'));
+  assert.ok(!navLinks.includes('#atlas'), 'Knowledge Base not in nav for restricted roles');
 });
