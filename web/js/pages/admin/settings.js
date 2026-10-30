@@ -4,8 +4,8 @@
 // notifications, help centre, roles).
 // =============================================================================
 
-import { html, mount, on, $, withBusy, toast, reportError } from '../../core/ui.js';
-import { getCompanySettings, saveCompanySettings } from '../../core/api.js';
+import { html, mount, on, $, withBusy, toast, reportError, confirmDialog } from '../../core/ui.js';
+import { getCompanySettings, saveCompanySettings, resetTestData } from '../../core/api.js';
 import { can } from '../../core/permissions.js';
 
 /** Shared tab strip for every settings screen. `active` is the route, e.g. '#locations'. */
@@ -30,6 +30,8 @@ export function settingsTabs(me, active) {
 export async function renderSettings(container, me) {
   const s = await getCompanySettings();
   const readOnly = !can(me, 'settings', 'edit');
+  const isSuperAdmin = me.team_role === 'super_admin';
+
   mount(container, html`
     <div class="page-head"><div><h1>Settings</h1><p>Company details shown on invoices and used as the seller's details.</p></div></div>
     ${settingsTabs(me, '#settings')}
@@ -46,7 +48,26 @@ export async function renderSettings(container, me) {
       </div>
       ${readOnly ? html`<p class="muted small">You can view these settings but not change them (needs settings: edit).</p>`
                  : html`<div><button class="btn primary" type="submit">Save settings</button></div>`}
-    </form>`);
+    </form>
+
+    ${isSuperAdmin ? html`
+      <div class="card card-pad" style="border:2px solid var(--danger,#dc2626);margin-top:var(--space-6)">
+        <h2 style="color:var(--danger,#dc2626);margin-bottom:var(--space-2)">⚠️ Danger zone</h2>
+        <p class="small muted" style="margin-bottom:var(--space-4)">These actions are irreversible and visible only to super admins.</p>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3)">
+          <div>
+            <strong>Reset test data</strong>
+            <p class="small muted" style="margin:var(--space-1) 0 0">
+              Deletes all orders, trips, payments, stock movements, purchase orders, support tickets,
+              notifications, quotes, standing orders and coupons — bringing the app back to launch state.
+              Users, products, categories, pricing and configuration are kept.
+            </p>
+          </div>
+          <button class="btn danger" id="reset-btn" style="white-space:nowrap">Reset test data</button>
+        </div>
+      </div>` : ''}
+  `);
 
   on(container, 'submit', '#settings-form', async (event, form) => {
     event.preventDefault();
@@ -57,4 +78,30 @@ export async function renderSettings(container, me) {
       toast('Settings saved', 'success');
     } catch (error) { reportError(error); }
   });
+
+  if (isSuperAdmin) {
+    on(container, 'click', '#reset-btn', async (_e, btn) => {
+      const confirmed = await confirmDialog(
+        'This will permanently delete all orders, trips, payments, stock, procurement, support tickets, notifications, quotes, standing orders and coupons.\n\nUsers, products, categories, pricing and configuration are kept.\n\nThis cannot be undone. Are you sure?',
+        { confirmText: 'Yes, reset everything', danger: true },
+      );
+      if (!confirmed) return;
+
+      // Double-confirm — they need to mean it
+      const confirmed2 = await confirmDialog(
+        'Last chance: all transactional data will be permanently erased. Continue?',
+        { confirmText: 'Erase and reset', danger: true },
+      );
+      if (!confirmed2) return;
+
+      try {
+        const result = await withBusy(btn, () => resetTestData());
+        const d = result.deleted ?? {};
+        toast(
+          `Reset complete — deleted ${d.orders ?? 0} orders, ${d.trips ?? 0} trips, ${d.payments ?? 0} payments, ${d.stock_movements ?? 0} stock movements`,
+          'success',
+        );
+      } catch (error) { reportError(error); }
+    });
+  }
 }

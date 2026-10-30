@@ -1366,3 +1366,14 @@ export async function declineQuote(id, reason) {
 export async function getMySpendReport({ from, to, groupBy = 'month' }) {
   return unwrap(await supabase.rpc('my_spend_report', { p_from: from, p_to: to, p_group_by: groupBy }));
 }
+
+// ---------- Super-admin reset ------------------------------------------------
+
+/**
+ * Wipe all transactional / test data and return to launch state.
+ * Only works when the signed-in user has team_role = 'super_admin'.
+ * Returns { status, reset_at, deleted: { orders, trips, payments, … } }.
+ */
+export async function resetTestData() {
+  return unwrap(await supabase.rpc('reset_test_data'));
+}
