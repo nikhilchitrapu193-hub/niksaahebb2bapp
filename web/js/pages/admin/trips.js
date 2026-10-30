@@ -6,7 +6,7 @@
 // =============================================================================
 
 import { html, mount, on, $, formatINR, formatQty, formatDate, formatDateTime, statusBadge, openModal, confirmDialog, reportError, toast, withBusy } from '../../core/ui.js';
-import { listTrips, getTrip, createTrip, dispatchTrip, setTripStatus, listOrders, listDrivers, listVehicles } from '../../core/api.js';
+import { listTrips, getTrip, createTrip, dispatchTrip, setTripStatus, listOrders, listDrivers, listVehicles, tripPhotoUrl } from '../../core/api.js';
 import { tripStops, tripCodToCollect, tripOpenStops } from '../../core/fulfilment.js';
 import { can } from '../../core/permissions.js';
 import { TRIP_STATUSES, DELIVERY_SLOTS } from '../../core/config.js';
@@ -51,6 +51,10 @@ export async function renderTrips(container, me) {
       if (!trip) throw new Error('Trip not found');
       const stops = tripStops(trip);
       const open = trip.status === 'draft';
+      const loadingPhotoUrl = trip.pre_departure_photo_path
+        ? await tripPhotoUrl(trip.pre_departure_photo_path)
+        : null;
+      const dispatched = trip.status === 'dispatched';
       mount(el, html`
         <div class="spread"><div><strong>${trip.trip_number}</strong> <span class="badge ${TRIP_STATUSES[trip.status]?.badge ?? ''}">${TRIP_STATUSES[trip.status]?.label ?? trip.status}</span></div>
           <span class="muted small">${formatDate(trip.trip_date)} · ${DELIVERY_SLOTS[trip.slot]?.label ?? ''}</span></div>
@@ -60,6 +64,21 @@ export async function renderTrips(container, me) {
           <dt>Cash to collect</dt><dd>${formatINR(tripCodToCollect(trip))}</dd>
           ${trip.notes ? html`<dt>Notes</dt><dd>${trip.notes}</dd>` : ''}
         </dl>
+
+        ${dispatched && !loadingPhotoUrl ? html`
+          <div class="banner" style="background:var(--warning-bg,#fffbeb);border:1px solid var(--warning);border-radius:6px;padding:var(--space-3);margin-bottom:var(--space-3)">
+            ⚠️ <strong>Loading photo not yet uploaded</strong> — driver must photograph the packed vehicle before starting deliveries.
+          </div>` : ''}
+
+        ${loadingPhotoUrl ? html`
+          <div style="margin-bottom:var(--space-4)">
+            <p class="label" style="margin-bottom:var(--space-2)">Loading photo (taken at warehouse)</p>
+            <a href="${loadingPhotoUrl}" target="_blank" rel="noopener">
+              <img src="${loadingPhotoUrl}" alt="Loading photo" style="max-width:100%;max-height:260px;border-radius:6px;border:1px solid var(--border)">
+            </a>
+            <p class="muted tiny" style="margin-top:var(--space-1)">Uploaded ${formatDateTime(trip.pre_departure_at)} · click to open full size</p>
+          </div>` : ''}
+
         <div class="table-wrap"><table class="table small-table">
           <thead><tr><th>#</th><th>Order</th><th>Customer</th><th class="right">Total</th><th>Status</th></tr></thead>
           <tbody>${stops.map((o, i) => html`<tr><td class="muted">${i + 1}</td>
@@ -69,7 +88,7 @@ export async function renderTrips(container, me) {
         <div class="row" style="justify-content:flex-end;margin-top:var(--space-4);flex-wrap:wrap">
           ${open && canEdit ? html`<button class="btn primary" data-dispatch>Dispatch</button>` : ''}
           ${open && canEdit ? html`<button class="btn danger" data-cancel>Cancel trip</button>` : ''}
-          ${trip.status === 'dispatched' && canEdit ? html`<button class="btn" data-collect>Close trip</button>` : ''}
+          ${dispatched && canEdit ? html`<button class="btn" data-collect>Close trip</button>` : ''}
         </div>`);
       on(el, 'click', '[data-dispatch]', async (_e, b) => {
         if (!(await confirmDialog('Dispatch this trip? Every packed order goes out for delivery with a delivery code.', { confirmText: 'Dispatch' }))) return;

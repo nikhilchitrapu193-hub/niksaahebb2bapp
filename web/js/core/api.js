@@ -897,6 +897,33 @@ export async function podPhotoUrl(path, seconds = 600) {
   return unwrap(await supabase.storage.from(config.podBucket).createSignedUrl(path, seconds)).signedUrl;
 }
 
+// ---------- Trip pre-departure photo (migration 023) -------------------------
+
+/** Upload the loading photo taken at the warehouse before leaving.
+ *  Returns the storage path to pass to recordTripDeparture(). */
+export async function uploadTripPhoto(file) {
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[file.type];
+  if (!extension) throw new Error('Please choose a JPG, PNG or WebP image.');
+  if (file.size > 10 * 1024 * 1024) throw new Error('Image is larger than 10 MB.');
+  const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${extension}`;
+  unwrap(await supabase.storage.from(config.tripPhotosBucket).upload(path, file, { contentType: file.type }));
+  return path;
+}
+
+/** Persist the loading photo path on the trip row (calls record_trip_departure RPC). */
+export async function recordTripDeparture(tripId, photoPath) {
+  return unwrap(await supabase.rpc('record_trip_departure', {
+    p_trip_id: tripId,
+    p_photo_path: photoPath,
+  }));
+}
+
+/** Signed URL for a trip loading photo (admin view). */
+export async function tripPhotoUrl(path, seconds = 600) {
+  if (!path) return null;
+  return unwrap(await supabase.storage.from(config.tripPhotosBucket).createSignedUrl(path, seconds)).signedUrl;
+}
+
 // ---------- Orders + (migration 013) -----------------------------------------
 
 /** Staff place an order for a customer (orders:edit). Same shape as placeOrder plus restaurantId. */

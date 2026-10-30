@@ -26,6 +26,8 @@ export const config = Object.freeze({
   podBucket: 'delivery-pod',
   // Private bucket for customer FSSAI / GST documents (migration 019)
   documentBucket: 'customer-documents',
+  // Private bucket for trip loading photos taken by the driver at the warehouse (migration 023)
+  tripPhotosBucket: 'trip-photos',
 
   // How often the delivery screen refreshes its list, in milliseconds
   deliveryPollMs: 30_000,
