@@ -2127,6 +2127,15 @@ begin
   end;
   reset role;
 
+  -- T67 knowledge_base / atlas access (migration 025)
+  -- super_admin role has knowledge_base:view by default; other roles do not.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_pick, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  v_res := v_res || jsonb_build_array(case when not public.has_permission('knowledge_base', 'view')
+    then 'PASS T67a a non-super-admin admin role cannot view knowledge_base by default'
+    else 'FAIL T67a non-super-admin should not see knowledge_base by default' end);
+  reset role;
+
   -- Abort on purpose so no test data is ever saved. The message IS the report.
   raise exception E'SECURITY TEST REPORT (rolled back, no data kept)\n%', jsonb_pretty(v_res);
 end;

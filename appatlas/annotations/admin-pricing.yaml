@@ -1,0 +1,22 @@
+# admin-pricing.yaml — AppAtlas guide for "Price board". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-pricing --by "Your name"
+feature_id: "admin-pricing"
+name: "Price board"
+module: "pricing"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#pricing"
+admin:
+  what_is_this: "The daily price board: one row per product with cost, landed cost, markup, suggested price, current price, benchmark and its age, margin and warning flags. Publish the chosen rows now or at a set time."
+  why_it_exists: "Fresh produce costs move daily. The board turns today's costs and market rates into selling prices with the same formula the database uses, and guards the margin."
+  what_if_i_change_it: "Publishing changes what customers pay from that moment (or the scheduled time). Every publish is kept in the price history with your reason."
+  what_if_wrong: "Publishing below cost loses money on every order; a wrong supplier quote moves the suggested price. Below-cost publishes ask for \"Publish anyway\"; a category set to block refuses."
+  prerequisites: "Pricing mode Advanced (Settings → Launch). Pricing view to see, Pricing approve to publish. Costs come from receipts or typed quotes."
+  workflow:
+    - "Enter today's benchmarks first (Pricing → Benchmarks)"
+    - "Type supplier quotes where they changed"
+    - "Check the flags (No cost, Below cost, Held at cap, Benchmark old)"
+    - "Tick rows and Publish with a reason, or pick \"At a set time…\""
+    - "Use \"…\" on a row to see the price explained step by step"
+  when_to_call_developer: "If the price charged at checkout differs from the published price for a customer with no price list, or a scheduled price did not go live after opening the board."

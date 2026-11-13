@@ -1,0 +1,28 @@
+# job-send-notifications.yaml — AppAtlas guide for "Message sender (scheduled)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review job-send-notifications --by "Your name"
+feature_id: "job-send-notifications"
+name: "Message sender (scheduled)"
+module: "jobs"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens: []
+admin:
+  who_uses_it: "Nobody presses a button: a scheduler runs it every few minutes; staff can also press Send now under Settings → Notifications."
+  what_is_this: "A server program run every few minutes by a scheduler (cron-job.org or similar) and by Send now. It places due standing orders, queues payment reminders, then sends queued SMS and emails through the configured provider and records sent, failed or skipped."
+  why_it_exists: "The app never sends messages directly; this one sender delivers everything the database queued, so a slow provider never slows an order."
+  what_if_i_change_it: "Providers and keys are Edge Function secrets (SMS_PROVIDER, EMAIL_PROVIDER and their keys); changing them changes who delivers the messages."
+  what_if_wrong: "No provider set: messages are skipped. A wrong key: messages fail with the provider's error. No scheduler: messages stay queued until someone presses Send now."
+  prerequisites: "The send-notifications Edge Function deployed (it is), a scheduler calling it with the CRON_SECRET, and provider secrets."
+  workflow:
+    - "Set the provider secrets in Supabase → Edge Functions → Secrets"
+    - "Set a scheduler to call the function every 5 minutes with the x-cron-secret header"
+    - "Watch Settings → Notifications → Log"
+  when_to_call_developer: "If Supabase logs show the function erroring, or messages stay queued while the scheduler is running."
+evidence:
+  edge_functions:
+    - "send-notifications"
+  functions:
+    - "run_standing_orders"
+    - "queue_payment_reminders"
+    - "claim_notifications"
+    - "mark_notification"

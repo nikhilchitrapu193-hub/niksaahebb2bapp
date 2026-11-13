@@ -121,6 +121,9 @@ export const MODULES = Object.freeze({
   pricing:   { label: 'Pricing', nav: '#pricing' },
   procurement: { label: 'Procurement', nav: '#procurement' },
   fulfilment: { label: 'Fulfilment', nav: '#fulfilment' },
+  // knowledge_base is gated by has_permission('knowledge_base','view') only —
+  // not by a launch mode. The nav entry appears for anyone the super admin grants.
+  knowledge_base: { label: 'Knowledge Base', nav: '#atlas' },
 });
 
 /** Selling-unit contents (products.pack_unit). Per-kg costs apply to kg/g/l/ml, not to pieces. */

@@ -1,0 +1,20 @@
+# admin-coupons.yaml — AppAtlas guide for "Coupons". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-coupons --by "Your name"
+feature_id: "admin-coupons"
+name: "Coupons"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#coupons"
+admin:
+  what_is_this: "Discount codes: % or ₹ off the subtotal, minimum order, optional cap, validity dates, optional sector and once-per-customer rule. The cart previews a code; placing the order applies it."
+  why_it_exists: "Promotions for new customers or a sector launch."
+  what_if_i_change_it: "Applies to orders placed after saving."
+  what_if_wrong: "A missing cap on a % coupon can discount a large order heavily; a missing end date leaves it open forever."
+  prerequisites: "Settings edit."
+  workflow:
+    - "Add a code with discount, minimum order, cap and dates"
+    - "Limit to a sector or once per customer if needed"
+    - "Test it in a customer's cart"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

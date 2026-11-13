@@ -1,0 +1,21 @@
+# page-login.yaml — AppAtlas guide for "Sign-in pages". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review page-login --by "Your name"
+feature_id: "page-login"
+name: "Sign-in pages"
+module: "page"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "page#login"
+admin:
+  who_uses_it: "Everyone who signs in: customers on the customer page, staff on the admin page, drivers on the delivery page."
+  what_is_this: "The three sign-in pages (customer, admin, delivery). Customers can also register; staff only sign in. Someone signing in on the wrong page is signed out with a hint. A Resend confirmation button appears when the email is not confirmed."
+  why_it_exists: "Each kind of user has its own door, so a customer never lands in the admin app."
+  what_if_i_change_it: "Nothing to configure here."
+  what_if_wrong: "\"Invalid login credentials\" is a wrong password; \"email not confirmed\" needs the confirmation link or staff help under Customers → Access."
+  prerequisites: "An account. Staff accounts come only from invitations."
+  workflow:
+    - "Open the sign-in page for your role"
+    - "Enter email and password"
+    - "Customers: Register if new; then wait for approval"
+  when_to_call_developer: "If a confirmed, active account cannot sign in with the right password."

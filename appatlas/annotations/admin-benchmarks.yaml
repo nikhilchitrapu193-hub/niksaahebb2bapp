@@ -1,0 +1,20 @@
+# admin-benchmarks.yaml — AppAtlas guide for "Benchmarks". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-benchmarks --by "Your name"
+feature_id: "admin-benchmarks"
+name: "Benchmarks"
+module: "pricing"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#benchmarks"
+admin:
+  what_is_this: "Today's market rates from outside sources (Rythu Bazaar board, NECC, DoCA, METRO…), typed per product or uploaded by CSV. Sources are managed at the top."
+  why_it_exists: "Rates cap prices on the board and show customers a struck-through \"market rate\" so they can compare."
+  what_if_i_change_it: "New rates feed the board at once and change the market rate customers see."
+  what_if_wrong: "A mistyped rate can cap a price far too low; an old rate is flagged \"Benchmark older than 3 days\"."
+  prerequisites: "Pricing edit permission. At least one active source."
+  workflow:
+    - "Pick the source and today's date"
+    - "Type the rate next to each product"
+    - "Save rates (or Upload CSV: sku, price, optionally source, date, market)"
+  when_to_call_developer: "If a CSV upload rejects rows that have a valid SKU and price."

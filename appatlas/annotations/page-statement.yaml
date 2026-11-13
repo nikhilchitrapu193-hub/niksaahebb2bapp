@@ -1,0 +1,20 @@
+# page-statement.yaml — AppAtlas guide for "Account statement". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review page-statement --by "Your name"
+feature_id: "page-statement"
+name: "Account statement"
+module: "page"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "page#statement"
+admin:
+  what_is_this: "A printable statement for one customer between two dates: invoices, receipts, credit and debit notes and the running balance."
+  why_it_exists: "Finance sends statements to credit customers; customers print their own."
+  what_if_i_change_it: "Nothing; it is computed from orders and payments."
+  what_if_wrong: "If the balance looks wrong, a receipt was applied to the wrong invoice or voided."
+  prerequisites: "The customer themselves or finance staff."
+  workflow:
+    - "Payments → a customer → Statement (or the customer's own Payments page)"
+    - "Pick the dates"
+    - "Print or save as PDF"
+  when_to_call_developer: "If the closing balance differs from Receivables for the same customer."

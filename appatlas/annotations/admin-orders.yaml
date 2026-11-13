@@ -1,0 +1,22 @@
+# admin-orders.yaml — AppAtlas guide for "Orders". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-orders --by "Your name"
+feature_id: "admin-orders"
+name: "Orders"
+module: "orders"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#orders"
+admin:
+  what_is_this: "Every order in your city or warehouse: filter by status, city and sector, open an order, move it to the next status, assign a driver, record payment for a delivered order, and export the list."
+  why_it_exists: "Orders are the business. This is where the team confirms, packs and dispatches what customers ask for, and where problems with one order are handled."
+  what_if_i_change_it: "Moving an order forward changes what the customer sees and can queue an SMS / email to them. Cancelling returns its stock. Past prices on the order never change."
+  what_if_wrong: "Assigning the wrong driver sends the order to the wrong van; confirming an order you cannot supply means a short delivery. The database refuses impossible moves (for example skipping from confirmed to delivered)."
+  prerequisites: "Orders view to see; Orders edit to change status or assign drivers. A held order (waiting for the customer's approver) cannot be confirmed until approved."
+  workflow:
+    - "Filter by status (for example Placed)"
+    - "Open an order and check the lines"
+    - "Confirm it; after packing, type packed weights for loose items and save"
+    - "Assign a driver or add it to a trip"
+    - "After delivery, record payment if the customer paid you directly"
+  when_to_call_developer: "If an order a customer placed does not appear here after a few minutes, or a status button gives an error not described in this guide."

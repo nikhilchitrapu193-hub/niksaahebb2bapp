@@ -1367,6 +1367,22 @@ export async function getMySpendReport({ from, to, groupBy = 'month' }) {
   return unwrap(await supabase.rpc('my_spend_report', { p_from: from, p_to: to, p_group_by: groupBy }));
 }
 
+// ---------- Knowledge base (AppAtlas) ----------------------------------------
+
+/**
+ * Fetch the pre-built AppAtlas knowledge-graph JSON for the in-app viewer.
+ * The file is served from /appatlas/out/knowledge-graph.json (static asset).
+ * The caller must hold has_permission('knowledge_base', 'view'); the screen
+ * enforces this before calling; the data itself is read-only documentation.
+ * Returns the parsed knowledge-graph object, or throws on fetch failure.
+ * @returns {Promise<object>}
+ */
+export async function getAtlasData() {
+  const res = await fetch('/appatlas/out/knowledge-graph.json');
+  if (!res.ok) throw new Error(`Atlas not built (${res.status}). Run: npm run atlas`);
+  return res.json();
+}
+
 // ---------- Super-admin reset ------------------------------------------------
 
 /**

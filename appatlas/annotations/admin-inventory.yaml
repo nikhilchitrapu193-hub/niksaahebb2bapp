@@ -1,0 +1,22 @@
+# admin-inventory.yaml — AppAtlas guide for "Inventory". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-inventory --by "Your name"
+feature_id: "admin-inventory"
+name: "Inventory"
+module: "inventory"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#inventory"
+admin:
+  what_is_this: "Stock per warehouse: what is on hand, receiving goods without a purchase order, adjustments after a count, wastage write-offs, the movement ledger and the supplier list."
+  why_it_exists: "Every change to stock is a movement with a reason, so the number on the shelf can always be explained and orders cannot oversell."
+  what_if_i_change_it: "An adjustment sets that warehouse's count and is recorded in the ledger with your name. Stock is never typed straight into a product."
+  what_if_wrong: "Receiving into the wrong warehouse makes stock look missing in the right one; correct it with an adjustment in both. A wrong count blocks orders (too low) or allows overselling (too high)."
+  prerequisites: "Stock mode must be Counted (Settings → Launch); in Simple mode this screen is hidden. Inventory edit permission to receive or adjust."
+  workflow:
+    - "Pick the warehouse"
+    - "Receive stock (opens the shared goods-receipt form) when goods arrive without a PO"
+    - "Adjust after a physical count, choosing the reason"
+    - "Open History for one product or Ledger for the warehouse feed"
+    - "Export CSV of the list you are looking at"
+  when_to_call_developer: "If the on-hand number does not match the sum of the ledger, or stock went down without an order or adjustment in the ledger."

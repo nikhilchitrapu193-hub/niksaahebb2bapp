@@ -1,0 +1,20 @@
+# page-po.yaml — AppAtlas guide for "Purchase order (print)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review page-po --by "Your name"
+feature_id: "page-po"
+name: "Purchase order (print)"
+module: "page"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "page#po"
+admin:
+  who_uses_it: "Procurement staff within their city / warehouse scope; the printout goes to the supplier."
+  what_is_this: "The printable purchase order for one PO, to print or save as PDF for the supplier."
+  why_it_exists: "Suppliers want a written order."
+  what_if_i_change_it: "Nothing; it shows the PO as saved."
+  what_if_wrong: "Wrong lines mean the PO itself is wrong; fix the draft before sending."
+  prerequisites: "Staff with Procurement view within scope."
+  workflow:
+    - "Procurement → Purchase orders → a PO"
+    - "Print / PDF"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

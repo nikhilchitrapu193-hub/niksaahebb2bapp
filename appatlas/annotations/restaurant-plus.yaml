@@ -1,0 +1,21 @@
+# restaurant-plus.yaml — AppAtlas guide for "Standing orders, quotes & spend". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-plus --by "Your name"
+feature_id: "restaurant-plus"
+name: "Standing orders, quotes & spend"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#plus"
+admin:
+  what_is_this: "Standing orders (saved baskets that place themselves on chosen weekdays), quotes sent by our team to accept or decline, and spend by month, product or outlet with CSV."
+  why_it_exists: "Regular buyers should not type the same order every week; institutions buy on quoted prices."
+  what_if_i_change_it: "A standing order places real orders automatically on its days until paused."
+  what_if_wrong: "A standing order with an unavailable product records an error on that run (shown to staff)."
+  prerequisites: "A signed-in customer."
+  workflow:
+    - "Save a basket as a standing order from the cart"
+    - "Choose weekdays"
+    - "Accept or decline quotes"
+    - "Check spend and export CSV"
+  when_to_call_developer: "If the app shows a message not explained in Help or this guide, or an order you placed does not appear under Orders."

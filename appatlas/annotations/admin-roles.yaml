@@ -1,0 +1,21 @@
+# admin-roles.yaml — AppAtlas guide for "Roles & permissions". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-roles --by "Your name"
+feature_id: "admin-roles"
+name: "Roles & permissions"
+module: "team"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#roles"
+admin:
+  what_is_this: "The permission matrix: for each team role, which modules it may view, edit, approve or export. Super admin may do everything and cannot be edited."
+  why_it_exists: "Each person should see and do only what their job needs; the database enforces the same ticks."
+  what_if_i_change_it: "A change takes effect the next time the affected person loads the app."
+  what_if_wrong: "Removing a tick can lock a whole team out of a screen they need; adding one can let a picker approve payments."
+  prerequisites: "Only a super admin may change ticks; others can look."
+  workflow:
+    - "Open Settings → Roles & permissions"
+    - "Find the role"
+    - "Tick or untick view / edit / approve / export per module"
+    - "Ask the affected people to reload the app"
+  when_to_call_developer: "If a person can do something their ticks do not allow (the database should refuse it)."

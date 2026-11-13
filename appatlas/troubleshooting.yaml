@@ -1,0 +1,461 @@
+# =============================================================================
+# troubleshooting.yaml — the catalog AppAtlas searches when someone types a symptom.
+# symptom → cause → fix, linked to features. Matching is plain word matching on
+# "match" and "symptom" (annotations.js matchTroubleshooting); nothing is guessed.
+# The first entries are the runbook's Troubleshooting table, word for word in meaning.
+# Add an entry only once the cause is known; keep the runbook and this file in step.
+# =============================================================================
+entries:
+  - id: "blank-page-file"
+    symptom: "Blank page; the console says modules are blocked"
+    match:
+      - "modules blocked"
+      - "blank page"
+    cause: "The app was opened from the file system (file://)."
+    fix: "Run npm start and open http://localhost:3000, or use the hosted site."
+    features:
+      - "page-landing"
+      - "page-login"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "no-cost-on-file"
+    symptom: "Price board shows \"No cost on file\" for everything"
+    match:
+      - "No cost on file"
+    cause: "No receipts with a unit cost yet."
+    fix: "Type supplier quotes on the board, or receive stock with costs under Inventory."
+    features:
+      - "admin-pricing"
+      - "admin-receipts"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "scheduled-price-late"
+    symptom: "A scheduled price did not go live"
+    match:
+      - "scheduled price"
+    cause: "pg_cron is not enabled on the project."
+    fix: "Enable it under Database → Extensions; opening the price board also applies anything due."
+    features:
+      - "job-scheduled-prices"
+      - "admin-pricing"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "no-publish-permission"
+    symptom: "\"You do not have permission to publish prices\""
+    match:
+      - "permission to publish prices"
+    cause: "The team role lacks pricing:approve."
+    fix: "Tick it under Settings → Roles & permissions."
+    features:
+      - "admin-pricing"
+      - "admin-roles"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "packed-tolerance"
+    symptom: "\"Packed … is more than 10 % away from the ordered …\""
+    match:
+      - "more than 10 % away"
+      - "away from the ordered"
+    cause: "The weighed quantity is outside the product's tolerance."
+    fix: "Raise the tolerance under Products → Edit, or split the difference with the customer."
+    features:
+      - "admin-orders"
+      - "admin-products"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "cart-price-differs"
+    symptom: "Customer says the cart price differs from the catalogue"
+    match:
+      - "cart price"
+      - "price differs"
+    cause: "A price list changed while they were browsing; both come from my_price_list()."
+    fix: "Ask them to reload the page."
+    features:
+      - "restaurant-cart"
+      - "restaurant-catalogue"
+      - "admin-price-lists"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "invalid-login"
+    symptom: "\"Invalid login credentials\""
+    match:
+      - "Invalid login credentials"
+    cause: "Wrong password (or wrong email)."
+    fix: "Use Forgot password, or staff set a temporary password under Customers → Access."
+    features:
+      - "page-login"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "email-not-confirmed"
+    symptom: "\"Your email is not confirmed yet\""
+    match:
+      - "email is not confirmed"
+      - "email not confirmed"
+    cause: "The confirmation email was not used."
+    fix: "The customer presses Resend on that page, or staff open Customers → Access (confirm, password link or temporary password)."
+    features:
+      - "page-login"
+      - "admin-customers"
+      - "infra-supabase-auth"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "mailer-rate-limited"
+    symptom: "Access says \"The email service is rate-limited\""
+    match:
+      - "rate-limited"
+      - "rate limited"
+    cause: "Supabase's built-in mailer allows only a few emails an hour."
+    fix: "Use Confirm email or Password link now; set up a custom SMTP sender for good."
+    features:
+      - "admin-customers"
+      - "admin-team"
+      - "infra-supabase-auth"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "reset-link-wrong-place"
+    symptom: "A reset or invite link goes to the wrong place"
+    match:
+      - "reset link"
+      - "invite link"
+    cause: "Site URL / Redirect URLs in Supabase are wrong."
+    fix: "Fix them under Supabase → Authentication → URL configuration."
+    features:
+      - "page-reset"
+      - "admin-team"
+      - "infra-supabase-auth"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "bounced-to-login"
+    symptom: "A user signs in but is sent back to the login page"
+    match:
+      - "bounced to login"
+      - "sent back to login"
+    cause: "The account is deactivated (is_active = false)."
+    fix: "Tick Active under Team (staff) or reinstate under Customers."
+    features:
+      - "page-login"
+      - "admin-team"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "customer-cannot-order"
+    symptom: "A customer cannot order"
+    match:
+      - "cannot order"
+      - "not approved yet"
+      - "not taking orders"
+    cause: "Status pending or suspended, no delivery address, no warehouse (pin code not served), below the minimum with no fee, the sector is switched off, or — pay later only — an overdue invoice or the credit limit."
+    fix: "Check each in turn: Customers (status, warehouse), Settings → Launch (sector), Sectors & terms (minimum and fee), Payments (overdue / limit)."
+    features:
+      - "restaurant-cart"
+      - "admin-customers"
+      - "admin-launch"
+      - "admin-sectors"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "only-zero-available"
+    symptom: "An order fails with \"Only 0 kg available\" but you do not count stock"
+    match:
+      - "available"
+      - "Only 0"
+    cause: "Stock mode is Counted."
+    fix: "Switch to Simple under Settings → Launch, or receive stock under Inventory."
+    features:
+      - "restaurant-cart"
+      - "admin-launch"
+      - "admin-inventory"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "module-missing"
+    symptom: "A module is missing from the menu"
+    match:
+      - "missing from the menu"
+      - "menu missing"
+    cause: "Hidden by the launch mode, or not granted to the team role."
+    fix: "Check Settings → Launch, then Settings → Roles."
+    features:
+      - "admin-launch"
+      - "admin-roles"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "reference-needed"
+    symptom: "\"Enter the UTR / transaction or cheque number\""
+    match:
+      - "UTR"
+      - "cheque number"
+    cause: "UPI, bank transfer and cheque receipts need a reference."
+    fix: "Type the UTR or cheque number; cash and other do not need one."
+    features:
+      - "admin-payments"
+      - "admin-orders"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "cod-unpaid"
+    symptom: "A COD order shows unpaid after delivery"
+    match:
+      - "shows unpaid"
+    cause: "Its cash receipt was voided."
+    fix: "Record the cash under Payments → Record receipt (tick the invoice), or apply credit on account."
+    features:
+      - "admin-payments"
+      - "admin-payments-receipts"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "cannot-approve-customer"
+    symptom: "Cannot approve a customer"
+    match:
+      - "cannot approve"
+      - "no warehouse"
+    cause: "They have no warehouse yet."
+    fix: "Set one under Customers → Terms, or add their pin code under Settings → Cities & warehouses."
+    features:
+      - "admin-customers"
+      - "admin-locations"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "no-access"
+    symptom: "A team member sees \"No access\""
+    match:
+      - "No access"
+    cause: "Their team role lacks view on that module, or the rows are outside their city / warehouse scope."
+    fix: "Tick view under Settings → Roles, or widen their scope under Team."
+    features:
+      - "admin-roles"
+      - "admin-team"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "choose-warehouse"
+    symptom: "\"Choose a warehouse\" when receiving stock"
+    match:
+      - "Choose a warehouse"
+    cause: "The person has no warehouse scope and the city has no default warehouse."
+    fix: "Pick one in the receipt form, or mark a default warehouse under Cities & warehouses."
+    features:
+      - "admin-receipts"
+      - "admin-inventory"
+      - "admin-locations"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "buying-list-zero"
+    symptom: "The buying list suggests 0 for everything"
+    match:
+      - "suggests 0"
+    cause: "Stock already covers the day's orders and no alert levels are set."
+    fix: "Set a low-stock alert level per product (Products → Edit) or raise Days of cover."
+    features:
+      - "admin-procurement"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "preferred-supplier"
+    symptom: "\"Another supplier is already preferred for that product\""
+    match:
+      - "already preferred"
+    cause: "Only one supplier can be preferred per product."
+    fix: "Untick Preferred on the other supplier's rate card first."
+    features:
+      - "admin-rate-cards"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "po-not-draft"
+    symptom: "\"Purchase order is not a draft\""
+    match:
+      - "not a draft"
+    cause: "Only drafts can be edited."
+    fix: "Cancel it (if nothing was received) or close it short and raise a new one."
+    features:
+      - "admin-purchase-orders"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "reject-reason"
+    symptom: "\"A rejected quantity needs a reason\""
+    match:
+      - "rejected quantity needs a reason"
+    cause: "A line has a rejected quantity without a reason."
+    fix: "Type why in the Reject reason box (bruised, short, wrong grade)."
+    features:
+      - "admin-receipts"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "messages-stuck-queued"
+    symptom: "Messages stay queued and never move"
+    match:
+      - "stay queued"
+      - "queued"
+    cause: "The scheduler is not calling send-notifications (or its secret is wrong)."
+    fix: "Check the scheduler and CRON_SECRET, or press Send now."
+    features:
+      - "admin-notifications"
+      - "job-send-notifications"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "sms-provider-not-set"
+    symptom: "Messages are skipped with \"SMS_PROVIDER is not set\""
+    match:
+      - "SMS_PROVIDER is not set"
+      - "skipped"
+    cause: "No provider configured yet."
+    fix: "Set the provider secrets (docs/deployment.md §7), then Retry the skipped messages."
+    features:
+      - "admin-notifications"
+      - "job-send-notifications"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "provider-401"
+    symptom: "Messages failed with \"401\" or \"invalid key\""
+    match:
+      - "401"
+      - "invalid key"
+    cause: "The provider secret is wrong or expired."
+    fix: "Fix the Edge Function secret and Retry."
+    features:
+      - "admin-notifications"
+      - "job-send-notifications"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "sms-sent-not-received"
+    symptom: "SMS shows sent but the customer did not get it"
+    match:
+      - "did not get"
+      - "not received"
+    cause: "httpSMS: the phone is offline, out of credit or hit the daily cap. MSG91: the DLT template does not match."
+    fix: "Open the httpSMS app on the phone, or fix the DLT template."
+    features:
+      - "admin-notifications"
+      - "job-send-notifications"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "no-order-placed-text"
+    symptom: "A customer got no \"order placed\" text"
+    match:
+      - "no order placed text"
+      - "no text"
+    cause: "Their phone number is missing or not 10 digits, the master switch is off, or the template's SMS is unticked."
+    fix: "Fix the number under Customers, then check Settings → Notifications."
+    features:
+      - "admin-notifications"
+      - "admin-customers"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "old-faq"
+    symptom: "The website FAQ shows the old built-in questions"
+    match:
+      - "FAQ"
+    cause: "No published article with audience Everyone yet."
+    fix: "Publish one under Settings → Help centre."
+    features:
+      - "admin-help-centre"
+      - "page-landing"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "map-opens-search"
+    symptom: "The driver's map opens a search, not a pin"
+    match:
+      - "map pin"
+      - "opens a search"
+    cause: "The customer has not set a map pin."
+    fix: "Ask them to tap Use my location under Account at the gate."
+    features:
+      - "delivery-app"
+      - "restaurant-account"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "range-a-year"
+    symptom: "\"Choose a range of at most a year\""
+    match:
+      - "at most a year"
+    cause: "Reports cover up to 370 days per query."
+    fix: "Split the range."
+    features:
+      - "admin-reports"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "reports-missing"
+    symptom: "The Reports menu is missing"
+    match:
+      - "Reports menu"
+    cause: "The team role lacks reports:view."
+    fix: "Tick it under Settings → Roles & permissions."
+    features:
+      - "admin-reports"
+      - "admin-roles"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "document-type"
+    symptom: "Document upload says \"Please choose a PDF, JPG, PNG or WebP file\""
+    match:
+      - "PDF, JPG, PNG or WebP"
+    cause: "Other file types (Word, HEIC) are not accepted."
+    fix: "Ask for a photo or a PDF."
+    features:
+      - "restaurant-account"
+      - "admin-customers"
+      - "infra-supabase-storage"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "page-not-found"
+    symptom: "A new website page shows \"Page not found\""
+    match:
+      - "Page not found"
+    cause: "It is unpublished, or the address uses a different slug."
+    fix: "Publish it under Settings → Website and use the saved slug (lower-case letters, digits and dashes)."
+    features:
+      - "admin-website"
+      - "page-page"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "waiting-approval"
+    symptom: "\"This order is waiting for the customer's approval\""
+    match:
+      - "waiting for the customer"
+      - "awaiting approval"
+    cause: "Approval before dispatch is on and an outlet manager placed it."
+    fix: "The customer's owner or approver approves it in their app (Approvals). You can still cancel it."
+    features:
+      - "admin-orders"
+      - "restaurant-approvals"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "member-sees-no-orders"
+    symptom: "A member sees no orders or cannot order for an outlet"
+    match:
+      - "cannot order for an outlet"
+    cause: "They are an outlet manager scoped to another outlet."
+    fix: "The owner changes the outlet under Account → Team (or staff under Customers → Account)."
+    features:
+      - "restaurant-account"
+      - "restaurant-orders"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "only-owner-details"
+    symptom: "\"Only the account owner can change the business details\""
+    match:
+      - "Only the account owner"
+    cause: "A member tried to edit the account."
+    fix: "Only the owner (the sign-up login) can."
+    features:
+      - "restaurant-account"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "mandi-bill-amount"
+    symptom: "\"A mandi purchase needs the bill amount\""
+    match:
+      - "needs the bill amount"
+    cause: "The total on the bill was left empty."
+    fix: "Type the bill total; Paid in cash and the photo help finance reconcile it."
+    features:
+      - "admin-receipts"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "dispatch-fails"
+    symptom: "Dispatch fails"
+    match:
+      - "dispatch blocked"
+      - "Dispatch fails"
+    cause: "An order on the trip has no driver assigned."
+    fix: "Assign the driver, then dispatch again."
+    features:
+      - "admin-trips"
+      - "admin-orders"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "project-paused"
+    symptom: "Everything fails after weeks idle"
+    match:
+      - "paused"
+    cause: "The free Supabase project paused."
+    fix: "Resume it in the Supabase dashboard; keep the scheduler running so it counts as activity."
+    features:
+      - "infra-supabase-postgres"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "loading-photo-first"
+    symptom: "The driver sees \"Upload loading photo first\""
+    match:
+      - "loading photo"
+    cause: "The trip has no pre-departure loading photo yet (migration 023)."
+    fix: "Take the photo of the packed vehicle from the driver app before starting."
+    features:
+      - "delivery-app"
+      - "admin-trips"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "pod-photo-required"
+    symptom: "\"Please take a photo of the delivered items first\""
+    match:
+      - "photo of the delivered items"
+    cause: "A delivery cannot be completed without a proof-of-delivery photo (migration 023)."
+    fix: "Take the photo at the door, then enter the code and mark delivered."
+    features:
+      - "delivery-app"
+      - "admin-trips"
+    source: "docs/runbook.md#troubleshooting"
+  - id: "pay-online-missing"
+    symptom: "There is no Pay online button for customers"
+    match:
+      - "Pay online"
+      - "Razorpay"
+    cause: "Razorpay is not configured: keys not set, or razorpay-order / razorpay-webhook not deployed."
+    fix: "Follow docs/modules/payments.md (Online payments) and deploy both Edge Functions."
+    features:
+      - "restaurant-payments"
+      - "job-online-payment-webhook"
+      - "infra-supabase-edge-functions"
+    source: "docs/runbook.md#troubleshooting"

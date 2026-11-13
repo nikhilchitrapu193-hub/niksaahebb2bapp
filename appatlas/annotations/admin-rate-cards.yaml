@@ -1,0 +1,20 @@
+# admin-rate-cards.yaml — AppAtlas guide for "Rate cards". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-rate-cards --by "Your name"
+feature_id: "admin-rate-cards"
+name: "Rate cards"
+module: "procurement"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#rate-cards"
+admin:
+  what_is_this: "What each supplier charges per product (price, MOQ, lead days, validity) and which supplier is preferred for each product."
+  why_it_exists: "The preferred supplier's rate feeds the buying list and the cost on new purchase-order lines."
+  what_if_i_change_it: "New POs use the new rate; existing POs keep theirs."
+  what_if_wrong: "Only one supplier can be preferred per product; an expired rate leaves the buying list without a cost."
+  prerequisites: "Procurement view / edit. Suppliers are added under Inventory → Suppliers."
+  workflow:
+    - "Pick a supplier"
+    - "Add each product they supply with price, MOQ, lead days and valid-to date"
+    - "Tick Preferred on the supplier you normally buy from"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

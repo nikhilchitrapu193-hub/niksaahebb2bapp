@@ -1,0 +1,20 @@
+# restaurant-catalogue.yaml — AppAtlas guide for "Catalogue". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-catalogue --by "Your name"
+feature_id: "restaurant-catalogue"
+name: "Catalogue"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#catalogue"
+admin:
+  what_is_this: "Where customers browse products: search, categories, filters, a pack-size picker, and add to cart. Prices already include the customer's price list."
+  why_it_exists: "It is the shop window: the faster a kitchen finds what it needs, the more it orders."
+  what_if_i_change_it: "Customers change nothing here except their cart. Staff change products under Admin → Products."
+  what_if_wrong: "If a product is missing, it is hidden in the customer's city, unlisted, or out of stock."
+  prerequisites: "A signed-in customer; ordering also needs approval, a warehouse and a live sector."
+  workflow:
+    - "Search or pick a category"
+    - "Choose a pack size"
+    - "Add to cart"
+  when_to_call_developer: "If the app shows a message not explained in Help or this guide, or an order you placed does not appear under Orders."

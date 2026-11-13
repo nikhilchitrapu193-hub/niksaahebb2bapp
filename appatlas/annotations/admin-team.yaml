@@ -1,0 +1,21 @@
+# admin-team.yaml — AppAtlas guide for "Team". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-team --by "Your name"
+feature_id: "admin-team"
+name: "Team"
+module: "team"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#team"
+admin:
+  what_is_this: "Everyone with an account: their app (admin or delivery), team role, city and warehouse scope and whether they are active. New staff are invited from here by email."
+  why_it_exists: "Staff never sign up themselves; the owner decides who gets in and what they see."
+  what_if_i_change_it: "Changing a team role changes what that person may do the next time they load the app. Unticking Active removes all access immediately. Scope limits which rows they see."
+  what_if_wrong: "Giving a broad role or no scope to a new person lets them see and change other cities. A wrong email sends the invite to someone else."
+  prerequisites: "Team view to see; inviting needs the invite-staff Edge Function (deployed) and the site address in Supabase Authentication → Redirect URLs."
+  workflow:
+    - "Invite a team member: email, name, app, team role"
+    - "They choose a password from the emailed link and sign in on their login page"
+    - "Set their city and warehouse scope once they appear"
+    - "Untick Active to remove someone"
+  when_to_call_developer: "If the invite email never arrives after checking spam and the Supabase email limit, or the invite link opens the wrong page."

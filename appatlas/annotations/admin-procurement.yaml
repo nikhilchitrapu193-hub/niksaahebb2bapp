@@ -1,0 +1,22 @@
+# admin-procurement.yaml — AppAtlas guide for "Buying list". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-procurement --by "Your name"
+feature_id: "admin-procurement"
+name: "Buying list"
+module: "procurement"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#procurement"
+admin:
+  what_is_this: "What to buy for a warehouse and delivery day: demand on open orders, free stock, what is already on order, the preferred supplier's rate and a suggested quantity. Tick rows to create one draft purchase order per supplier."
+  why_it_exists: "Buying just enough for tomorrow's orders keeps waste low without running short."
+  what_if_i_change_it: "Creating purchase orders writes drafts only; no stock moves until goods are received."
+  what_if_wrong: "Days of cover set too high over-buys perishables. Products without a preferred supplier ask you to choose one."
+  prerequisites: "Stock mode Counted. Procurement view. Rate cards with a preferred supplier per product."
+  workflow:
+    - "Pick the warehouse and tomorrow's date"
+    - "Adjust Days of cover if needed"
+    - "Tick rows and adjust quantities"
+    - "Create purchase orders"
+    - "Open Purchase orders to approve and send them"
+  when_to_call_developer: "If the suggested quantity does not follow demand × days of cover + alert level − free stock − on order, rounded to the MOQ."

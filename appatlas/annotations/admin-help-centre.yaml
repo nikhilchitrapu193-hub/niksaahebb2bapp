@@ -1,0 +1,20 @@
+# admin-help-centre.yaml — AppAtlas guide for "Help centre". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-help-centre --by "Your name"
+feature_id: "admin-help-centre"
+name: "Help centre"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#help-centre"
+admin:
+  what_is_this: "Help articles shown under Help in the customer app, tips in the driver app and the FAQ on the public website (audience decides where)."
+  why_it_exists: "Customers find answers themselves instead of calling."
+  what_if_i_change_it: "Published articles appear at once for their audience. The website keeps a built-in FAQ until one public article exists."
+  what_if_wrong: "An article with the wrong audience shows internal notes to customers."
+  prerequisites: "Settings edit."
+  workflow:
+    - "Add article: title, body (plain text, blank lines between paragraphs), audience"
+    - "Publish"
+    - "Check it in the customer app or on the website"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

@@ -1,0 +1,20 @@
+# admin-payments-receipts.yaml — AppAtlas guide for "Receipts". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-payments-receipts --by "Your name"
+feature_id: "admin-payments-receipts"
+name: "Receipts"
+module: "payments"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#payments-receipts"
+admin:
+  what_is_this: "Every receipt, newest first, with the option to void one with a reason."
+  why_it_exists: "To find and correct a receipt recorded by mistake."
+  what_if_i_change_it: "Voiding reopens the invoices it paid; nothing is deleted."
+  what_if_wrong: "Voiding the wrong receipt reopens invoices that were paid."
+  prerequisites: "Payments view; Payments approve to void."
+  workflow:
+    - "Find the receipt"
+    - "Void with a reason"
+    - "Record the correct receipt from Receivables"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

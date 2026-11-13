@@ -19,6 +19,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WEB_ROOT = resolve(fileURLToPath(new URL('../web', import.meta.url)));
+const ATLAS_ROOT = resolve(fileURLToPath(new URL('../appatlas/out', import.meta.url)));
 const PORT = Number(process.env.PORT) || 3000;
 
 const MIME_TYPES = {
@@ -36,9 +37,15 @@ const MIME_TYPES = {
   '.map': 'application/json',
 };
 
-/** Turn a request URL into a file path, refusing anything outside WEB_ROOT. */
+/** Turn a request URL into a file path, refusing anything outside the served roots. */
 function resolveFilePath(urlPath) {
   const decoded = decodeURIComponent(urlPath.split('?')[0]);
+  // Atlas files are served from appatlas/out/ at /appatlas/out/
+  if (decoded.startsWith('/appatlas/')) {
+    const candidate = resolve(join(ATLAS_ROOT, normalize(decoded.slice('/appatlas/out'.length) || '/')));
+    const insideRoot = candidate === ATLAS_ROOT || candidate.startsWith(ATLAS_ROOT + sep);
+    return insideRoot ? candidate : null;
+  }
   const candidate = resolve(join(WEB_ROOT, normalize(decoded)));
   const insideRoot = candidate === WEB_ROOT || candidate.startsWith(WEB_ROOT + sep);
   return insideRoot ? candidate : null;

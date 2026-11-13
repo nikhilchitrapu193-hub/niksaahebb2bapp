@@ -18,6 +18,7 @@ for how Hyperpure works and what is built, simplified or on the roadmap.
 ```bash
 npm install        # only needed for the tests (jsdom)
 npm start          # serves ./web at http://localhost:3000
+npm run atlas      # builds appatlas/out/index.html: every screen explained for admins and developers
 ```
 
 Then open http://localhost:3000 (the public site), click **Register your restaurant**, and follow
@@ -55,6 +56,8 @@ supabase/
 scripts/dev-server.js           zero-dependency local server
 tests/                          Node tests (unit + page smoke tests + static checks)
 docs/                           architecture, ADRs, API, roles, deployment, runbook, code rules, build roadmap, modules/
+tools/appatlas/                 AppAtlas: builds the app's knowledge base (npm run atlas) — docs/appatlas.md
+appatlas/                       annotations, troubleshooting catalog, live-state snapshot for AppAtlas
 .cursor/                        code rules + fs-feature / fs-review / fs-security-check skills for coding agents
 ```
 

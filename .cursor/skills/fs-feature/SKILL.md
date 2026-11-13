@@ -37,6 +37,9 @@ Grep for every table, column, function and label you touched and walk every hit.
 
 ## 7. Docs
 `docs/api.md` (functions, tables), `docs/roles.md` (new permission), `docs/runbook.md` (how staff use it), an ADR in `docs/adr/` for any decision someone could reasonably have made differently.
+AppAtlas (`docs/appatlas.md`): a new route needs `appatlas/annotations/<id>.yaml` (`node tools/appatlas/cli.js annotate <id>`
+writes a draft — fill why / change / wrong / prerequisites / steps / when to call a developer); a new known problem goes into
+`appatlas/troubleshooting.yaml` as well as the runbook. Run `npm run atlas:check` and re-review any guide it lists as stale.
 
 ## 8. Hand over
 List the changed files with their paths, mark NEW ones, and say in two lines what you skipped or could not check.

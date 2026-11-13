@@ -1,0 +1,22 @@
+# admin-notifications.yaml — AppAtlas guide for "Messages to customers". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-notifications --by "Your name"
+feature_id: "admin-notifications"
+name: "Messages to customers"
+module: "settings"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#notifications"
+admin:
+  what_is_this: "SMS and email templates per event (with per-sector wording), the support phone / WhatsApp / email shown to customers, the master \"notify customers\" switch, and the log of every message with Retry and Send now."
+  why_it_exists: "Customers hear about their orders and payments automatically, in the wording the business chooses."
+  what_if_i_change_it: "Template changes apply to the next message. Switching notify customers off stops all queuing. Nothing is sent from here directly; the database queues and the sender delivers."
+  what_if_wrong: "A typo in a placeholder shows to customers (the preview flags it). Long SMS cost more than one message. Without a provider set up, messages are logged as skipped."
+  prerequisites: "Settings edit. An SMS and / or email provider set as Edge Function secrets for anything to be delivered."
+  workflow:
+    - "Templates: tick SMS / email per event and edit the text"
+    - "Add a sector override if one sector needs different wording"
+    - "Channels: set phone, WhatsApp and email"
+    - "Log: filter Failed, fix the cause, Retry"
+    - "Send now to run the sender at once"
+  when_to_call_developer: "If messages stay queued after Send now, or fail with an error that is not about a provider key."

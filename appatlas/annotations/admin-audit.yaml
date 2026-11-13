@@ -1,0 +1,21 @@
+# admin-audit.yaml — AppAtlas guide for "Audit log". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-audit --by "Your name"
+feature_id: "admin-audit"
+name: "Audit log"
+module: "audit"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#audit"
+admin:
+  what_is_this: "Who changed what and when: prices, orders, payments, customers, team members, permissions and settings, with old and new values. Stock movements have their own ledger under Inventory."
+  why_it_exists: "To answer \"who changed this price?\" or \"who approved this customer?\" without guessing."
+  what_if_i_change_it: "Nothing can be changed here; the log is written automatically by the database."
+  what_if_wrong: "It cannot be set up wrongly."
+  prerequisites: "Audit view permission."
+  workflow:
+    - "Open Audit log"
+    - "Filter by table or by person"
+    - "Open a row to see old and new values"
+    - "Export CSV if needed"
+  when_to_call_developer: "If a change you know happened is missing from the log."

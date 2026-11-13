@@ -1,0 +1,24 @@
+# job-scheduled-prices.yaml — AppAtlas guide for "Scheduled price publishing". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review job-scheduled-prices --by "Your name"
+feature_id: "job-scheduled-prices"
+name: "Scheduled price publishing"
+module: "jobs"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens: []
+admin:
+  who_uses_it: "Nobody directly: pricing staff schedule a price and the database publishes it when due."
+  what_is_this: "Prices published \"at a set time\" go live by themselves: every 5 minutes where pg_cron is switched on, and whenever someone opens the price board."
+  why_it_exists: "Tomorrow's prices can be prepared today and go live at the right moment."
+  what_if_i_change_it: "A pending change can be cancelled from the top of the price board before it goes live."
+  what_if_wrong: "Without pg_cron, a scheduled price waits until someone opens the board."
+  prerequisites: "Advanced pricing; pg_cron enabled in Supabase (Database → Extensions) for fully automatic publishing."
+  workflow:
+    - "Publish with \"At a set time…\" on the price board"
+    - "Check the pending list at the top of the board"
+  when_to_call_developer: "If a scheduled price is still pending well after its time with pg_cron on."
+evidence:
+  functions:
+    - "publish_due_prices"
+  tables:
+    - "scheduled_prices"

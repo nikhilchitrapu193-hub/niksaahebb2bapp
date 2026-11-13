@@ -1,0 +1,23 @@
+# admin-products.yaml — AppAtlas guide for "Products". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-products --by "Your name"
+feature_id: "admin-products"
+name: "Products"
+module: "products"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#products"
+admin:
+  what_is_this: "The catalogue: add and edit products (details, HSN code, pack size, grade, origin, veg type, loose-weight billing, pack-size variants), photos, in-stock and listed switches, the two-level category tree, CSV upload, and the cities where each product is listed."
+  why_it_exists: "Customers can only order what is in the catalogue, with the right GST, unit and photo. Invoices take their HSN and GST from here."
+  what_if_i_change_it: "Changes show in the customer app at once. Past orders keep their prices. With simple pricing the price is typed here; with advanced pricing a price published from the price board is read-only here."
+  what_if_wrong: "A wrong HSN or GST rate puts the wrong tax on invoices. Hiding a product in a city makes it impossible to order there. A wrong tolerance on a loose-weight product refuses packed weights."
+  prerequisites: "Products edit permission to change anything. Categories must exist before products are put in them."
+  workflow:
+    - "Products → Add product (or Upload CSV for many)"
+    - "Fill name, SKU, category, unit, GST, HSN and minimum order"
+    - "Upload a photo"
+    - "For a bigger pack, add it as its own product and set \"Pack size of\" the main product"
+    - "Tick \"Sold by weight\" for leafy greens, meat and fish"
+    - "Untick a city to hide the product there"
+  when_to_call_developer: "If a saved product does not show in the customer app for an approved customer in a listed city, or the CSV upload reports rows it should accept."

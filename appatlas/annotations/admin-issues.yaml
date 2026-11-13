@@ -1,0 +1,21 @@
+# admin-issues.yaml — AppAtlas guide for "Issues & credit notes". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-issues --by "Your name"
+feature_id: "admin-issues"
+name: "Issues & credit notes"
+module: "orders"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#issues"
+admin:
+  what_is_this: "Problems customers report on delivered orders, and the credit notes raised when support resolves them."
+  why_it_exists: "Short, damaged or wrong items are put right with a credit on the account instead of cash refunds."
+  what_if_i_change_it: "Resolving with a credit amount raises a credit note that applies itself to the customer's oldest pay-later invoice."
+  what_if_wrong: "A credit typed too high gives money away; it can only be corrected with a debit note."
+  prerequisites: "Orders edit to resolve."
+  workflow:
+    - "Open the issue"
+    - "Read the customer's note and check the order"
+    - "Choose the resolution and type a credit amount if due"
+    - "Resolve"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

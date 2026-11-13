@@ -30,7 +30,7 @@ export function settingsTabs(me, active) {
 export async function renderSettings(container, me) {
   const s = await getCompanySettings();
   const readOnly = !can(me, 'settings', 'edit');
-  const isSuperAdmin = me.team_role === 'super_admin';
+  const isSuperAdmin = me.profile?.team_role === 'super_admin';
 
   mount(container, html`
     <div class="page-head"><div><h1>Settings</h1><p>Company details shown on invoices and used as the seller's details.</p></div></div>

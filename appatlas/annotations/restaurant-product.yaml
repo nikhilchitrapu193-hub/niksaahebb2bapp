@@ -1,0 +1,20 @@
+# restaurant-product.yaml — AppAtlas guide for "Product page". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-product --by "Your name"
+feature_id: "restaurant-product"
+name: "Product page"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#product"
+admin:
+  what_is_this: "One product's page: photo, description, grade, origin, shelf life, storage, GST, minimum order, pack sizes, market rate and add to cart."
+  why_it_exists: "Buyers check grade and origin before ordering produce."
+  what_if_i_change_it: "Nothing; the details come from Admin → Products."
+  what_if_wrong: "Wrong details are fixed under Admin → Products."
+  prerequisites: "A signed-in customer."
+  workflow:
+    - "Open a product from the catalogue"
+    - "Pick the pack size"
+    - "Add to cart"
+  when_to_call_developer: "If the app shows a message not explained in Help or this guide, or an order you placed does not appear under Orders."

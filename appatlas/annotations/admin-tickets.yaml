@@ -1,0 +1,21 @@
+# admin-tickets.yaml — AppAtlas guide for "Support tickets". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-tickets --by "Your name"
+feature_id: "admin-tickets"
+name: "Support tickets"
+module: "orders"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#tickets"
+admin:
+  what_is_this: "Customer support tickets: reply, assign, set priority, resolve or close. Staff can open a ticket for a customer after a call."
+  why_it_exists: "Every customer question is on record with a reply, so nothing is forgotten between shifts."
+  what_if_i_change_it: "A staff reply sends the customer an SMS / email, sets the ticket to \"Waiting for customer\" and assigns it to you if nobody is."
+  what_if_wrong: "A reply on the wrong ticket reaches the wrong customer."
+  prerequisites: "Orders edit to reply; Orders or Customers view to see. Messages need a provider set up to actually send."
+  workflow:
+    - "Open an Open ticket"
+    - "Reply"
+    - "Set priority or reassign"
+    - "Mark Resolved or Closed"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

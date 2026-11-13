@@ -1,0 +1,22 @@
+# admin-customers.yaml — AppAtlas guide for "Customers". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-customers --by "Your name"
+feature_id: "admin-customers"
+name: "Customers"
+module: "customers"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#customers"
+admin:
+  what_is_this: "Customer accounts of every sector: approve new sign-ups, suspend or reinstate, set sector, city, warehouse and pin code, override the sector's trading terms for one customer, see what they owe, and fix sign-in problems through Access."
+  why_it_exists: "Nobody can order until approved and served by a warehouse. This is also where staff rescue a customer stuck at the email-confirmation step so nobody gets stuck."
+  what_if_i_change_it: "Approving lets the customer order at once. Suspending stops new orders. Changing terms (minimum order, delivery fee, credit days, credit limit) applies to their next order, never to past ones."
+  what_if_wrong: "Approving the wrong account lets a stranger order on credit. A wrong warehouse sends the order to the wrong kitchen. A too-high credit limit lets debt build up."
+  prerequisites: "Customers view to see, Customers approve to approve or use Access. The customer needs a warehouse (from their pin code or set under Terms) before approval."
+  workflow:
+    - "Open the Customers list; the badge counts those waiting"
+    - "Check documents (FSSAI ✓ / GST ✓)"
+    - "If they have no warehouse, open Terms and pick one"
+    - "Approve"
+    - "If they cannot sign in, click Access and choose Resend, Confirm email, Password link or Temporary password"
+  when_to_call_developer: "If Access reports an error other than the email rate limit, or an approved customer still cannot place an order and the Troubleshooting page does not explain why."

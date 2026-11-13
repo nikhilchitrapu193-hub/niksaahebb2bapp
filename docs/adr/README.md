@@ -29,3 +29,4 @@ Short notes on *why* we chose something. Add a new numbered file for each signif
 | [0023](0023-notification-outbox-and-providers.md) | Notifications are an outbox behind one provider interface; no phone-OTP login |
 | [0024](0024-reports-computed-not-stored.md) | Reports are computed on request, not stored as aggregates |
 | [0025](0025-customer-organisation.md) | One account, many outlets and members; approval as an order flag, not a status |
+| [0026](0026-appatlas-deterministic-knowledge-base.md) | AppAtlas: a deterministic knowledge base built from the code; AI only once, offline, for draft annotations |

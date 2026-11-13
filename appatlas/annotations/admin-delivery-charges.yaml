@@ -1,0 +1,20 @@
+# admin-delivery-charges.yaml — AppAtlas guide for "Delivery charges". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-delivery-charges --by "Your name"
+feature_id: "admin-delivery-charges"
+name: "Delivery charges"
+module: "fulfilment"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#delivery-charges"
+admin:
+  what_is_this: "Delivery fees per city and / or slot with a free-above threshold. The most specific active rule wins; with no rule an order uses the sector's minimum-order fee."
+  why_it_exists: "Express and small orders cost more to deliver."
+  what_if_i_change_it: "Applies to orders placed after saving."
+  what_if_wrong: "A fee on the wrong city or slot charges customers unexpectedly."
+  prerequisites: "Fulfilment edit."
+  workflow:
+    - "Add a rule: city, slot, fee, free-above amount"
+    - "Activate it"
+    - "Check the cart preview as a customer"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

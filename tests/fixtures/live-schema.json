@@ -1,6 +1,6 @@
 {
   "_comment": "Live schema snapshot for tests/schema.test.js. Regenerate with supabase/tests/schema_snapshot.sql after applying a migration.",
-  "generated": "2026-10-29",
+  "generated": "2026-10-30",
   "tables": {
     "audit_log": ["id","table_name","row_id","action","changed_by","changed_at","changes"],
     "benchmark_prices": ["id","source_id","product_id","price_date","price","market","note","entered_by","created_at"],
@@ -58,7 +58,7 @@
     "team_roles": ["code","name","description","sort_order"],
     "ticket_messages": ["id","ticket_id","author_id","is_staff","body","created_at"],
     "trip_orders": ["trip_id","order_id","stop_seq"],
-    "trips": ["id","trip_number","city_id","warehouse_id","driver_id","vehicle_id","trip_date","slot","status","notes","created_by","dispatched_at","closed_at","created_at","updated_at"],
+    "trips": ["id","trip_number","city_id","warehouse_id","driver_id","vehicle_id","trip_date","slot","status","notes","created_by","dispatched_at","closed_at","created_at","updated_at","pre_departure_photo_path","pre_departure_at"],
     "v_product_benchmark": ["product_id","source_id","source_code","source_name","price","price_date","market","age_days"],
     "v_product_cost": ["product_id","latest_cost","latest_cost_date","avg_cost_30d","received_qty_30d"],
     "vehicles": ["id","city_id","registration","label","capacity_note","is_active","created_at"],
@@ -300,9 +300,11 @@
     "receive_stock": [["p_items","p_supplier_id","p_note","p_warehouse_id"]],
     "record_online_payment": [["p_restaurant_id","p_amount","p_gateway","p_gateway_ref","p_received_on","p_note"]],
     "record_payment": [["p_restaurant_id","p_amount","p_method","p_reference","p_received_on","p_note","p_allocations"]],
+    "record_trip_departure": [["p_trip_id","p_photo_path"]],
     "render_template": [["p_template","p_values"]],
     "reply_ticket": [["p_ticket_id","p_body"]],
     "report_issue": [["p_order_id","p_kind","p_note"]],
+    "reset_test_data": [[]],
     "resolve_issue": [["p_issue_id","p_resolution","p_credit_amount","p_reject"]],
     "restaurant_for_outlet": [["p_rest","p_outlet"]],
     "retry_notification": [["p_id"]],

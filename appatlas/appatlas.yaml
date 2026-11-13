@@ -1,0 +1,37 @@
+# =============================================================================
+# appatlas.yaml — where AppAtlas finds things in this repository.
+# Read by tools/appatlas/cli.js. Paths are relative to the repository root.
+# =============================================================================
+project_name: Fresh Supply
+app_type: b2b-supply-platform
+infrastructure: supabase
+database: postgresql
+
+paths:
+  web_js: web/js
+  migrations: supabase/migrations
+  functions: supabase/functions
+  security_test: supabase/tests/security_test.sql
+  page_tests: tests/pages.test.js
+  unit_tests: tests/unit.test.js
+  adr: docs/adr
+  module_docs: docs/modules
+  patch_docs: docs/patches
+  config_js: web/js/core/config.js
+
+annotation_dir: appatlas/annotations
+troubleshooting: appatlas/troubleshooting.yaml
+live_state: appatlas/live-state.json
+review_lock: appatlas/review-lock.json
+screenshots: appatlas/screenshots
+out_dir: appatlas/out
+
+# Files every screen uses (escaping, router, client, config, sign-in). They are listed
+# on the developer page but left out of staleness: a change to ui.js is not a reason
+# to re-review 52 admin guides. api.js is tracked per wrapper instead of per file.
+shared_files:
+  - web/js/core/ui.js
+  - web/js/core/shell.js
+  - web/js/core/supabase.js
+  - web/js/core/config.js
+  - web/js/core/auth.js

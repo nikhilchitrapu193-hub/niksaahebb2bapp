@@ -1,0 +1,21 @@
+# restaurant-payments.yaml — AppAtlas guide for "Payments (customer)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-payments --by "Your name"
+feature_id: "restaurant-payments"
+name: "Payments (customer)"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#payments"
+admin:
+  what_is_this: "What the customer owes, what is overdue, their credit limit, open invoices, receipts and credit notes, a statement for any month and — when Razorpay is set up — a Pay online button."
+  why_it_exists: "Customers can see and settle their account without calling finance."
+  what_if_i_change_it: "Paying online records a receipt automatically once Razorpay confirms it."
+  what_if_wrong: "Pay online is hidden until Razorpay keys are configured and the razorpay-order and razorpay-webhook Edge Functions are deployed."
+  prerequisites: "A signed-in customer. Online payment needs Razorpay keys and both Razorpay Edge Functions deployed."
+  workflow:
+    - "Open Payments"
+    - "Check open invoices and overdue amount"
+    - "Open a statement for a month"
+    - "Pay online when available"
+  when_to_call_developer: "If a successful online payment does not show as a receipt within a few minutes."

@@ -1,0 +1,22 @@
+# page-reset.yaml — AppAtlas guide for "Choose a password". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review page-reset --by "Your name"
+feature_id: "page-reset"
+name: "Choose a password"
+module: "page"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "page#reset"
+admin:
+  who_uses_it: "Newly invited staff choosing their first password, and anyone resetting a forgotten password."
+  what_does_it_affect: "The person's password in Supabase Auth; nothing else."
+  what_is_this: "The page an emailed link opens: choose a password after a password reset or a staff invitation."
+  why_it_exists: "Invited staff and customers who forgot their password set a new one safely."
+  what_if_i_change_it: "Nothing to configure here."
+  what_if_wrong: "If the link lands on the wrong address, the site URL and redirect URLs in Supabase Authentication are wrong."
+  prerequisites: "A fresh link from the email (about an hour)."
+  workflow:
+    - "Open the link from the email"
+    - "Type the new password twice"
+    - "Sign in on your role's page"
+  when_to_call_developer: "If a fresh link says it has expired or does nothing."

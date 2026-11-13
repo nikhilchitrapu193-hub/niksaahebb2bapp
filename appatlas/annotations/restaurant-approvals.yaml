@@ -1,0 +1,20 @@
+# restaurant-approvals.yaml — AppAtlas guide for "Approvals". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-approvals --by "Your name"
+feature_id: "restaurant-approvals"
+name: "Approvals"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#approvals"
+admin:
+  what_is_this: "Orders placed by an outlet manager that wait for the account owner or an approver. Approve keeps the order for the kitchen; Reject cancels it and returns the stock."
+  why_it_exists: "Institutions and cantonments need a second person to sign off orders before dispatch."
+  what_if_i_change_it: "Approve lets staff confirm the order; Reject cancels it with the approver's note."
+  what_if_wrong: "An order left unapproved is never dispatched."
+  prerequisites: "Approval before dispatch switched on for the sector or account; an owner or approver login."
+  workflow:
+    - "Open Approvals"
+    - "Check the order"
+    - "Approve or Reject with a note"
+  when_to_call_developer: "If the app shows a message not explained in Help or this guide, or an order you placed does not appear under Orders."

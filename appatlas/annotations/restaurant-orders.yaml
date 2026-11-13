@@ -1,0 +1,21 @@
+# restaurant-orders.yaml — AppAtlas guide for "My orders". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-orders --by "Your name"
+feature_id: "restaurant-orders"
+name: "My orders"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#orders"
+admin:
+  what_is_this: "The customer's order history and order detail, with edit or cancel inside the sector's edit window, reorder, invoice and report an issue on a delivered order."
+  why_it_exists: "Customers track their orders and fix mistakes themselves within the window."
+  what_if_i_change_it: "Editing or cancelling inside the window changes the order; after it, the detail says \"Call us to make changes\"."
+  what_if_wrong: "An issue reported on the wrong order goes to the wrong investigation."
+  prerequisites: "A signed-in customer."
+  workflow:
+    - "Open an order"
+    - "Edit or cancel while minutes are left"
+    - "After delivery, open the invoice or report an issue"
+    - "Reorder to copy the lines into the cart"
+  when_to_call_developer: "If the app shows a message not explained in Help or this guide, or an order you placed does not appear under Orders."

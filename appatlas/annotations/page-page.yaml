@@ -1,0 +1,18 @@
+# page-page.yaml — AppAtlas guide for "Website content page". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review page-page --by "Your name"
+feature_id: "page-page"
+name: "Website content page"
+module: "page"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "page#page"
+admin:
+  what_is_this: "Renders one public content page (About, Terms, Privacy, Refund policy…) and the shared footer."
+  why_it_exists: "Legal and information pages edited by staff without code changes."
+  what_if_i_change_it: "Edited under Admin → Settings → Website."
+  what_if_wrong: "\"Page not found\" means the page is unpublished or the address uses a different slug."
+  prerequisites: "Nothing; public."
+  workflow:
+    - "Open a footer link"
+  when_to_call_developer: "If the screen shows a message that is not in this guide, a number looks wrong after saving, or the same action fails for everyone — send the developer the exact message and what you clicked."

@@ -1,0 +1,21 @@
+# restaurant-account.yaml — AppAtlas guide for "Account (customer)". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review restaurant-account --by "Your name"
+feature_id: "restaurant-account"
+name: "Account (customer)"
+module: "restaurant"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "restaurant#account"
+admin:
+  what_is_this: "Contact details, business info, delivery area (city and pin code), map pin, FSSAI / GST documents, and — for the owner — outlets and team members."
+  why_it_exists: "Correct address, pin code and documents are needed for approval and delivery."
+  what_if_i_change_it: "Changing the pin code re-assigns the serving warehouse; if none serves it, ordering pauses. Only the owner may change business details."
+  what_if_wrong: "A wrong pin code stops ordering; a wrong map pin sends the driver to the wrong gate."
+  prerequisites: "A signed-in customer; the owner for business details, outlets and team."
+  workflow:
+    - "Edit contact and business details"
+    - "Stand at the gate and tap Use my location"
+    - "Upload FSSAI and GST documents"
+    - "Owner: add outlets and invite approvers or outlet managers"
+  when_to_call_developer: "If the app shows a message not explained in Help or this guide, or an order you placed does not appear under Orders."

@@ -1,0 +1,21 @@
+# admin-quotes.yaml — AppAtlas guide for "Quotes & standing orders". DRAFT until a person checks it against the app and runs:
+#   node tools/appatlas/cli.js review admin-quotes --by "Your name"
+feature_id: "admin-quotes"
+name: "Quotes & standing orders"
+module: "orders"
+status: "draft"
+drafted_by: "Claude (AI), once at setup on 2026-10-30, from the screen header comments, docs/runbook.md and docs/modules — not yet checked by a person"
+screens:
+  - "admin#quotes"
+admin:
+  what_is_this: "Quotes: staff price a basket for a customer with a validity date; the customer accepts it into an order at those prices or declines. Standing orders: every customer's repeating basket with its last run and any error; staff can pause or resume one."
+  why_it_exists: "Institutions buy on agreed prices and the same basket every week."
+  what_if_i_change_it: "A sent quote can be accepted until it expires. Pausing a standing order stops it placing itself."
+  what_if_wrong: "A quote priced too low is honoured when accepted."
+  prerequisites: "Orders edit to create or send; Orders view to see."
+  workflow:
+    - "New quote for a customer"
+    - "Add lines with quoted prices and a valid-until date"
+    - "Send"
+    - "Check Standing orders for errors and pause any that should stop"
+  when_to_call_developer: "If a standing order shows an error you cannot fix by editing the customer or products."
